@@ -554,6 +554,33 @@ tfoot td:first-child{text-align:left;color:var(--text2)}
 .ix-peak-val{font-size:13px;font-weight:500;font-variant-numeric:tabular-nums}
 .ix-peak-count{font-size:12px;color:var(--text2)}
 
+/* card hint / meta text in header */
+.ix-card-hint{font-size:10px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text3);margin-left:8px;opacity:.8}
+/* full-width card below the grid */
+.ix-card-full{margin-top:16px}
+/* bottom row inside crosswalk summary card: mini bar chart + peak stats side by side */
+.ix-bottom-row{display:flex;gap:16px;margin-top:14px;padding-top:14px;border-top:.5px solid var(--border);align-items:flex-start;flex-wrap:wrap}
+.ix-cw-chart{flex:0 0 200px;min-width:0}
+/* volume profile chart container */
+.ix-chart-wrap{overflow-x:auto}
+/* chart legend below volume profile */
+.ix-chart-legend{display:flex;gap:14px;margin-top:8px;flex-wrap:wrap}
+.ix-legend-item{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2)}
+.ix-legend-swatch{width:10px;height:10px;border-radius:2px;flex-shrink:0}
+/* direction split bar in table cells */
+.dir-split-wrap{display:flex;height:7px;border-radius:3px;overflow:hidden;min-width:48px;max-width:80px}
+.dir-split-a,.dir-split-b{height:100%}
+.dir-split-empty{height:7px;background:var(--border);border-radius:3px;width:100%}
+
+/* print options popover */
+.btn-print-wrap{position:relative;display:inline-block}
+.print-opts-popover{position:absolute;right:0;top:calc(100% + 6px);background:var(--surface);border:.5px solid var(--border2);border-radius:var(--rl);padding:14px 16px;width:230px;z-index:200;box-shadow:0 4px 20px rgba(0,0,0,.22)}
+.print-opts-popover h4{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text3);margin-bottom:10px}
+.print-opts-popover label{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);cursor:pointer;padding:3px 0}
+.print-opts-popover label input[type=checkbox]{width:13px;height:13px;cursor:pointer;accent-color:var(--blue-border)}
+.print-opts-actions{display:flex;gap:8px;margin-top:12px;padding-top:10px;border-top:.5px solid var(--border)}
+.print-opts-actions button{flex:1;font-size:12px}
+
 @media print{
   @page{size:letter portrait;margin:14mm 16mm}
 

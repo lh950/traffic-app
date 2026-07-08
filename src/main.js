@@ -41,6 +41,8 @@ import { renderSummary } from './analysis/ui/summary.js';
 import { renderTmcSection } from './analysis/ui/tmcDiagram.js';
 import { renderLosSection } from './analysis/ui/losSection.js';
 import { openPrintReport } from './printReport.js';
+import { printSummaryReport, printIntersectionReport } from './printPedReport.js';
+import { buildVolumeProfileSVG, buildCrosswalkBarSVG, buildChartLegend, dirSplitBar, CW_COLORS } from './chartUtils.js';
 import { renderTripGenSection, DEFAULT_PEAK_WINDOWS } from './analysis/ui/tripgenSection.js';
 
 import {
@@ -470,7 +472,45 @@ function renderAreaIntersectionsList() {
 document.getElementById('btn-area-to-landing')?.addEventListener('click', () => showScreen('landing-screen'));
 document.getElementById('btn-summary-back')?.addEventListener('click', () => showProjectHub());
 document.getElementById('btn-summary-export-csv')?.addEventListener('click', exportSummaryCSV);
+// Summary print options popover
+(function () {
+  const btn   = document.getElementById('btn-summary-print');
+  const panel = document.getElementById('sum-print-opts');
+  if (!btn || !panel) return;
+  btn.addEventListener('click', (e) => { e.stopPropagation(); panel.style.display = panel.style.display === 'none' ? 'block' : 'none'; });
+  document.getElementById('btn-sum-print-cancel')?.addEventListener('click', () => { panel.style.display = 'none'; });
+  document.getElementById('btn-sum-print-go')?.addEventListener('click', () => {
+    panel.style.display = 'none';
+    const opts = {
+      showPeriods: document.getElementById('sumopt-periods')?.checked ?? true,
+      showFooter:  document.getElementById('sumopt-footer')?.checked ?? true,
+    };
+    printSummaryReport(projectInfo, areaIntersections, opts);
+  });
+  document.addEventListener('click', (e) => { if (!btn.closest('.btn-print-wrap').contains(e.target)) panel.style.display = 'none'; });
+})();
 document.getElementById('btn-ix-analysis-back')?.addEventListener('click', () => showSummaryScreen());
+// Intersection print options popover
+(function () {
+  const btn   = document.getElementById('btn-ix-print');
+  const panel = document.getElementById('ix-print-opts');
+  if (!btn || !panel) return;
+  btn.addEventListener('click', (e) => { e.stopPropagation(); panel.style.display = panel.style.display === 'none' ? 'block' : 'none'; });
+  document.getElementById('btn-ix-print-cancel')?.addEventListener('click', () => { panel.style.display = 'none'; });
+  document.getElementById('btn-ix-print-go')?.addEventListener('click', () => {
+    panel.style.display = 'none';
+    const ix = areaIntersections[activeIntersectionIdx];
+    if (!ix) return;
+    const opts = {
+      crosswalkTable: document.getElementById('ixopt-xw-table')?.checked ?? true,
+      distTable:      document.getElementById('ixopt-dist-table')?.checked ?? true,
+      charts:         document.getElementById('ixopt-charts')?.checked ?? true,
+      periodComp:     document.getElementById('ixopt-period-comp')?.checked ?? true,
+    };
+    printIntersectionReport(projectInfo, ix, opts);
+  });
+  document.addEventListener('click', (e) => { if (!btn.closest('.btn-print-wrap').contains(e.target)) panel.style.display = 'none'; });
+})();
 document.getElementById('btn-ix-open-counter')?.addEventListener('click', () => {
   const snap = areaIntersections[activeIntersectionIdx]?.snapshot;
   if (snap) loadIntersectionIntoView(snap);
@@ -1016,6 +1056,7 @@ function sumPed(snap) {
 function sumVehicle(snap) {
   let total = 0;
   for (const p of snap.periods) {
+    if (!p.vData?.in) continue;
     for (let i = 0; i < p.vData.in.length; i++) {
       total += (p.vData.in[i] || []).reduce((a,b) => a+(b||0), 0);
       total += (p.vData.out[i] || []).reduce((a,b) => a+(b||0), 0);
@@ -1198,7 +1239,8 @@ function exportSummaryCSV() {
     csvRows.push([i+1, `"${ix.name.replace(/"/g,'""')}"`, `"${(ix.counterName||'').replace(/"/g,'""')}"`,
       snap.periods?.length||0, totalPed, ...periodPeds].join(','));
   });
-  const blob = new Blob([csvRows.join('\n')], { type: 'text/csv' });
+  const bom = '﻿';
+  const blob = new Blob([bom + csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -1293,15 +1335,24 @@ function renderIxAnalysis(periodIdx) {
       ).join('')}</div>`
     : `<div class="ix-period-label">${period.name}</div>`;
 
-  // Crosswalk table rows
-  const xwRows = xwTotals.map(xw => `
+  // Charts
+  const volumeSvg = buildVolumeProfileSVG(slotData, crosswalks, intervalMin);
+  const cwBarSvg  = buildCrosswalkBarSVG(xwTotals);
+  const legendHtml = buildChartLegend(crosswalks);
+
+  // PHF (peak hour factor) — standard traffic engineering metric
+  const phf = (slots >= 4 && peakSlot.total > 0)
+    ? (peakHrTotal / (4 * peakSlot.total)).toFixed(2) : null;
+
+  // Crosswalk table rows — with direction-split bar
+  const xwRows = xwTotals.map((xw, i) => `
     <tr class="ix-tr">
-      <td class="ix-td ix-td-name"><span class="ix-leg-badge">${xw.assign}</span>${xw.name.replace(/\s*\([NESW] crosswalk\)/,'')}</td>
+      <td class="ix-td ix-td-name"><span class="ix-leg-badge" style="background:${CW_COLORS[i%4]}">${xw.assign}</span>${xw.name.replace(/\s*\([NESW] crosswalk\)/,'')}</td>
       <td class="ix-td ix-td-num">${xw.d0.toLocaleString()}</td><td class="ix-td ix-td-dir">${xw.dir0}</td>
       <td class="ix-td ix-td-num">${xw.d1.toLocaleString()}</td><td class="ix-td ix-td-dir">${xw.dir1}</td>
       <td class="ix-td ix-td-num ix-td-bold">${xw.total.toLocaleString()}</td>
       <td class="ix-td ix-td-pct">${grandTotal > 0 ? Math.round(xw.total/grandTotal*100) : 0}%</td>
-      <td class="ix-td ix-td-bar">${bar(xw.total, maxXw)}</td>
+      <td class="ix-td" style="min-width:64px">${dirSplitBar(xw.d0, xw.d1, CW_COLORS[i%4])}</td>
     </tr>`).join('');
 
   // Time distribution rows
@@ -1328,11 +1379,13 @@ function renderIxAnalysis(periodIdx) {
         return { time: pStart + s*pInt, total: t };
       });
       const pk = pSlotTotals.reduce((b,s) => s.total > b.total ? s : b, pSlotTotals[0]||{time:pStart,total:0});
+      const pPhf = (pSlots >= 4 && pk.total > 0) ? (pedTotal / (4 * pk.total)).toFixed(2) : '—';
       return `<tr class="ix-tr${pi === periodIdx ? ' ix-tr-active' : ''}">
         <td class="ix-td ix-td-time" style="cursor:pointer;color:var(--blue-text)" data-pi="${pi}">${p.name}</td>
         <td class="ix-td ix-td-num ix-td-bold">${pedTotal.toLocaleString()}</td>
         <td class="ix-td ix-td-time">${pk.total > 0 ? toHHMM(pk.time)+'–'+toHHMM(pk.time+pInt) : '—'}</td>
         <td class="ix-td ix-td-num">${pk.total > 0 ? pk.total : '—'}</td>
+        <td class="ix-td ix-td-num">${pPhf}</td>
         <td class="ix-td ix-td-bar">${bar(pedTotal, compMaxPed)}</td>
       </tr>`;
     }).join('');
@@ -1341,7 +1394,9 @@ function renderIxAnalysis(periodIdx) {
       <table class="ix-table">
         <thead><tr>
           <th class="ix-th">Period</th><th class="ix-th ix-th-r">Total Peds</th>
-          <th class="ix-th">Peak 15-min</th><th class="ix-th ix-th-r">Peak Count</th><th class="ix-th"></th>
+          <th class="ix-th">Peak 15-min</th><th class="ix-th ix-th-r">Peak Count</th>
+          <th class="ix-th ix-th-r" title="Peak Hour Factor = peak-hour vol ÷ (4 × peak-15-min vol)">PHF</th>
+          <th class="ix-th"></th>
         </tr></thead>
         <tbody>${compRows}</tbody>
       </table>
@@ -1352,7 +1407,9 @@ function renderIxAnalysis(periodIdx) {
     ${tabsHtml}
     <div class="ix-grid">
       <div class="ix-card">
-        <div class="ix-card-header">Crosswalk Summary</div>
+        <div class="ix-card-header">Crosswalk Summary
+          <span class="ix-card-hint">dark = Dir A · light = Dir B</span>
+        </div>
         <table class="ix-table">
           <thead><tr>
             <th class="ix-th">Crosswalk</th>
@@ -1360,7 +1417,7 @@ function renderIxAnalysis(periodIdx) {
             <th class="ix-th ix-th-r" colspan="2">Dir B</th>
             <th class="ix-th ix-th-r">Total</th>
             <th class="ix-th ix-th-r">%</th>
-            <th class="ix-th"></th>
+            <th class="ix-th ix-th-r">Split</th>
           </tr></thead>
           <tbody>${xwRows}</tbody>
           <tfoot><tr class="ix-tr-total">
@@ -1371,21 +1428,28 @@ function renderIxAnalysis(periodIdx) {
             <td class="ix-td" colspan="2"></td>
           </tr></tfoot>
         </table>
-        <div class="ix-peak-stats">
-          <div class="ix-peak-item">
-            <span class="ix-peak-label">Peak 15-min</span>
-            <span class="ix-peak-val">${toHHMM(peakSlot.time)}–${toHHMM(peakSlot.time+intervalMin)}</span>
-            <span class="ix-peak-count">${peakSlot.total} peds</span>
-          </div>
-          ${slots >= 4 ? `<div class="ix-peak-item">
-            <span class="ix-peak-label">Peak hour</span>
-            <span class="ix-peak-val">${toHHMM(peakHrStart)}–${toHHMM(peakHrStart+60)}</span>
-            <span class="ix-peak-count">${peakHrTotal} peds</span>
-          </div>` : ''}
-          <div class="ix-peak-item">
-            <span class="ix-peak-label">Period total</span>
-            <span class="ix-peak-val">${toHHMM(startMin)}–${toHHMM(startMin+cfg.durationMin)}</span>
-            <span class="ix-peak-count">${grandTotal.toLocaleString()} peds</span>
+        <div class="ix-bottom-row">
+          <div class="ix-cw-chart">${cwBarSvg}</div>
+          <div class="ix-peak-stats">
+            <div class="ix-peak-item">
+              <span class="ix-peak-label">Peak 15-min</span>
+              <span class="ix-peak-val">${toHHMM(peakSlot.time)}–${toHHMM(peakSlot.time+intervalMin)}</span>
+              <span class="ix-peak-count">${peakSlot.total} peds</span>
+            </div>
+            ${slots >= 4 ? `<div class="ix-peak-item">
+              <span class="ix-peak-label">Peak hour</span>
+              <span class="ix-peak-val">${toHHMM(peakHrStart)}–${toHHMM(peakHrStart+60)}</span>
+              <span class="ix-peak-count">${peakHrTotal} peds</span>
+            </div>` : ''}
+            ${phf ? `<div class="ix-peak-item">
+              <span class="ix-peak-label" title="Peak Hour Factor = peak-hour vol ÷ (4 × peak-15-min vol)">PHF</span>
+              <span class="ix-peak-val">${phf}</span>
+            </div>` : ''}
+            <div class="ix-peak-item">
+              <span class="ix-peak-label">Period total</span>
+              <span class="ix-peak-val">${toHHMM(startMin)}–${toHHMM(startMin+cfg.durationMin)}</span>
+              <span class="ix-peak-count">${grandTotal.toLocaleString()} peds</span>
+            </div>
           </div>
         </div>
       </div>
@@ -1407,6 +1471,13 @@ function renderIxAnalysis(periodIdx) {
           </tr></tfoot>
         </table>
       </div>
+    </div>
+    <div class="ix-card ix-card-full">
+      <div class="ix-card-header">Volume Profile
+        <span class="ix-card-hint">stacked by crosswalk · ▲ = peak 15-min</span>
+      </div>
+      <div class="ix-chart-wrap">${volumeSvg}</div>
+      ${legendHtml}
     </div>
     ${compHtml}`;
 

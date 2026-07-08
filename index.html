@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Traffic App v2.6.0</title>
+<title>Traffic App v2.7.0</title>
 </head>
 <body>
 
@@ -29,7 +29,7 @@
     <!-- wordmark -->
     <div style="margin-bottom:2rem">
       <h1 style="font-size:22px;font-weight:500;letter-spacing:-.01em">Traffic App</h1>
-      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v2.6.0</span>
+      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v2.7.0</span>
     </div>
 
     <!-- autosave / resume banner -->
@@ -622,7 +622,7 @@
 
   <header class="counter-header">
     <button id="btn-back-to-project" style="font-size:12px;padding:4px 10px;margin-right:8px">← Project</button>
-    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v2.6.0</span></h1>
+    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v2.7.0</span></h1>
     <div class="hcontrols">
       <div class="mode-toggle" style="display:none">
         <button class="mode-btn active" id="btn-count-mode" onclick="goToCountMode()">count</button>
@@ -977,6 +977,18 @@
     </div>
     <div style="display:flex;gap:8px">
       <button id="btn-summary-export-csv" class="btn-blue" style="font-size:12px">Export CSV</button>
+      <div class="btn-print-wrap">
+        <button id="btn-summary-print" style="font-size:12px">Print Report ▾</button>
+        <div id="sum-print-opts" class="print-opts-popover" style="display:none">
+          <h4>Include in report</h4>
+          <label><input type="checkbox" id="sumopt-periods" checked> Period breakdown columns</label>
+          <label><input type="checkbox" id="sumopt-footer" checked> Signature footer</label>
+          <div class="print-opts-actions">
+            <button id="btn-sum-print-cancel">Cancel</button>
+            <button class="btn-primary" id="btn-sum-print-go">Print →</button>
+          </div>
+        </div>
+      </div>
       <button id="btn-summary-back" style="font-size:12px">← Back to project</button>
     </div>
   </div>
@@ -993,7 +1005,23 @@
         <div id="ix-analysis-sub" style="font-size:12px;color:var(--text3);margin-top:2px"></div>
       </div>
     </div>
-    <button id="btn-ix-open-counter" style="font-size:12px">Open in counter →</button>
+    <div style="display:flex;gap:8px;align-items:center">
+      <div class="btn-print-wrap">
+        <button id="btn-ix-print" style="font-size:12px">Print Report ▾</button>
+        <div id="ix-print-opts" class="print-opts-popover" style="display:none">
+          <h4>Include in report</h4>
+          <label><input type="checkbox" id="ixopt-xw-table" checked> Crosswalk volumes table</label>
+          <label><input type="checkbox" id="ixopt-dist-table" checked> 15-min distribution table</label>
+          <label><input type="checkbox" id="ixopt-charts" checked> Volume profile chart</label>
+          <label><input type="checkbox" id="ixopt-period-comp" checked> Period comparison</label>
+          <div class="print-opts-actions">
+            <button id="btn-ix-print-cancel">Cancel</button>
+            <button class="btn-primary" id="btn-ix-print-go">Print →</button>
+          </div>
+        </div>
+      </div>
+      <button id="btn-ix-open-counter" style="font-size:12px">Open in counter →</button>
+    </div>
   </div>
   <div id="ix-analysis-content"></div>
 </div>
