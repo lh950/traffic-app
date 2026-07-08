@@ -1,0 +1,16 @@
+{
+  "name": "traffic-app-v2",
+  "version": "2.6.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start": "npm run build && serve dist -l 5173 --single"
+  },
+  "devDependencies": {
+    "serve": "^14.2.6",
+    "vite": "^8.1.0"
+  }
+}

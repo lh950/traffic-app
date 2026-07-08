@@ -1,0 +1,1003 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Traffic App v2.6.0</title>
+</head>
+<body>
+
+<!-- XLSX is a zip+XML binary format that can't reasonably be hand-rolled the way CSV
+     parsing is elsewhere — the one dependency exception, loaded as a plain script so it's
+     ready (window.XLSX) before main.js (a module script, deferred by default) runs. -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+<!-- focus banner -->
+<div class="focus-banner" id="focus-banner">
+  ⚠ window not focused — keystrokes will not register · click anywhere to resume
+</div>
+
+<!-- context menu -->
+<div class="ctx-menu" id="ctx-menu">
+  <div class="ctx-item" id="ctx-reset-interval">↺ reset this interval</div>
+</div>
+
+<!-- = LANDING / PROJECT PICKER = -->
+<div id="landing-screen" style="min-height:100vh;display:flex;align-items:flex-start;justify-content:center;padding:3rem 2rem">
+  <div style="max-width:600px;width:100%">
+
+    <!-- wordmark -->
+    <div style="margin-bottom:2rem">
+      <h1 style="font-size:22px;font-weight:500;letter-spacing:-.01em">Traffic App</h1>
+      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v2.6.0</span>
+    </div>
+
+    <!-- autosave / resume banner -->
+    <div id="autosave-banner" style="display:none;background:var(--blue-bg);border:.5px solid var(--blue-border);border-radius:var(--r);padding:12px 16px;margin-bottom:20px;font-size:13px"></div>
+
+    <!-- project context card -->
+    <div style="background:var(--surface);border:.5px solid var(--border);border-radius:var(--rl);padding:20px 24px;margin-bottom:20px">
+      <div style="font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--text3);margin-bottom:14px">What are we working on?</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+        <div class="setup-field">
+          <label>Project name</label>
+          <input type="text" id="lp-project-name" data-pi="projectName" placeholder="e.g. 2026 Traffic Study — Site A">
+        </div>
+        <div class="setup-field">
+          <label>Project number</label>
+          <input type="text" id="lp-project-number" data-pi="projectNumber" placeholder="e.g. P-2026-042">
+        </div>
+        <div class="setup-field">
+          <label>Company</label>
+          <input type="text" id="lp-company" data-pi="companyName" placeholder="e.g. Traffic Engineering Corp">
+        </div>
+        <div class="setup-field">
+          <label>Project manager</label>
+          <input type="text" id="lp-counter" data-pi="counterName" placeholder="name of the project manager">
+        </div>
+      </div>
+      <div class="setup-field">
+        <label>Notes <span style="font-weight:400;color:var(--text3)">(study purpose, location, etc.)</span></label>
+        <input type="text" id="lp-notes" data-pi="studyPurpose" placeholder="optional — shown on reports">
+      </div>
+    </div>
+
+    <!-- actions -->
+    <div style="font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--text3);margin-bottom:10px">Start counting</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+      <button class="btn-primary" id="btn-new-intersection" style="padding:16px 18px;text-align:left;display:flex;flex-direction:column;gap:4px">
+        <span style="font-size:14px;font-weight:500">Intersection count</span>
+        <span style="font-size:11px;opacity:.8">Vehicle / pedestrian / TMC at one intersection</span>
+      </button>
+      <button id="btn-new-tripgen" style="padding:16px 18px;text-align:left;display:flex;flex-direction:column;gap:4px">
+        <span style="font-size:14px;font-weight:500">Trip generation count</span>
+        <span style="font-size:11px;color:var(--text2)">Per-location classification counts for a site</span>
+      </button>
+    </div>
+    <button id="btn-new-area-study" style="width:100%;padding:16px 18px;text-align:left;display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <span style="font-size:14px;font-weight:500">Area-wide study</span>
+        <span style="font-size:11px;color:var(--text2)">Multiple intersections — import raw count data, review and compare across locations</span>
+      </div>
+      <span style="font-size:16px;color:var(--text3);flex-shrink:0;margin-left:12px">→</span>
+    </button>
+
+    <div style="font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--text3);margin-bottom:10px">Open existing project</div>
+    <div>
+      <button id="btn-load-project" style="font-size:12px;width:100%">Load existing project…</button>
+    </div>
+    <input type="file" id="load-project-input" accept=".json,.tcproject" style="display:none" />
+    <input type="file" id="import-tmc-csv-input" accept=".csv,text/csv" style="display:none" />
+    <input type="file" id="import-raw-count-input" accept=".xlsx" style="display:none" />
+    <div style="margin-top:8px"><span id="load-project-error" style="color:var(--danger);font-size:12px"></span></div>
+
+  </div>
+</div>
+
+<!-- = AREA-WIDE STUDY SETUP = -->
+<div id="area-setup-screen" style="display:none;min-height:100vh;padding:2rem;max-width:860px;margin:0 auto">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem;flex-wrap:wrap;gap:12px">
+    <div>
+      <h1 style="font-size:22px;font-weight:500;letter-spacing:-.01em">Area-wide study <span id="area-study-title" style="font-size:14px;font-weight:400;color:var(--text2);margin-left:8px"></span></h1>
+      <div id="area-study-subtitle" style="font-size:12px;color:var(--text3);margin-top:2px"></div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button id="btn-area-save" style="font-size:12px">save project</button>
+      <button class="btn-primary" id="btn-area-begin-review" disabled style="font-size:13px">Continue to Analysis →</button>
+      <button id="btn-area-to-landing" style="font-size:12px">← back</button>
+    </div>
+  </div>
+
+  <!-- intersections list -->
+  <div id="area-intersections-list"></div>
+
+  <!-- add intersection card -->
+  <div style="background:var(--surface);border:.5px solid var(--border);border-radius:var(--rl);padding:20px 24px;margin-bottom:14px">
+    <div style="font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--text3);margin-bottom:14px">Add an intersection</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <button id="btn-area-import-xlsx" style="padding:14px 16px;text-align:left;display:flex;flex-direction:column;gap:3px">
+        <span style="font-size:13px;font-weight:500">Import Raw Count XLSX</span>
+        <span style="font-size:11px;color:var(--text2)">NYC DOT format — auto-detects AM/PM periods</span>
+      </button>
+      <button id="btn-area-new-manual" style="padding:14px 16px;text-align:left;display:flex;flex-direction:column;gap:3px">
+        <span style="font-size:13px;font-weight:500">Set up manually</span>
+        <span style="font-size:11px;color:var(--text2)">Configure intersection and count from scratch</span>
+      </button>
+    </div>
+    <div id="area-import-error" style="color:var(--danger);font-size:12px;margin-top:8px"></div>
+    <!-- sheet picker for multi-sheet xlsx files -->
+    <div id="area-sheet-picker" style="display:none;margin-top:12px;border-top:.5px solid var(--border);padding-top:12px"></div>
+  </div>
+</div>
+
+<!-- = TRIP GENERATION SETUP = -->
+<div id="tripgen-setup-screen" style="display:none;min-height:100vh;padding:2rem;max-width:900px;margin:0 auto">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem">
+    <h1 style="font-size:22px;font-weight:500">trip generation <span style="font-size:14px;font-weight:400;color:var(--text2,#6b6960);margin-left:10px">setup</span></h1>
+    <div style="display:flex;gap:8px">
+      <button onclick="saveTripgenProject()" style="font-size:12px">save project</button>
+      <button id="btn-tripgen-to-landing" style="font-size:12px">← back to projects</button>
+    </div>
+  </div>
+  <!-- Company / project / personnel — shared with the intersection project info tab, same data-pi attributes -->
+  <div class="card" style="margin-bottom:14px">
+    <h3>Company &amp; project</h3>
+    <div class="card-grid" style="grid-template-columns:repeat(2,1fr);margin-bottom:10px">
+      <div class="setup-field"><label>Company name</label><input type="text" data-pi="companyName" placeholder="e.g. Traffic Engineering Corp"></div>
+      <div class="setup-field"><label>Company address</label><input type="text" data-pi="companyAddress" placeholder="e.g. 123 Broadway, New York, NY 10006"></div>
+      <div class="setup-field"><label>Project name</label><input type="text" data-pi="projectName" placeholder="e.g. 2026 Traffic Study — Site A"></div>
+      <div class="setup-field"><label>Project number / ID</label><input type="text" data-pi="projectNumber" placeholder="e.g. P-2026-042"></div>
+      <div class="setup-field"><label>Project Manager</label><input type="text" data-pi="projectManagerName" placeholder="e.g. Jane Smith, PE"></div>
+      <div class="setup-field"><label>PM title / role</label><input type="text" data-pi="projectManagerTitle" placeholder="e.g. Senior Traffic Engineer"></div>
+      <div class="setup-field"><label>Counter name</label><input type="text" data-pi="counterName" placeholder="person conducting the count"></div>
+      <div class="setup-field"><label>Counter title</label><input type="text" data-pi="counterTitle" placeholder="e.g. Traffic Analyst"></div>
+      <div class="setup-field"><label>QA reviewer</label><input type="text" data-pi="qaCounterName" placeholder="person reviewing / QA/QC counter"></div>
+      <div class="setup-field"><label>QA title</label><input type="text" data-pi="qaCounterTitle" placeholder="e.g. Project Engineer"></div>
+    </div>
+    <div class="setup-field" style="margin-bottom:10px">
+      <label>Study purpose / notes</label>
+      <textarea data-pi="studyPurpose" rows="2" style="width:100%;font-family:inherit;font-size:13px;padding:6px 10px;border:.5px solid var(--border2);border-radius:var(--r);background:var(--surface2);color:var(--text)"></textarea>
+    </div>
+    <div class="setup-field">
+      <label>Company logo <span style="font-weight:400;color:var(--text3)">(optional — shown on reports)</span></label>
+      <div id="logo-preview-tg" style="margin-bottom:6px"></div>
+      <input type="file" accept="image/*" id="pi-logo-input-tg" style="font-size:12px">
+      <button id="pi-logo-clear-tg" style="display:none;font-size:11px;margin-left:8px">remove logo</button>
+    </div>
+  </div>
+
+  <!-- Building/site information — required real context, shown at setup time, not just buried in analysis later -->
+  <div class="card" style="margin-bottom:14px">
+    <h3>Site information</h3>
+    <div class="stat-detail" style="margin-bottom:10px">Real information about the site being studied — not placeholders. Shared across every location added below.</div>
+    <div class="card-grid" style="grid-template-columns:repeat(3,1fr)">
+      <div class="setup-field"><label>Site address</label><input type="text" id="tg-site-address" placeholder="e.g. 123 Main St, Springfield"></div>
+      <div class="setup-field"><label>Land use type</label><input type="text" id="tg-site-landuse" placeholder="e.g. ITE 150 — Warehousing"></div>
+      <div class="setup-field"><label>Square footage (GSF)</label><input type="number" id="tg-site-gsf" placeholder="e.g. 120000"></div>
+      <div class="setup-field"><label>Parking spaces</label><input type="text" id="tg-site-parking"></div>
+      <div class="setup-field"><label>Units / employees</label><input type="text" id="tg-site-units"></div>
+      <div class="setup-field"><label>Study date range</label><input type="text" id="tg-site-studydates" placeholder="e.g. Apr 22 “ May 9, 2026"></div>
+    </div>
+    <div class="setup-field" style="margin-top:10px">
+      <label>Notes</label>
+      <textarea id="tg-site-notes" rows="2" style="width:100%;font-family:inherit;font-size:13px;padding:6px 10px;border:.5px solid var(--border2);border-radius:var(--r);background:var(--surface2);color:var(--text)"></textarea>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:14px">
+    <h3>Add a location</h3>
+    <div class="stat-detail" style="margin-bottom:8px">Every location needs its real address (e.g. "Driveway — 123 Main St" or the actual access-point name used in the field) and the real calendar date(s) counted — not placeholder labels.</div>
+    <div class="setup-grid" style="margin-bottom:14px">
+      <div class="setup-field"><label>Location / access point address <span style="color:var(--danger,#c0392b)">*</span></label><input type="text" id="tg-location-address" placeholder="e.g. Driveway — 123 Main St"></div>
+      <div class="setup-field"><label>Date counted <span style="color:var(--danger,#c0392b)">*</span></label><input type="date" id="tg-location-date"></div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+      <button class="btn-primary" id="btn-tripgen-start-new">Start a new count…</button>
+      <input type="file" id="tripgen-xlsx-input" accept=".xlsx" style="display:none" />
+      <button id="btn-tripgen-upload-xlsx">Upload .xlsx file…</button>
+      <button id="btn-tripgen-paste-toggle">Paste a table instead…</button>
+    </div>
+
+    <!-- start-new-count config: classifications + timing, then "begin counting" -->
+    <div id="tripgen-new-count-area" style="display:none;margin-top:10px;border-top:.5px solid var(--border);padding-top:14px">
+      <div style="font-size:12px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text2);margin-bottom:10px">timing</div>
+      <div class="setup-grid" style="margin-bottom:14px">
+        <div class="setup-field">
+          <label>start time</label>
+          <input type="time" id="tg-set-start" value="00:00">
+        </div>
+        <div class="setup-field">
+          <label>interval length</label>
+          <select id="tg-set-interval">
+            <option value="5">5 min</option><option value="10">10 min</option>
+            <option value="15" selected>15 min</option><option value="20">20 min</option>
+            <option value="30">30 min</option><option value="60">60 min</option>
+          </select>
+        </div>
+        <div class="setup-field">
+          <label>study duration</label>
+          <div class="dur-wrap">
+            <input type="number" id="tg-set-dur-h" min="0" max="72" value="24" style="width:72px">
+            <span>h</span>
+            <input type="number" id="tg-set-dur-m" min="0" max="59" value="0" style="width:72px">
+            <span>m</span>
+          </div>
+        </div>
+      </div>
+
+      <div style="font-size:12px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text2);margin-bottom:10px">classifications</div>
+      <div class="stat-detail" style="margin-bottom:10px">What's being counted at this location — add one row per classification, with the keyboard keys used for Entry/Exit while counting. No starting set is prescribed; add whatever this study needs.</div>
+      <div class="pair-header">
+        <span></span><span>label</span><span>entry key</span><span>exit key</span><span></span>
+      </div>
+      <div id="tg-classifications-list"></div>
+      <button id="btn-tg-add-classification" style="margin-top:8px;font-size:12px">+ add classification</button>
+      <div class="conflict-msg" id="tg-key-conflict">⚠ duplicate keys — each key must be unique</div>
+
+      <div style="display:flex;justify-content:flex-end;margin-top:1rem">
+        <button class="btn-primary" id="btn-tg-begin-counting">begin counting →</button>
+      </div>
+    </div>
+
+    <div id="tripgen-paste-area" style="display:none;margin-top:10px">
+      <textarea id="tripgen-paste-input" rows="6" placeholder="Copy a range from Excel or Sheets, then paste here (Ctrl+V / ⌘V)" style="width:100%;font-family:var(--mono,monospace);font-size:12px;padding:8px;border:.5px solid var(--border2,#ccc9be);border-radius:var(--r,8px);background:var(--surface2,#f0efe9);color:var(--text,#1a1a18)"></textarea>
+      <div id="tripgen-paste-preview" style="font-size:11px;min-height:16px;margin-top:4px"></div>
+      <div style="margin-top:6px">
+        <button id="btn-tripgen-paste-submit" class="btn-primary">Add location from paste</button>
+      </div>
+      <div style="font-size:11px;color:var(--text3,#9b9890);margin-top:6px">
+        Expected layout — first column: time (HH:MM); remaining columns alternate Entry/Exit per classification, with classification names in the header row. Example:<br>
+        <code style="font-size:10px">Time&nbsp;&nbsp;&nbsp;&nbsp;Autos In&nbsp;&nbsp;Autos Out&nbsp;&nbsp;Trucks In&nbsp;&nbsp;Trucks Out<br>00:00&nbsp;&nbsp;&nbsp;10&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;3&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2</code>
+      </div>
+    </div>
+
+    <!-- per-sheet date confirmation after .xlsx upload, since one file can contain several day-sheets -->
+    <div id="tripgen-xlsx-dates-area" style="display:none;margin-top:10px;border-top:.5px solid var(--border);padding-top:14px">
+      <div class="stat-detail" style="margin-bottom:10px">Confirm the real date for each day-sheet found in this file.</div>
+      <div id="tripgen-xlsx-dates-list"></div>
+      <button class="btn-primary" id="btn-tripgen-xlsx-confirm" style="margin-top:10px">Add location</button>
+    </div>
+
+    <div id="tripgen-upload-error" style="color:var(--danger,#c0392b);font-size:12px;margin-top:8px"></div>
+  </div>
+  <div id="tripgen-locations-list"></div>
+  <div class="tg-action-bar" id="tg-action-bar">
+    <div class="tg-action-bar-label">when you're ready:</div>
+    <button id="btn-tripgen-qaqc" class="tg-action-btn" disabled title="Add at least one location first">QA / QC →</button>
+    <button id="btn-tripgen-analyze" class="tg-action-btn btn-primary" disabled title="Add at least one location first">View analysis →</button>
+  </div>
+</div>
+
+<!-- = TRIP GENERATION LIVE COUNTER (also reused for QA/QC recounts — see
+     tg-counter-mode-label / tg-btn-finish text, switched by main.js based on which flow
+     started the count) = -->
+<div id="tripgen-counter-screen" style="display:none;flex-direction:column;min-height:100vh">
+  <header class="counter-header">
+    <h1>trip generation <span id="tg-counter-sub"></span></h1>
+    <div class="hcontrols">
+      <div class="interval-badge" id="tg-cur-interval">“</div>
+      <div class="undo-redo">
+        <button title="undo (Z)" id="tg-btn-undo" disabled>↩</button>
+        <span class="stack-count" id="tg-undo-count">0</span>
+        <button title="redo (Y)" id="tg-btn-redo" disabled>↪</button>
+      </div>
+      <button class="btn-blue" id="tg-btn-finish" title="Finish and save this count" style="white-space:nowrap">✓ finish location</button>
+      <button class="btn-icon" id="tg-btn-to-setup" title="Back" style="font-size:12px">setup</button>
+    </div>
+  </header>
+  <div class="kbd-sticky">
+    <div class="kbd-inner" style="max-height:none">
+      <div class="kbd-grid" id="tg-kbd-grid"></div>
+    </div>
+  </div>
+  <div class="tables-area">
+    <div class="tables-wrap" style="grid-template-columns:1fr">
+      <div>
+        <div class="table-heading"><h2>counts</h2></div>
+        <div class="tbl-scroll"><table id="tg-tbl-count"></table></div>
+      </div>
+    </div>
+  </div>
+  <div class="counter-bottom">counts stored in this tab — do not refresh · click any count cell to edit</div>
+</div>
+
+<!-- = QA/QC SCREEN (standalone — separate from Analysis so recount entry isn't
+     competing for screen space with site info / category grouping / charts) = -->
+<div id="tripgen-qaqc-screen" style="display:none;min-height:100vh;padding:2rem;max-width:980px;margin:0 auto">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem">
+    <h1 style="font-size:22px;font-weight:500">QA/QC <span style="font-size:14px;font-weight:400;color:var(--text2,#6b6960);margin-left:10px">second-counter recounts</span></h1>
+    <div style="display:flex;gap:8px">
+      <button id="btn-qaqc-to-setup" style="font-size:12px">← back to setup</button>
+      <button id="btn-qaqc-to-analyze" style="font-size:12px">view analysis →</button>
+    </div>
+  </div>
+  <div class="card" style="margin-bottom:1.2rem">
+    <div class="setup-grid" style="grid-template-columns:1fr 1fr">
+      <div class="setup-field">
+        <label>QA reviewer / second counter name</label>
+        <input type="text" id="qaqc-reviewer-name" placeholder="name of person doing the recount">
+      </div>
+      <div class="setup-field">
+        <label>review date</label>
+        <input type="date" id="qaqc-review-date">
+      </div>
+    </div>
+  </div>
+  <div class="stat-detail" style="margin-bottom:14px">Recount the same peak hours using the same classifications as the original count — this keeps the comparison apples-to-apples and avoids transcription errors. The list below groups by location and day — each location can have multiple days, each with its own AM / Midday / PM peak. Add more than one recount per peak if you want extra confidence in the comparison.</div>
+  <div id="tripgen-qaqc-list"></div>
+</div>
+
+<!-- = ANALYZE SCREEN = -->
+<div id="analyze-screen" style="display:none;min-height:100vh;padding:1.5rem 1.5rem 4rem;max-width:1180px;margin:0 auto">
+  <div class="app-header">
+    <h1>Analysis <span id="analyze-sub"></span></h1>
+    <div class="actions no-print" style="display:flex;gap:8px">
+      <button id="btn-analyze-to-count" style="display:none">← back to counting</button>
+      <button id="btn-analyze-to-qaqc" style="display:none">QA/QC →</button>
+      <button id="btn-analyze-to-landing">← back to projects</button>
+      <button onclick="exportAnalyzeXLSX()" title="Download all data as Excel workbook">.xlsx ↓</button>
+      <button id="btn-analyze-print">Print report</button>
+    </div>
+  </div>
+  <!-- populated by populatePrintHeader() before window.print() -->
+  <div class="print-report-header" id="print-report-header">
+    <div class="prh-left">
+      <div class="prh-title" id="prh-title"></div>
+      <div class="prh-sub" id="prh-sub"></div>
+      <div class="prh-meta" id="prh-meta"></div>
+    </div>
+    <img class="prh-logo" id="prh-logo" src="" alt="" style="display:none">
+  </div>
+  <div id="analyze-root"></div>
+</div>
+
+<!-- = SETUP SCREEN = -->
+<div id="setup-screen">
+  <div class="setup-header">
+    <h1>traffic counter <span>setup</span></h1>
+    <div style="display:flex;gap:8px">
+      <button class="btn-icon" onclick="openHelp()" title="Help">?</button>
+    </div>
+  </div>
+
+  <div class="setup-tabs">
+    <button class="setup-tab" onclick="switchSetupTab('project',this)">project info</button>
+    <button class="setup-tab active" onclick="switchSetupTab('study',this)">study parameters</button>
+    <button class="setup-tab" onclick="switchSetupTab('vehicle',this)">vehicle types</button>
+    <button class="setup-tab" onclick="switchSetupTab('tmc',this)">turning movement</button>
+    <button class="setup-tab" onclick="switchSetupTab('intersection',this)">intersection</button>
+    <button class="setup-tab" onclick="switchSetupTab('export',this)">export</button>
+  </div>
+
+  <!-- PROJECT INFO -->
+  <div class="setup-panel" id="sp-project">
+    <div class="setup-card">
+      <h2>company</h2>
+      <div class="setup-grid" style="margin-bottom:14px">
+        <div class="setup-field"><label>Company name</label><input type="text" data-pi="companyName" placeholder="e.g. Traffic Engineering Corp"></div>
+        <div class="setup-field"><label>Company address</label><input type="text" data-pi="companyAddress" placeholder="e.g. 123 Broadway, New York, NY 10006"></div>
+      </div>
+      <div class="setup-field" style="margin-bottom:18px">
+        <label>Company logo <span style="font-weight:400;color:var(--text3)">(optional — shown on reports)</span></label>
+        <div id="logo-preview" style="margin-bottom:8px"></div>
+        <input type="file" accept="image/*" id="pi-logo-input" style="font-size:12px">
+        <button id="pi-logo-clear" style="display:none;font-size:11px;margin-left:8px">remove logo</button>
+      </div>
+      <h2>project</h2>
+      <div class="setup-grid" style="margin-bottom:14px">
+        <div class="setup-field"><label>Project name</label><input type="text" data-pi="projectName" placeholder="e.g. 2026 Traffic Study — Site A"></div>
+        <div class="setup-field"><label>Project number / ID</label><input type="text" data-pi="projectNumber" placeholder="e.g. P-2026-042"></div>
+      </div>
+      <div class="setup-field" style="margin-bottom:18px">
+        <label>Study purpose / notes</label>
+        <textarea data-pi="studyPurpose" rows="2" style="width:100%;font-family:inherit;font-size:13px;padding:6px 10px;border:.5px solid var(--border2);border-radius:var(--r);background:var(--surface2);color:var(--text)"></textarea>
+      </div>
+      <h2>personnel</h2>
+      <div class="setup-grid">
+        <div class="setup-field"><label>Project Manager</label><input type="text" data-pi="projectManagerName" placeholder="e.g. Jane Smith, PE"></div>
+        <div class="setup-field"><label>PM title / role</label><input type="text" data-pi="projectManagerTitle" placeholder="e.g. Senior Traffic Engineer"></div>
+        <div class="setup-field"><label>Counter name <span style="font-weight:400;color:var(--text3)">(person doing the count)</span></label><input type="text" data-pi="counterName" placeholder="e.g. Jane Smith"></div>
+        <div class="setup-field"><label>Counter title</label><input type="text" data-pi="counterTitle" placeholder="e.g. Traffic Analyst"></div>
+        <div class="setup-field"><label>QA reviewer <span style="font-weight:400;color:var(--text3)">(QA/QC counter)</span></label><input type="text" data-pi="qaCounterName" placeholder="e.g. John Doe"></div>
+        <div class="setup-field"><label>QA title</label><input type="text" data-pi="qaCounterTitle" placeholder="e.g. Project Engineer"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- STUDY PARAMS -->
+  <div class="setup-panel active" id="sp-study">
+    <div class="setup-card">
+      <h2>timing</h2>
+      <div class="setup-grid">
+        <div class="setup-field">
+          <label>start time</label>
+          <input type="time" id="set-start" value="00:00" oninput="updateDerived()">
+          <span class="hint">clock time at first interval</span>
+        </div>
+        <div class="setup-field">
+          <label>study duration</label>
+          <div class="dur-wrap">
+            <input type="number" id="set-dur-h" min="0" max="72" value="24" oninput="updateDerived()">
+            <span>h</span>
+            <input type="number" id="set-dur-m" min="0" max="59" value="0" oninput="updateDerived()">
+            <span>m</span>
+          </div>
+        </div>
+      </div>
+      <div class="setup-field" style="margin-top:14px">
+        <label>interval length</label>
+        <div class="interval-pills">
+          <button class="ipill" onclick="setIntervalLen(5,this)">5 min</button>
+          <button class="ipill" onclick="setIntervalLen(10,this)">10 min</button>
+          <button class="ipill active" onclick="setIntervalLen(15,this)">15 min</button>
+          <button class="ipill" onclick="setIntervalLen(20,this)">20 min</button>
+          <button class="ipill" onclick="setIntervalLen(30,this)">30 min</button>
+          <button class="ipill" onclick="setIntervalLen(60,this)">60 min</button>
+          <button class="ipill" id="custom-pill" onclick="setIntervalLen('custom',this)">custom</button>
+          <input type="number" id="custom-interval" min="1" max="240" placeholder="min" style="width:70px;display:none;font-size:12px;padding:4px 8px" oninput="updateDerived()">
+        </div>
+      </div>
+      <div class="derived-preview" id="derived-preview" style="margin-top:12px">
+        <strong>96 intervals</strong> · 00:00 to 24:00 · 15-min intervals
+      </div>
+    </div>
+    <div class="setup-card">
+      <h2>count types</h2>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:14px">Choose which counts will be performed — the counter will only show the selected types.</div>
+      <div id="count-type-toggles" style="display:flex;flex-direction:column;gap:10px">
+        <label class="count-type-row" id="ct-ped-row">
+          <input type="checkbox" id="ct-ped" checked>
+          <div class="count-type-info">
+            <span class="count-type-name">Pedestrian</span>
+            <span class="count-type-desc">Crosswalk crossing counts by direction</span>
+          </div>
+        </label>
+        <label class="count-type-row" id="ct-vehicle-row">
+          <input type="checkbox" id="ct-vehicle" checked>
+          <div class="count-type-info">
+            <span class="count-type-name">Vehicle</span>
+            <span class="count-type-desc">Inbound / outbound counts by vehicle type</span>
+          </div>
+        </label>
+        <label class="count-type-row" id="ct-turning-row">
+          <input type="checkbox" id="ct-turning" checked>
+          <div class="count-type-info">
+            <span class="count-type-name">Turning movement</span>
+            <span class="count-type-desc">TMC by approach leg and vehicle type</span>
+          </div>
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <!-- VEHICLE TYPES -->
+  <div class="setup-panel" id="sp-vehicle">
+    <div class="setup-card">
+      <h2>vehicle types</h2>
+      <div class="count-ctrl">
+        <label>number of types</label>
+        <select id="v-count" onchange="updateVCount(+this.value)">
+          <option>1</option><option>2</option><option>3</option><option value="4" selected>4</option>
+          <option>5</option><option>6</option><option>7</option><option>8</option>
+          <option>9</option><option>10</option><option>11</option><option>12</option>
+        </select>
+      </div>
+      <div class="preset-btns">
+        <span style="font-size:12px;color:var(--text2);align-self:center">presets:</span>
+        <button class="preset-btn" onclick="applyVPreset('precise')">FHWA precise (cl. 2,5,8,9)</button>
+        <button class="preset-btn" onclick="applyVPreset('combined')">FHWA combined (1“3, 5, 4“6, 7“13)</button>
+        <button class="preset-btn" id="btn-copy-vpairs" title="Load vehicle types from a saved project (.json)">copy from project…</button>
+        <input type="file" id="copy-vpairs-input" accept=".json" style="display:none">
+      </div>
+      <div class="pair-header">
+        <span></span><span>label</span><span>definition</span><span>IN key</span><span>OUT key</span>
+      </div>
+      <div id="v-pairs-list"></div>
+      <div class="conflict-msg" id="v-conflict">⚠ duplicate keys — each key must be unique</div>
+      <div class="warn-banner" id="warn-vehicle">⚠ counts recorded — renaming changes labels only</div>
+    </div>
+  </div>
+
+  <!-- TURNING MOVEMENT TYPES -->
+  <div class="setup-panel" id="sp-tmc">
+    <div class="setup-card">
+      <h2>turning movement vehicle types</h2>
+      <div class="stat-detail" style="margin-bottom:14px">These types are used only in <strong>turning movement (TMC)</strong> counting mode. Each type needs one key only — no in/out split. You can have more types than in the vehicle in/out setup, since TMC uses one key per type rather than two.</div>
+      <div class="count-ctrl">
+        <label>number of types</label>
+        <select id="tmc-count" onchange="updateTmcCount(+this.value)">
+          <option>1</option><option>2</option><option>3</option><option value="4" selected>4</option>
+          <option>5</option><option>6</option><option>7</option><option>8</option>
+          <option>9</option><option>10</option><option>11</option><option>12</option>
+          <option>13</option><option>14</option><option>15</option><option>16</option>
+          <option>17</option><option>18</option><option>19</option><option>20</option>
+        </select>
+      </div>
+      <div class="preset-btns">
+        <span style="font-size:12px;color:var(--text2);align-self:center">presets:</span>
+        <button class="preset-btn" onclick="applyTmcPreset('basic')">basic (4-class)</button>
+        <button class="preset-btn" onclick="applyTmcPreset('pcbusmt')">PC/Bus/MT/HT</button>
+        <button class="preset-btn" onclick="applyTmcPreset('fhwa13')">FHWA 13-class</button>
+        <button class="preset-btn" id="btn-copy-tmcpairs" title="Load TMC vehicle types from a saved project (.json)">copy from project…</button>
+        <input type="file" id="copy-tmcpairs-input" accept=".json" style="display:none">
+      </div>
+      <div class="pair-header">
+        <span></span><span>label</span><span>definition</span><span>key</span>
+      </div>
+      <div id="tmc-pairs-list"></div>
+      <div class="conflict-msg" id="tmc-conflict">⚠ duplicate keys — each key must be unique</div>
+      <div class="warn-banner" id="warn-tmc">⚠ counts recorded — renaming changes labels only</div>
+    </div>
+  </div>
+
+  <!-- CROSSWALKS -->
+  <div class="setup-panel" id="sp-intersection">
+    <div class="setup-card" style="overflow:visible">
+      <h2>intersection template</h2>
+      <div class="template-grid" id="template-grid"></div>
+      <!-- template sub-options (diagLeg for t5, missingLeg for t3) -->
+      <div id="template-suboption" style="display:none;margin-bottom:14px">
+        <div id="template-suboption-inner" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"></div>
+      </div>
+      <!-- street names -->
+      <div class="street-names-wrap">
+        <div style="font-size:12px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text2);margin-bottom:10px">street names</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div class="setup-field">
+            <label>N“S street</label>
+            <input id="street1-inp" type="text" placeholder="e.g. Seminole Ave"
+              oninput="intersection.street1=this.value;updateDefaultFilenames();renderLegConfig()">
+          </div>
+          <div class="setup-field">
+            <label>E“W street</label>
+            <input id="street2-inp" type="text" placeholder="e.g. Morris Park Ave"
+              oninput="intersection.street2=this.value;updateDefaultFilenames();renderLegConfig()">
+          </div>
+        </div>
+        <div class="setup-field" id="street3-field" style="display:none;margin-top:8px">
+          <label>diagonal street</label>
+          <input id="street3-inp" type="text" placeholder="e.g. Third Ave"
+            oninput="intersection.street3=this.value;updateDefaultFilenames();renderLegConfig()">
+        </div>
+      </div>
+      <!-- click-on-diagram leg builder: clean overview (left) + detail panel (right) -->
+      <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:10px">
+        <span style="font-size:12px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text2)">legs</span>
+        <span style="font-size:11px;color:var(--text3)">click a leg's dot to configure its crosswalk and approach</span>
+      </div>
+      <div class="leg-builder-grid">
+        <div id="setup-diag-wrap" class="setup-diag-wrap">
+          <svg id="setup-diag-svg" viewBox="0 0 480 480" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block">
+            <defs>
+              <marker id="leg-link-arrow" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M1,1 L6,4 L1,7" fill="none" stroke="var(--blue-border)" stroke-width="1.6"/>
+              </marker>
+            </defs>
+            <g id="setup-diag-road"></g>
+            <g id="setup-diag-links"></g>
+            <g id="setup-diag-arrows"></g>
+            <g id="setup-diag-dots"></g>
+            <g id="setup-diag-hit"></g>
+          </svg>
+        </div>
+        <div id="leg-detail-panel" class="leg-detail-panel">
+          <div class="leg-detail-empty">click a leg on the diagram to configure its crosswalk and approach</div>
+        </div>
+      </div>
+      <div class="conflict-msg" id="p-conflict" style="display:none">⚠ duplicate keys</div>
+      <div class="warn-banner" id="warn-ped">⚠ counts recorded — renaming changes labels only</div>
+    </div>
+  </div>
+
+  <!-- EXPORT -->
+  <div class="setup-panel" id="sp-export">
+    <div class="setup-card">
+      <h2>export settings</h2>
+      <div class="setup-grid">
+        <div class="setup-field">
+          <label>vehicle counts filename</label>
+          <input type="text" id="fname-vehicle" value="traffic_counts" placeholder="traffic_counts">
+          <span class="hint" id="fname-vehicle-preview">→ traffic_counts.csv</span>
+        </div>
+        <div class="setup-field">
+          <label>pedestrian counts filename</label>
+          <input type="text" id="fname-ped" value="ped_counts" placeholder="ped_counts">
+          <span class="hint" id="fname-ped-preview">→ ped_counts.csv</span>
+        </div><div class="cfg-field">
+          <label class="cfg-label">turning movements</label>
+          <input type="text" id="fname-tmc" value="tmc_counts" placeholder="tmc_counts">
+          <span class="hint" id="fname-tmc-preview">→ tmc_counts.csv</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="setup-footer">
+    <button class="btn-primary" onclick="startCounting()">start counting →</button>
+  </div>
+</div>
+
+<!-- = COUNTER SCREEN = -->
+<div id="counter-screen">
+
+  <header class="counter-header">
+    <button id="btn-back-to-project" style="font-size:12px;padding:4px 10px;margin-right:8px">← Project</button>
+    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v2.6.0</span></h1>
+    <div class="hcontrols">
+      <div class="mode-toggle" style="display:none">
+        <button class="mode-btn active" id="btn-count-mode" onclick="goToCountMode()">count</button>
+        <button class="mode-btn" id="btn-analyze-mode" onclick="goToAnalyzeMode()">analyze</button>
+      </div>
+      <div class="mode-toggle" style="display:none">
+        <button class="mode-btn active" id="btn-v" onclick="setMode('vehicle')">vehicle</button>
+        <button class="mode-btn" id="btn-p" onclick="setMode('ped')">pedestrian</button>
+        <button class="mode-btn" id="btn-t" onclick="setMode('turning')">turning</button>
+      </div>
+      <button class="btn-icon" onclick="saveProject()" title="Save project" style="font-size:12px">save</button>
+      <button class="btn-icon" id="btn-counter-import-raw" title="Import raw count XLSX into this session" style="font-size:12px">import…</button>
+      <div class="interval-badge" id="cur-interval">“</div>
+      <div class="undo-redo">
+        <button title="undo (Z)" onclick="undo()" id="btn-undo" disabled style="width:auto;padding:4px 8px;font-size:12px">↩ Undo</button>
+        <span class="stack-count" id="undo-count">0</span>
+        <button title="redo (Y)" onclick="redo()" id="btn-redo" disabled style="width:auto;padding:4px 8px;font-size:12px">Redo ↪</button>
+      </div>
+      <button class="btn-blue" onclick="exportCSV()" title="Export CSV" style="font-size:12px;padding:4px 10px">.csv ↓</button>
+      <button class="btn-blue" onclick="exportXLSX()" title="Export Excel" style="font-size:12px;padding:4px 10px">.xlsx ↓</button>
+      <button class="btn-red btn-icon" onclick="confirmReset()" title="Reset mode">↺</button>
+      <button class="btn-icon" id="btn-diag" onclick="toggleDiagram()" title="Crosswalk diagram" style="display:none">⊞</button>
+      <button class="btn-icon" id="btn-tmc-diag" onclick="toggleTurningDiagram()" title="Turning diagram" style="display:none">⊞</button>
+      <button class="btn-focus" id="btn-focus" onclick="toggleFocusMode()" title="Focus mode (\\)">○ focus</button>
+      <button class="btn-icon" onclick="openSettings()" title="Settings">⚙</button>
+      <button class="btn-icon" onclick="openHelp()" title="Help">?</button>
+      <button class="btn-icon" onclick="goSetup()" title="Back to setup" style="font-size:12px">setup</button>
+    </div>
+  </header>
+
+  <div id="intersection-tabs-bar" class="intersection-tabs-bar" style="display:none"></div>
+  <div id="period-tabs-bar" class="period-tabs-bar"></div>
+
+  <!-- hidden keyboard focus anchor — receives focus after clicking non-input UI elements in the counter -->
+  <button id="counter-kbd-anchor" tabindex="-1" aria-hidden="true" style="position:fixed;top:0;left:0;width:0;height:0;opacity:0;pointer-events:none;border:none;padding:0;outline:none"></button>
+
+  <div class="counter-body">
+  <nav class="counter-sidebar" id="counter-sidebar"></nav>
+  <div class="counter-main">
+
+  <!-- focus bar (vehicle / pedestrian modes) -->
+  <div class="focus-bar" id="focus-bar" style="display:none">
+    <span class="focus-bar-label">◎ focus mode — only the selected crosswalk or type registers</span>
+    <div class="focus-chips" id="focus-chips"></div>
+    <span class="focus-bar-hint"><kbd>[</kbd> <kbd>]</kbd> swap · <kbd>\</kbd> exit</span>
+  </div>
+
+  <!-- config panel (filename) -->
+  <div class="config-panel" id="cfg-panel">
+    <div class="config-section">
+      <div class="config-label">filename</div>
+      <div class="cfg-field">
+        <input type="text" id="fn-live" style="width:180px" placeholder="filename">
+      </div>
+    </div>
+    <div class="vdiv"></div>
+    <div class="config-section" style="flex:1" id="cfg-type-section">
+      <div class="config-label" id="cfg-type-label">vehicle types</div>
+      <div class="config-fields" id="cfg-type-fields"></div>
+    </div>
+  </div>
+
+  <!-- sticky keyboard reference -->
+  <div class="kbd-sticky" id="kbd-sticky">
+    <button class="kbd-collapse-btn" onclick="toggleKbd()" id="kbd-toggle-btn">
+      <span id="kbd-toggle-label">keyboard reference</span>
+    </button>
+    <div class="kbd-inner" id="kbd-inner">
+      <div class="kbd-grid" id="kbd-grid"></div>
+    </div>
+  </div>
+
+  <!-- tables -->
+  <div class="tables-area">
+    <div id="tables-vehicle" class="tables-wrap" style="grid-template-columns:1fr 1fr"></div>
+    <div id="tables-ped" class="tables-wrap hidden"></div>
+    <div id="tables-tmc" class="tables-wrap hidden"></div>
+  </div>
+
+  <div class="counter-bottom">counts stored in this tab — do not refresh · right-click any time cell to reset that interval · click any count cell to edit</div>
+
+  </div><!-- counter-main -->
+  </div><!-- counter-body -->
+</div>
+
+<!-- HELP MODAL -->
+<div class="modal-backdrop" id="help-modal" onclick="if(event.target===this)closeHelp()">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>how to use</h2>
+      <button class="modal-close" onclick="closeHelp()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-tab-btns">
+        <button class="modal-tab-btn active" onclick="switchHelpTab('general',this)">general</button>
+        <button class="modal-tab-btn" onclick="switchHelpTab('setup',this)">setup</button>
+        <button class="modal-tab-btn" onclick="switchHelpTab('vehicle',this)">vehicle</button>
+        <button class="modal-tab-btn" onclick="switchHelpTab('ped',this)">pedestrian</button>
+        <button class="modal-tab-btn" onclick="switchHelpTab('tmc',this)">TMC</button>
+        <button class="modal-tab-btn" onclick="switchHelpTab('export',this)">export &amp; data</button>
+      </div>
+
+      <!-- GENERAL -->
+      <div class="modal-tab active" id="htab-general">
+        <div class="modal-section">
+          <h3>overview</h3>
+          <p>A keyboard-driven field counter for traffic studies. Configure your intersection once in setup, then count by keystroke against time-lapse video. Three independent modes share the same session: <strong>vehicle</strong> (in/out by type), <strong>pedestrian</strong> (crossings by crosswalk and direction), and <strong>TMC</strong> (turning movement counts by approach leg).</p>
+        </div>
+        <div class="modal-divider"></div>
+        <div class="modal-section">
+          <h3>basic workflow</h3>
+          <ul>
+            <li>Fill in the <strong>setup</strong> tabs — study parameters, intersection layout (crosswalks and approaches), vehicle types, and filenames.</li>
+            <li>Click <strong>start counting →</strong> to enter the counter.</li>
+            <li>Run your video. Use the video clock to track interval boundaries.</li>
+            <li>Press <kbd>↓</kbd> each time the clock crosses an interval boundary.</li>
+            <li>Count with the keyboard shortcuts shown in the reference bar. Switch between vehicle, pedestrian, and TMC modes with the toggle in the header — each keeps independent data.</li>
+            <li>Click <strong>↓</strong> in the header to export at any time.</li>
+          </ul>
+        </div>
+        <div class="modal-divider"></div>
+        <div class="modal-section">
+          <h3>navigation, editing &amp; correction</h3>
+          <div class="key-table">
+            <kbd>↓</kbd><span>advance to next interval</span>
+            <kbd>↑</kbd><span>go back to previous interval</span>
+            <kbd>Z</kbd><span>undo last action</span>
+            <kbd>Y</kbd><span>redo</span>
+          </div>
+          <p style="margin-top:10px"><strong>Edit a cell:</strong> click any count cell, type the corrected value, press <kbd>Enter</kbd> or <kbd>Esc</kbd>. Edited cells are highlighted.</p>
+          <p style="margin-top:8px"><strong>Reset an interval:</strong> right-click any time label → reset. Single undoable action.</p>
+        </div>
+        <div class="modal-divider"></div>
+        <div class="modal-section">
+          <h3>focus mode</h3>
+          <p>Lock input to one target at a time — useful when traffic is heavy and you want to watch the video once per movement or crosswalk.</p>
+          <div class="key-table" style="margin-top:8px">
+            <kbd>\</kbd><span>toggle focus mode on/off</span>
+            <kbd>[</kbd><span>focus previous target</span>
+            <kbd>]</kbd><span>focus next target (vehicle: also cycles type groups)</span>
+          </div>
+        </div>
+        <div class="modal-divider"></div>
+        <div class="modal-section">
+          <h3>important</h3>
+          <ul>
+            <li>Counts live in this browser tab only — <strong>do not close or refresh</strong> during a session.</li>
+            <li><strong>Window focus is required.</strong> If you click into a video player, keystrokes go there. A red banner appears when focus is lost — click anywhere on the counter to resume.</li>
+            <li>Export before ending any session.</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- SETUP -->
+      <div class="modal-tab" id="htab-setup">
+        <div class="modal-section">
+          <h3>study parameters</h3>
+          <ul>
+            <li><strong>Start time</strong> — clock time of the first interval (e.g. 06:00). All row labels and CSV exports use real clock times.</li>
+            <li><strong>Interval length</strong> — duration of each counting period. Choose a preset or enter a custom value in minutes.</li>
+            <li><strong>Duration</strong> — total study length. Row count is calculated automatically as duration ÷ interval.</li>
+          </ul>
+        </div>
+        <div class="modal-divider"></div>
+        <div class="modal-section">
+          <h3>intersection builder</h3>
+          <p>Choose a template (T / 4-way / 5-way), enter street names, then configure each leg independently. Each leg panel has two toggles:</p>
+          <ul>
+            <li><strong>Crosswalk</strong> — enables pedestrian counting on that leg. Set the crosswalk name, both direction labels, and key bindings.</li>
+            <li><strong>Approach</strong> — enables turning movement counting from that leg. Check the destination legs you want to record.</li>
+          </ul>
+          <p style="margin-top:8px">Street names flow into destination labels (e.g. <em>Thru (N) — Seminole Ave</em>) and into default export filenames. The live diagram on the right shows crosswalk zones and approach arrows simultaneously as you build.</p>
+        </div>
+        <div class="modal-divider"></div>
+        <div class="modal-section">
+          <h3>vehicle types</h3>
+          <p>Configure 1“8+ types. Types are counted in groups of 4 — if you add more than 4, they split into groups and you cycle between them with <kbd>[</kbd> / <kbd>]</kbd>. Two FHWA presets are available. Keys must be unique within each group (different groups may reuse the same keys).</p>
+        </div>
+        <div class="modal-divider"></div>
+        <div class="modal-section">
+          <h3>export filenames</h3>
+          <p>Filenames default to <em>Street1_Street2_TypeOfCount</em> once street names are entered. All three can be changed mid-session via the ⚙ settings button.</p>
+        </div>
+      </div>
+
+      <!-- VEHICLE -->
+      <div class="modal-tab" id="htab-vehicle">
+        <div class="modal-section">
+          <h3>key layout</h3>
+          <p>Each vehicle type has an <strong>IN</strong> key (left hand) and an <strong>OUT</strong> key (right hand). Up to 4 types are shown at once; if you have more, they're split into groups — press <kbd>[</kbd> or <kbd>]</kbd> to cycle groups, or click the group buttons in the config bar.</p>
+        </div>
+        <div class="modal-divider"></div>
+        <div class="modal-section">
+          <h3>default keys — group 1 (4 types)</h3>
+          <div class="key-table">
+            <span class="kgroup">in — left hand</span>
+            <kbd>A</kbd><span>type 1 (IN)</span>
+            <kbd>S</kbd><span>type 2 (IN)</span>
+            <kbd>D</kbd><span>type 3 (IN)</span>
+            <kbd>F</kbd><span>type 4 (IN)</span>
+            <span class="kgroup">out — right hand</span>
+            <kbd>J</kbd><span>type 1 (OUT)</span>
+            <kbd>K</kbd><span>type 2 (OUT)</span>
+            <kbd>L</kbd><span>type 3 (OUT)</span>
+            <kbd>;</kbd><span>type 4 (OUT)</span>
+          </div>
+          <p style="margin-top:10px">Additional groups can reuse the same keys — pressing <kbd>A</kbd> in group 2 records group 2's type 1, not group 1's.</p>
+        </div>
+        <div class="modal-divider"></div>
+        <div class="modal-section">
+          <h3>mid-session changes</h3>
+          <p>Vehicle type labels can be edited from the config bar below the header without losing data. Key assignments can be changed mid-session via <strong>⚙ settings</strong> — no restart required.</p>
+        </div>
+        <div class="modal-divider"></div>
+        <div class="modal-section">
+          <h3>output</h3>
+          <p>Two side-by-side tables show inbound and outbound counts. The CSV has separate INBOUND and OUTBOUND sections, one row per interval, one column per type, with totals.</p>
+        </div>
+      </div>
+
+      <!-- PEDESTRIAN -->
+      <div class="modal-tab" id="htab-ped">
+        <div class="modal-section">
+          <h3>structure</h3>
+          <p>Counts crossing events by crosswalk and direction. Each crosswalk has two direction keys. All crosswalks share one unified table with a colored column pair per crosswalk.</p>
+        </div>
+        <div class="modal-divider"></div>
+        <div class="modal-section">
+          <h3>intersection diagram</h3>
+          <p>Open with the <strong>⊞</strong> button in the header. The floating diagram window shows your intersection with colored crosswalk bands, direction keys, and live counts for the current interval. Each keystroke briefly animates the matching count — peripheral confirmation without looking away from the video. Focus mode highlights the active crosswalk and dims the rest.</p>
+        </div>
+        <div class="modal-divider"></div>
+        <div class="modal-section">
+          <h3>mid-session changes</h3>
+          <p>Crosswalk names and direction labels can be edited from the config bar while counting. Key assignments can be changed via <strong>⚙ settings</strong>. Template, slot assignments, and crosswalk count are fixed once counting begins.</p>
+        </div>
+        <div class="modal-divider"></div>
+        <div class="modal-section">
+          <h3>output</h3>
+          <p>CSV mirrors the on-screen table — time column, two direction columns per crosswalk, per-column and grand totals.</p>
+        </div>
+      </div>
+
+      <!-- TMC -->
+      <div class="modal-tab" id="htab-tmc">
+        <div class="modal-section">
+          <h3>what is TMC mode?</h3>
+          <p>Turning Movement Count mode records vehicles by approach leg and destination movement (left, through, right, U-turn). Configure approach legs in the intersection builder on the setup screen.</p>
+        </div>
+        <div class="modal-divider"></div>
+        <div class="modal-section">
+          <h3>workflow</h3>
+          <ul>
+            <li>Switch to <strong>TMC</strong> in the mode toggle.</li>
+            <li>Select the active approach leg from the movement bar below the header, or use <kbd>[</kbd> / <kbd>]</kbd> to cycle between legs.</li>
+            <li>The keyboard reference shows one key per destination movement. Press a key to count a vehicle making that turn.</li>
+            <li>Vehicle type keys (IN keys from your vehicle setup) select which type is being counted for that movement.</li>
+          </ul>
+        </div>
+        <div class="modal-divider"></div>
+        <div class="modal-section">
+          <h3>turning diagram</h3>
+          <p>The compact SVG diagram in the header shows all movements for the current approach with live counts. Open the full <strong>⊞ popup</strong> for a larger view with a counts table by vehicle type and movement — useful on a second monitor positioned over the video.</p>
+        </div>
+        <div class="modal-divider"></div>
+        <div class="modal-section">
+          <h3>destination labels</h3>
+          <p>Destinations are labeled by movement and street name — e.g. <em>Thru (N) — Seminole Ave</em>, <em>Left (W) — Morris Park Ave</em>. Labels update live when you edit street names in setup.</p>
+        </div>
+        <div class="modal-divider"></div>
+        <div class="modal-section">
+          <h3>output</h3>
+          <p>TMC CSV exports one section per approach leg, with rows for each interval and columns for each destination × vehicle type combination.</p>
+        </div>
+      </div>
+
+      <!-- EXPORT & DATA -->
+      <div class="modal-tab" id="htab-export">
+        <div class="modal-section">
+          <h3>exporting</h3>
+          <p>Click the <strong>↓</strong> button in the header to download the current mode's data as a CSV. Vehicle and pedestrian modes export separately, using the filenames set in setup (editable mid-session via the ⚙ settings button).</p>
+        </div>
+        <div class="modal-divider"></div>
+        <div class="modal-section">
+          <h3>Excel compatibility</h3>
+          <p>Files include a UTF-8 byte-order mark so special characters like the en-dash in time ranges (e.g. 06:00 “ 06:15) display correctly in Excel without any manual import steps.</p>
+        </div>
+        <div class="modal-divider"></div>
+        <div class="modal-section">
+          <h3>mid-session settings (⚙)</h3>
+          <p>The settings button opens a small dialog for changing export filenames without interrupting your session. Structural changes — interval length, duration, type or crosswalk counts — require returning to setup, which warns before clearing counts.</p>
+        </div>
+        <div class="modal-divider"></div>
+        <div class="modal-section">
+          <h3>data safety</h3>
+          <ul>
+            <li>All counts are held in memory in this tab. Closing or refreshing loses them.</li>
+            <li>Export regularly, and always before resetting or returning to setup.</li>
+            <li>For multi-session work, export and rename each CSV before starting the next.</li>
+          </ul>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- SETTINGS MODAL (mid-session) -->
+<div class="modal-backdrop" id="settings-modal" onclick="if(event.target===this)closeSettings()">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>settings</h2>
+      <button class="modal-close" onclick="closeSettings()">×</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px;color:var(--text2)">Label and filename changes apply immediately. To change interval length, duration, or pair counts return to setup — structural changes reset count data.</p>
+      <div class="modal-divider"></div>
+      <div class="setup-grid">
+        <div class="setup-field">
+          <label>vehicle filename</label>
+          <input type="text" id="ms-fname-v" placeholder="traffic_counts">
+        </div>
+        <div class="setup-field">
+          <label>pedestrian filename</label>
+          <input type="text" id="ms-fname-p" placeholder="ped_counts">
+        </div>
+        <div class="setup-field">
+          <label>TMC filename</label>
+          <input type="text" id="ms-fname-tmc" placeholder="tmc_counts">
+        </div>
+      </div>
+      <div class="modal-divider"></div>
+      <div>
+        <div style="font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--text2);margin-bottom:10px">key mappings</div>
+        <div id="ms-keymaps" style="display:flex;flex-direction:column;gap:18px"></div>
+        <div id="ms-key-warn" style="font-size:12px;color:var(--danger,#c0392b);margin-top:8px;display:none">⚠ duplicate keys detected — each key should be unique</div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;padding-top:8px;border-top:.5px solid var(--border)">
+        <button onclick="closeSettings()">cancel</button>
+        <button class="btn-primary" onclick="applyMidSettings()">apply</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- = SUMMARY ANALYSIS = -->
+<div id="summary-screen" style="display:none;min-height:100vh;padding:2rem;max-width:1100px;margin:0 auto">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem;flex-wrap:wrap;gap:12px">
+    <div>
+      <h1 style="font-size:22px;font-weight:500;letter-spacing:-.01em">Summary <span id="summary-project-title" style="font-size:14px;font-weight:400;color:var(--text2);margin-left:8px"></span></h1>
+      <div id="summary-subtitle" style="font-size:12px;color:var(--text3);margin-top:2px"></div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button id="btn-summary-export-csv" class="btn-blue" style="font-size:12px">Export CSV</button>
+      <button id="btn-summary-back" style="font-size:12px">← Back to project</button>
+    </div>
+  </div>
+  <div id="summary-content"></div>
+</div>
+
+<!-- = INTERSECTION DETAIL ANALYSIS = -->
+<div id="ix-analysis-screen" style="display:none;min-height:100vh;padding:2rem;max-width:1100px;margin:0 auto">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem;flex-wrap:wrap;gap:12px">
+    <div style="display:flex;align-items:center;gap:14px">
+      <button id="btn-ix-analysis-back" style="font-size:12px;flex-shrink:0">← Summary</button>
+      <div>
+        <h1 id="ix-analysis-title" style="font-size:20px;font-weight:500;letter-spacing:-.01em"></h1>
+        <div id="ix-analysis-sub" style="font-size:12px;color:var(--text3);margin-top:2px"></div>
+      </div>
+    </div>
+    <button id="btn-ix-open-counter" style="font-size:12px">Open in counter →</button>
+  </div>
+  <div id="ix-analysis-content"></div>
+</div>
+
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>
