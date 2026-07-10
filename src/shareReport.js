@@ -1,0 +1,279 @@
+// Shareable study page — a self-contained HTML file the user can email or host.
+// Screen-optimised (not print-optimised), dark/light aware.
+
+// ── Data helpers ──────────────────────────────────────────────────────────────
+
+function classifyTurn(from, to) {
+  const dirs = ['N','E','S','W'];
+  const fi = dirs.indexOf(from), ti = dirs.indexOf(to);
+  if (fi < 0 || ti < 0) return 'U';
+  const diff = ((ti - fi) + 4) % 4;
+  return diff === 1 ? 'R' : diff === 2 ? 'T' : diff === 3 ? 'L' : 'U';
+}
+
+function sumTypeArr(arr, indices) {
+  if (!indices) return arr.reduce((a, b) => a + b, 0);
+  return indices.reduce((s, i) => s + (arr[i] || 0), 0);
+}
+
+function tmcApproachTotal(tmcParsed, leg, typeIndices) {
+  return tmcParsed.intervals.reduce((s, iv) => {
+    const dests = iv.counts[leg] || {};
+    return s + Object.values(dests).reduce((s2, arr) => s2 + sumTypeArr(arr, typeIndices), 0);
+  }, 0);
+}
+
+function vehSlotTotals(vehParsed) {
+  return vehParsed.intervals.map(iv =>
+    iv.inbound.reduce((a, b) => a + b, 0) + iv.outbound.reduce((a, b) => a + b, 0)
+  );
+}
+
+// ── Inline SVG bar chart (time vs volume) ────────────────────────────────────
+
+function buildBarChartSVG(values, labels, color = '#6a8fc8') {
+  const W = 600, H = 100, pL = 32, pR = 8, pT = 8, pB = 24;
+  const iW = W - pL - pR, iH = H - pT - pB;
+  const n = values.length;
+  const maxV = Math.max(1, ...values);
+  const bW = Math.max(2, iW / n - 1);
+
+  const yLines = [0, 0.25, 0.5, 0.75, 1].map(t => {
+    const v = Math.round(maxV * t);
+    const y = pT + iH - t * iH;
+    return `<line x1="${pL}" x2="${W-pR}" y1="${y}" y2="${y}" stroke="#444" stroke-width=".5" stroke-dasharray="2,2"/>
+      <text x="${pL-3}" y="${y+3}" text-anchor="end" font-size="8" fill="#888">${v}</text>`;
+  }).join('');
+
+  const bars = values.map((v, i) => {
+    const h = (v / maxV) * iH;
+    const x = pL + i * (iW / n);
+    return `<rect x="${x.toFixed(1)}" y="${(pT+iH-h).toFixed(1)}" width="${bW.toFixed(1)}" height="${Math.max(0,h).toFixed(1)}" fill="${color}" fill-opacity=".85"><title>${labels[i]}: ${v}</title></rect>`;
+  }).join('');
+
+  const skip = Math.max(1, Math.ceil(n / 12));
+  const xLabels = labels.map((lbl, i) => {
+    if (i % skip !== 0) return '';
+    const x = pL + i * (iW / n) + bW / 2;
+    return `<text x="${x.toFixed(1)}" y="${H-6}" text-anchor="middle" font-size="7.5" fill="#888">${lbl}</text>`;
+  }).join('');
+
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:${H}px">${yLines}${bars}${xLabels}</svg>`;
+}
+
+// ── TMC turning movement table HTML ──────────────────────────────────────────
+
+function buildTmcHtml(tmcParsed, typeIndices, legLabels) {
+  const apps = tmcParsed.approaches.filter(a => a.destinations.length);
+  if (!apps.length) return '';
+
+  const allDests = [...new Set(apps.flatMap(a => a.destinations.map(d => d.leg)))].sort();
+  const lbl = leg => legLabels[leg] || leg;
+
+  const header = `<tr><th>Approach</th>${allDests.map(d => `<th>${lbl(d)}</th>`).join('')}<th>Total</th></tr>`;
+
+  const rows = apps.map(a => {
+    const cells = allDests.map(d => {
+      const destDef = a.destinations.find(x => x.leg === d);
+      if (!destDef) return '<td class="tmc-na">—</td>';
+      const vol = tmcParsed.intervals.reduce((s, iv) => {
+        const arr = iv.counts[a.leg]?.[d] || [];
+        return s + sumTypeArr(arr, typeIndices);
+      }, 0);
+      return `<td>${vol.toLocaleString()}</td>`;
+    }).join('');
+    const total = tmcApproachTotal(tmcParsed, a.leg, typeIndices);
+    return `<tr><td class="approach-cell">${lbl(a.leg)}</td>${cells}<td class="total-cell">${total.toLocaleString()}</td></tr>`;
+  });
+
+  const grandTotal = apps.reduce((s, a) => s + tmcApproachTotal(tmcParsed, a.leg, typeIndices), 0);
+  const totalRow = `<tr class="grand-total"><td>Total</td>${allDests.map(() => '<td></td>').join('')}<td>${grandTotal.toLocaleString()}</td></tr>`;
+
+  return `<table class="tmc-tbl">${header}${rows.join('')}${totalRow}</table>`;
+}
+
+// ── Vehicle / ped summary table ───────────────────────────────────────────────
+
+function buildVehHtml(vehParsed) {
+  const inTotal  = vehParsed.intervals.reduce((s, iv) => s + iv.inbound.reduce((a,b)=>a+b,0),  0);
+  const outTotal = vehParsed.intervals.reduce((s, iv) => s + iv.outbound.reduce((a,b)=>a+b,0), 0);
+  if (inTotal + outTotal === 0) return '';
+  return `<table class="tmc-tbl">
+    <tr><th>Direction</th><th>Total</th></tr>
+    <tr><td>Inbound</td><td>${inTotal.toLocaleString()}</td></tr>
+    <tr><td>Outbound</td><td>${outTotal.toLocaleString()}</td></tr>
+    <tr class="grand-total"><td>Total</td><td>${(inTotal+outTotal).toLocaleString()}</td></tr>
+  </table>`;
+}
+
+function buildPedHtml(pedParsed) {
+  if (!pedParsed?.crosswalks?.length) return '';
+  const totals = pedParsed.crosswalks.map((xw, xi) => ({
+    name: xw.name,
+    d0: pedParsed.intervals.reduce((s, iv) => s + (iv.counts[xi]?.[0]||0), 0),
+    d1: pedParsed.intervals.reduce((s, iv) => s + (iv.counts[xi]?.[1]||0), 0),
+  }));
+  const grandTotal = totals.reduce((s, r) => s + r.d0 + r.d1, 0);
+  if (!grandTotal) return '';
+  const rows = totals.map(r =>
+    `<tr><td>${r.name}</td><td>${r.d0.toLocaleString()}</td><td>${r.d1.toLocaleString()}</td><td>${(r.d0+r.d1).toLocaleString()}</td></tr>`
+  ).join('');
+  return `<table class="tmc-tbl">
+    <tr><th>Crosswalk</th><th>${pedParsed.crosswalks[0]?.dir0||'Dir 1'}</th><th>${pedParsed.crosswalks[0]?.dir1||'Dir 2'}</th><th>Total</th></tr>
+    ${rows}
+    <tr class="grand-total"><td>Total</td><td></td><td></td><td>${grandTotal.toLocaleString()}</td></tr>
+  </table>`;
+}
+
+// ── CSS ───────────────────────────────────────────────────────────────────────
+
+const PAGE_CSS = `
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#f8f8f8;--bg2:#fff;--text:#111;--text2:#444;--text3:#888;--border:#ddd;--accent:#2563eb;--accent-bg:#eff6ff}
+@media(prefers-color-scheme:dark){:root{--bg:#14141a;--bg2:#1e1e28;--text:#e8e8ee;--text2:#aaa;--text3:#666;--border:#2e2e3a;--accent:#6a8fc8;--accent-bg:#1e2a38}}
+body{font-family:-apple-system,'Helvetica Neue',Arial,sans-serif;font-size:13px;color:var(--text);background:var(--bg);padding:0;min-height:100vh}
+a{color:var(--accent)}
+
+.page{max-width:900px;margin:0 auto;padding:32px 24px}
+
+/* Header */
+.report-hd{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;border-bottom:2px solid var(--accent);padding-bottom:16px;margin-bottom:24px}
+.report-hd-left h1{font-size:20px;font-weight:700;color:var(--text);margin-bottom:3px}
+.report-hd-left .subtitle{font-size:12px;color:var(--text3)}
+.report-hd-right{text-align:right;font-size:11.5px;color:var(--text2);line-height:1.7}
+
+/* Metadata pills */
+.meta-row{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:24px}
+.meta-pill{background:var(--bg2);border:1px solid var(--border);border-radius:99px;padding:4px 12px;font-size:11px;color:var(--text2)}
+.meta-pill strong{color:var(--text)}
+
+/* Section */
+.section{margin-bottom:28px}
+.section-title{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text3);margin-bottom:10px;padding-bottom:5px;border-bottom:1px solid var(--border)}
+
+/* Tables */
+.tmc-tbl{width:100%;border-collapse:collapse;font-size:12px}
+.tmc-tbl th,.tmc-tbl td{border:1px solid var(--border);padding:5px 8px;text-align:right}
+.tmc-tbl th{background:var(--bg2);font-weight:600;font-size:11px;text-align:center;color:var(--text2)}
+.tmc-tbl .approach-cell{text-align:left;font-weight:600;color:var(--text)}
+.tmc-tbl .total-cell{font-weight:600;color:var(--accent)}
+.tmc-tbl .tmc-na{color:var(--text3);text-align:center}
+.tmc-tbl .grand-total td{font-weight:700;background:var(--accent-bg);color:var(--text)}
+
+/* Chart */
+.chart-wrap{background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:12px}
+
+/* Footer */
+.page-footer{margin-top:40px;padding-top:14px;border-top:1px solid var(--border);font-size:11px;color:var(--text3);display:flex;justify-content:space-between;align-items:center}
+`;
+
+// ── Main export ───────────────────────────────────────────────────────────────
+
+export function exportShareablePage(projectInfo, intersection, vehParsed, pedParsed, tmcParsed, motorIdx, bikeIdx, hasBikes) {
+  const legLabels = intersection.legLabels || {};
+
+  // Meta
+  const fmtDate = d => { if (!d) return ''; const [y,m,dy] = d.split('-'); return `${m}/${dy}/${y}`; };
+  const metaItems = [
+    projectInfo.date          && { label: 'Date', value: fmtDate(projectInfo.date) },
+    projectInfo.weather       && { label: 'Weather', value: projectInfo.weather },
+    projectInfo.counterName   && { label: 'Counter', value: projectInfo.counterName },
+    periodMeta.observer       && !projectInfo.counterName && { label: 'Observer', value: periodMeta.observer },
+    projectInfo.companyName   && { label: 'Firm', value: projectInfo.companyName },
+    projectInfo.studyPurpose  && { label: 'Purpose', value: projectInfo.studyPurpose },
+  ].filter(Boolean);
+
+  const metaHtml = metaItems.map(m =>
+    `<span class="meta-pill"><strong>${m.label}:</strong> ${m.value}</span>`
+  ).join('');
+
+  const streetPair = [intersection.street1, intersection.street2].filter(Boolean).join(' & ');
+  const title = projectInfo.projectName || streetPair || 'Traffic Count Report';
+  const subtitle = [projectInfo.projectNumber && `Project #${projectInfo.projectNumber}`, streetPair].filter(Boolean).join(' · ');
+
+  const rightInfo = [
+    projectInfo.companyName,
+    projectInfo.companyAddress,
+  ].filter(Boolean).join('<br>');
+
+  // Vehicle bar chart
+  const slotTotals = vehSlotTotals(vehParsed);
+  const slotLabels = vehParsed.intervals.map(iv => iv.label?.split('–')[0]?.trim() || '');
+  const hasVeh = slotTotals.some(v => v > 0);
+  const vehSection = hasVeh ? `
+  <div class="section">
+    <div class="section-title">Vehicle volume profile</div>
+    <div class="chart-wrap">${buildBarChartSVG(slotTotals, slotLabels, '#6a8fc8')}</div>
+  </div>
+  <div class="section">
+    <div class="section-title">Vehicle count totals</div>
+    ${buildVehHtml(vehParsed)}
+  </div>` : '';
+
+  // TMC section
+  const hasTmc = tmcParsed.approaches.some(a => a.destinations.length);
+  const motorSection = hasTmc ? `
+  <div class="section">
+    <div class="section-title">Turning movements${hasBikes ? ' — motor vehicles' : ''}</div>
+    ${buildTmcHtml(hasBikes ? { ...tmcParsed, /* motor-filtered handled in caller */ } : tmcParsed, hasBikes ? motorIdx : undefined, legLabels)}
+  </div>` : '';
+
+  const bikeSection = hasBikes ? `
+  <div class="section">
+    <div class="section-title">Turning movements — bicycles</div>
+    ${buildTmcHtml(tmcParsed, bikeIdx, legLabels)}
+  </div>` : '';
+
+  // Ped section
+  const hasPed = pedParsed?.crosswalks?.length && pedParsed.intervals.some(iv => iv.counts.some(xw => xw[0]+xw[1] > 0));
+  const pedSection = hasPed ? `
+  <div class="section">
+    <div class="section-title">Pedestrian counts</div>
+    ${buildPedHtml(pedParsed)}
+  </div>` : '';
+
+  const generatedOn = new Date().toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' });
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${title}</title>
+<style>${PAGE_CSS}</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="report-hd">
+    <div class="report-hd-left">
+      <h1>${title}</h1>
+      ${subtitle ? `<div class="subtitle">${subtitle}</div>` : ''}
+    </div>
+    ${rightInfo ? `<div class="report-hd-right">${rightInfo}</div>` : ''}
+  </header>
+
+  ${metaHtml ? `<div class="meta-row">${metaHtml}</div>` : ''}
+
+  ${vehSection}
+  ${motorSection}
+  ${bikeSection}
+  ${pedSection}
+
+  <footer class="page-footer">
+    <span>Generated ${generatedOn}</span>
+    <span>Traffic App v3</span>
+  </footer>
+
+</div>
+</body>
+</html>`;
+
+  const blob = new Blob([html], { type: 'text/html' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = (title.replace(/[^a-z0-9]/gi, '-').toLowerCase() || 'traffic-report') + '.html';
+  a.click();
+  URL.revokeObjectURL(url);
+}

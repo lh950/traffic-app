@@ -48,6 +48,7 @@ import { runTmcQA, runVehicleQA, renderQASection } from './qa.js';
 import { renderWarrantSection } from './warrant.js';
 import { parseProjectSnapshot, parseCurrentSnapshot, renderComparisonSection, pickComparisonFile } from './compare.js';
 import { renderCorridorChart } from './corridorChart.js';
+import { exportShareablePage } from './shareReport.js';
 import { printSummaryReport, printIntersectionReport } from './printPedReport.js';
 import { buildVolumeProfileSVG, buildCrosswalkBarSVG, buildChartLegend, dirSplitBar, CW_COLORS } from './chartUtils.js';
 import { renderTripGenSection, DEFAULT_PEAK_WINDOWS } from './analysis/ui/tripgenSection.js';
@@ -576,6 +577,7 @@ async function renderIntersectionAnalysis() {
       <button class="dataset-tab" data-kind="ped">Pedestrian</button>
       ${hasTmc ? '<button class="dataset-tab" data-kind="tmc">Turning movements</button>' : ''}
       <button class="dataset-tab" style="margin-left:auto;border-left:.5px solid var(--border)" onclick="openPrintReport()">⎙ Print report</button>
+      <button class="dataset-tab" id="btn-share-report" style="border-left:.5px solid var(--border)">↓ Export page</button>
     </div>
     <div class="section"><div class="section-head"><h2>Summary</h2></div><div id="analyze-summary-root"></div></div>
     <div class="section"><div class="section-head"><h2>Data quality</h2></div><div id="analyze-qa-root"></div></div>
@@ -687,6 +689,15 @@ async function renderIntersectionAnalysis() {
 
     paintComparison();
   }
+
+  document.getElementById('btn-share-report')?.addEventListener('click', () => {
+    exportShareablePage(
+      projectInfo,
+      intersection,
+      vehParsed, pedParsed, tmcParsed,
+      motorIdx, bikeIdx, hasBikes
+    );
+  });
 }
 
 // ═══════════════════════════════════════════
