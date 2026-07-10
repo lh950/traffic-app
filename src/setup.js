@@ -168,6 +168,24 @@ export function updateTmcCount(n){
   renderTmcPairsList();
 }
 
+export function addBikeClass(){
+  const alphabet='abcdefghijklmnopqrstuvwxyz';
+  const usedKeys=new Set(tmcPairs.map(p=>p.key));
+  const k=alphabet.split('').find(c=>!usedKeys.has(c))||'?';
+  tmcPairs.push({label:'bicycle',def:'Cyclists',key:k,isBike:true});
+  const sel=document.getElementById('tmc-count');
+  if(sel){
+    while(sel.options.length<tmcPairs.length){
+      const o=document.createElement('option');
+      o.value=String(sel.options.length+1);
+      o.textContent=String(sel.options.length+1);
+      sel.appendChild(o);
+    }
+    sel.value=String(tmcPairs.length);
+  }
+  renderTmcPairsList();
+}
+
 export function applyTmcPreset(name){
   const preset=TMC_PRESETS[name]; if(!preset)return;
   setTmcPairs(preset.map(p=>({...p})));
@@ -198,7 +216,9 @@ export function renderTmcPairsList(){
       <input type="text" value="${p.label}" placeholder="label" oninput="tmcPairs[${i}].label=this.value;updateCfgFields()">
       <input type="text" value="${p.def}" placeholder="definition" style="font-size:11px" oninput="tmcPairs[${i}].def=this.value">
       <input type="text" class="key-input" maxlength="1" value="${p.key===';'?';':p.key.toUpperCase()}" placeholder="key"
-        oninput="tmcPairs[${i}].key=this.value.toLowerCase();checkTmcKeys()">`;
+        oninput="tmcPairs[${i}].key=this.value.toLowerCase();checkTmcKeys()">
+      <input type="checkbox" title="mark as bicycle type" class="bike-check" ${p.isBike?'checked':''}
+        onchange="tmcPairs[${i}].isBike=this.checked">`;
     wrap.appendChild(row);
   });
   checkTmcKeys();

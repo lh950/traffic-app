@@ -26,6 +26,8 @@ export let cfg = {
   get slots(){return Math.max(1,Math.round(this.durationMin/this.intervalMin))}
 };
 
+export const periodMeta = { date:'', weather:'', observer:'', notes:'' };
+
 export let customInterval = 15;
 export function setCustomInterval(v){ customInterval = v; }
 
@@ -223,6 +225,7 @@ function cloneManual(m){
 export function captureActivePeriod(){
   return {
     cfg:{startMinutes:cfg.startMinutes,intervalMin:cfg.intervalMin,durationMin:cfg.durationMin},
+    meta:{...periodMeta},
     vData:JSON.parse(JSON.stringify(vData)),
     pedData:JSON.parse(JSON.stringify(pedData)),
     tmcData:JSON.parse(JSON.stringify(tmcData)),
@@ -234,6 +237,7 @@ export function captureActivePeriod(){
 
 export function restoreActivePeriod(p){
   Object.assign(cfg,p.cfg);
+  Object.assign(periodMeta, p.meta || {date:'',weather:'',observer:'',notes:''});
   Object.assign(vData,JSON.parse(JSON.stringify(p.vData)));
   pedData.length=0; pedData.push(...JSON.parse(JSON.stringify(p.pedData)));
   Object.keys(tmcData).forEach(k=>delete tmcData[k]);

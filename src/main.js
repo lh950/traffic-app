@@ -1,19 +1,21 @@
 import './style.css';
 import './analysis/style.css';
 
+const LS_KEY = 'traffic-app-autosave';
+
 import {
   cfg, vPairs, tmcPairs, setTmcPairs, intersection, fnames, vData, pedData, tmcData,
   vManual, pedManual, tmManual, slotLabel, setVPairs, setTmcApproach,
   initVData, initPedData, initTMCData, mode,
   periods, activePeriodIdx, setActivePeriodIdx,
   captureActivePeriod, restoreActivePeriod, initDefaultPeriods,
-  resetUndoStacks, updateUndoUI,
+  resetUndoStacks, updateUndoUI, periodMeta,
 } from './state.js';
 import {
   switchSetupTab, setIntervalLen, updateDerived, updateVCount, applyVPreset,
   checkVKeys, checkPKeys, setLegLabel, toggleLegCrosswalk, toggleLegApproach, toggleLegOneWay, toggleLegOneWayIn,
   updateCrosswalkField, toggleApproachDestUnified, toggleApproachCount, renderLegConfig,
-  buildTemplateGrid, renderVPairsList, renderTmcPairsList, updateTmcCount, checkTmcKeys, applyTmcPreset,
+  buildTemplateGrid, renderVPairsList, renderTmcPairsList, updateTmcCount, checkTmcKeys, applyTmcPreset, addBikeClass,
   copyVPairsFromProject, copyTmcPairsFromProject,
   updateTemplateSuboption, setDiagLeg, setMissingLeg,
   initApproaches, updateDefaultFilenames, wireSetupFilenameInputs, startCounting, goSetup,
@@ -36,6 +38,7 @@ import {
 
 import { parseTmcCsv } from './parseTmcCsv.js';
 import { parseRawCountXlsx, buildIntersectionFromMeta } from './parseRawCountXlsx.js';
+import { parseCSV, detectColumnsLocally, mapColumnsWithClaude, buildSnapshotFromMapping, saveLearnedMappings, LS_API_KEY } from './importCsv.js';
 import * as analysisData from './analysis/ui/dataAdapter.js';
 import { renderSummary } from './analysis/ui/summary.js';
 import { renderTmcSection } from './analysis/ui/tmcDiagram.js';
@@ -115,7 +118,7 @@ Object.assign(window, {
   switchSetupTab, setIntervalLen, updateDerived, updateVCount, applyVPreset,
   checkVKeys, checkPKeys, setLegLabel, toggleLegCrosswalk, toggleLegApproach, toggleLegOneWay, toggleLegOneWayIn,
   updateCrosswalkField, toggleApproachDestUnified, toggleApproachCount, renderLegConfig,
-  renderTmcPairsList, updateTmcCount, checkTmcKeys, applyTmcPreset,
+  renderTmcPairsList, updateTmcCount, checkTmcKeys, applyTmcPreset, addBikeClass,
   openLegPopover, closeLegPopover, getOpenLeg,
   setDiagLeg, setMissingLeg, updateDiagram, toggleDiagram, toggleTurningDiagram,
   setMode, render, buildKbd, updateCfgFields, vGroupPrev, vGroupNext,
@@ -125,7 +128,13 @@ Object.assign(window, {
   openHelp, closeHelp, switchHelpTab, openSettings, closeSettings,
   applyMidSettings, checkMsKeys,
   goSetup,
-  openPrintReport: () => openPrintReport(projectInfo),
+  openPrintReport: () => openPrintReport({
+    ...projectInfo,
+    date: periodMeta.date,
+    weather: periodMeta.weather,
+    counterName: periodMeta.observer || projectInfo.counterName,
+    studyPurpose: periodMeta.notes || projectInfo.studyPurpose,
+  }),
   exportAnalyzeXLSX: () => {
     if (projectType === 'tripgen') exportTripgenXLSX(tripgenEntries, tripgenSiteInfo, projectInfo);
     else exportXLSX();
@@ -138,6 +147,13 @@ window.startCounting = function () {
   initDefaultPeriods();
   buildPeriodTabs();
   buildCounterSidebar();
+  // Enter workspace when starting a count from setup screen
+  if (projectType === 'intersection') {
+    enterWorkspace();
+    setSidebarMeta(projectInfo.projectName || 'Intersection count', '');
+    _sidebarActiveItem = 'count';
+    renderAppSidebar();
+  }
 };
 
 (function(){
@@ -210,8 +226,8 @@ initApproaches();
 // ═══════════════════════════════════════════
 // SCREEN ROUTER
 // ═══════════════════════════════════════════
-const SCREENS = ['landing-screen', 'area-setup-screen', 'summary-screen', 'ix-analysis-screen', 'setup-screen', 'counter-screen', 'tripgen-setup-screen', 'tripgen-counter-screen', 'tripgen-qaqc-screen', 'analyze-screen'];
-let projectType = null; // 'intersection' | 'tripgen' | null (no project loaded)
+const SCREENS = ['home-screen', 'landing-screen', 'area-setup-screen', 'area-import-screen', 'summary-screen', 'export-screen', 'ix-analysis-screen', 'setup-screen', 'counter-screen', 'tripgen-setup-screen', 'tripgen-counter-screen', 'tripgen-qaqc-screen', 'analyze-screen'];
+let projectType = null; // 'intersection' | 'area' | 'tripgen' | null
 
 function showScreen(id) {
   SCREENS.forEach((s) => {
@@ -221,13 +237,234 @@ function showScreen(id) {
     el.classList.toggle('active', s === id);
   });
 }
-showScreen('landing-screen');
+
+// ── Workspace / sidebar ──
+let _sidebarActiveItem = null;
+
+function enterWorkspace() {
+  document.body.classList.add('workspace-mode');
+  document.getElementById('app-sidebar')?.classList.add('visible');
+}
+
+function exitWorkspace() {
+  document.body.classList.remove('workspace-mode');
+  document.getElementById('app-sidebar')?.classList.remove('visible');
+}
+
+function showHome() {
+  exitWorkspace();
+  _sidebarActiveItem = null;
+  showScreen('home-screen');
+  renderHomeResumeBanner();
+}
+
+function setSidebarMeta(name, sub) {
+  const nameEl = document.getElementById('sidebar-project-name');
+  const subEl = document.getElementById('sidebar-project-sub');
+  if (nameEl) nameEl.textContent = name || 'Untitled';
+  if (subEl) subEl.textContent = sub || '';
+}
+
+function renderSidebarIntersection() {
+  const body = document.getElementById('sidebar-body');
+  if (!body) return;
+  body.innerHTML = `
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Intersection</div>
+      <button class="sidebar-item" data-ws="setup">Setup</button>
+      <button class="sidebar-item" data-ws="count">Count</button>
+      <button class="sidebar-item" data-ws="analyze">Analyze</button>
+      <button class="sidebar-item" data-ws="charts">Charts</button>
+    </div>
+    <div class="sidebar-divider"></div>
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Study</div>
+      <button class="sidebar-item" data-ws="export">Export</button>
+    </div>`;
+  body.querySelectorAll('.sidebar-item[data-ws]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.ws === _sidebarActiveItem);
+    btn.addEventListener('click', () => openWorkspaceTab(btn.dataset.ws));
+  });
+}
+
+function renderSidebarArea() {
+  const body = document.getElementById('sidebar-body');
+  if (!body) return;
+  const studyItems = `
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Study</div>
+      <button class="sidebar-item" data-ws="area-summary">Summary</button>
+      <button class="sidebar-item" data-ws="area-import">Import CSV</button>
+      <button class="sidebar-item" data-ws="area-export">Export</button>
+    </div>
+    <div class="sidebar-divider"></div>`;
+  const ixItems = areaIntersections.map((ix, i) => `
+    <button class="sidebar-item sidebar-item-ix" data-ws="area-ix" data-idx="${i}">
+      <span class="sidebar-ix-dot"></span>
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${ix.name || `Intersection ${i + 1}`}</span>
+    </button>`).join('');
+  body.innerHTML = `
+    ${studyItems}
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Intersections</div>
+      ${ixItems}
+      <button class="sidebar-add-btn" id="sidebar-add-ix">+ Add intersection</button>
+    </div>`;
+  body.querySelectorAll('.sidebar-item[data-ws]').forEach(btn => {
+    const key = btn.dataset.ws === 'area-ix' ? `area-ix-${btn.dataset.idx}` : btn.dataset.ws;
+    btn.classList.toggle('active', key === _sidebarActiveItem);
+    btn.addEventListener('click', () => {
+      if (btn.dataset.ws === 'area-ix') openWorkspaceTab('area-ix', +btn.dataset.idx);
+      else openWorkspaceTab(btn.dataset.ws);
+    });
+  });
+  document.getElementById('sidebar-add-ix')?.addEventListener('click', () => {
+    _sidebarActiveItem = null;
+    renderSidebarArea();
+    showScreen('area-setup-screen');
+  });
+}
+
+function renderSidebarTripgen() {
+  const body = document.getElementById('sidebar-body');
+  if (!body) return;
+  body.innerHTML = `
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Study</div>
+      <button class="sidebar-item" data-ws="tg-setup">Setup</button>
+      <button class="sidebar-item" data-ws="tg-analyze">Analysis</button>
+      <button class="sidebar-item" data-ws="tg-qaqc">QA/QC</button>
+    </div>`;
+  body.querySelectorAll('.sidebar-item[data-ws]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.ws === _sidebarActiveItem);
+    btn.addEventListener('click', () => openWorkspaceTab(btn.dataset.ws));
+  });
+}
+
+function renderAppSidebar() {
+  if (projectType === 'intersection') renderSidebarIntersection();
+  else if (projectType === 'area') renderSidebarArea();
+  else if (projectType === 'tripgen') renderSidebarTripgen();
+}
+
+function openWorkspaceTab(tab, idx) {
+  _sidebarActiveItem = tab === 'area-ix' ? `area-ix-${idx}` : tab;
+  renderAppSidebar();
+  switch (tab) {
+    case 'setup': showScreen('setup-screen'); break;
+    case 'count': showScreen('counter-screen'); window.goToCountMode?.(); break;
+    case 'analyze':
+      showScreen('ix-analysis-screen');
+      renderIxAnalysis(0, 'data');
+      break;
+    case 'charts':
+      showScreen('ix-analysis-screen');
+      renderIxAnalysis(0, 'charts');
+      break;
+    case 'export': showExportScreen(); break;
+    case 'area-summary':
+      if (typeof showSummaryScreen === 'function') showSummaryScreen();
+      break;
+    case 'area-import': showImportScreen(); break;
+    case 'area-export': showExportScreen(); break;
+    case 'area-ix':
+      showIntersectionAnalysis(idx ?? activeIntersectionIdx);
+      break;
+    case 'tg-setup': showScreen('tripgen-setup-screen'); break;
+    case 'tg-analyze': showScreen('analyze-screen'); break;
+    case 'tg-qaqc': showScreen('tripgen-qaqc-screen'); break;
+    default: break;
+  }
+}
+
+// ── Home screen ──
+function renderHomeResumeBanner() {
+  const banner = document.getElementById('home-resume-banner');
+  if (!banner) return;
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) { banner.style.display = 'none'; return; }
+    const proj = JSON.parse(raw);
+    if (!proj?.projectType || !proj?.savedAt) { banner.style.display = 'none'; return; }
+    const label = proj.projectType === 'tripgen'
+      ? (proj.siteInfo?.location || proj.projectInfo?.projectName || 'Trip generation project')
+      : (proj.projectInfo?.projectName || 'Intersection count');
+    const timeAgo = formatTimeAgo(new Date(proj.savedAt));
+    banner.innerHTML = `
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span style="flex:1;min-width:0"><strong>Resume previous session</strong> — ${label} · autosaved ${timeAgo}</span>
+        <button id="home-btn-resume" class="btn-primary" style="white-space:nowrap">Resume →</button>
+        <button id="home-btn-discard" style="white-space:nowrap">Discard</button>
+      </div>`;
+    banner.style.display = '';
+    document.getElementById('home-btn-resume')?.addEventListener('click', () => {
+      loadProject(proj);
+      banner.style.display = 'none';
+    });
+    document.getElementById('home-btn-discard')?.addEventListener('click', () => {
+      clearAutosave();
+      banner.style.display = 'none';
+    });
+  } catch (_) { banner.style.display = 'none'; }
+}
+
+// Wire home screen buttons
+document.getElementById('home-btn-intersection')?.addEventListener('click', () => {
+  projectType = 'intersection';
+  enterWorkspace();
+  setSidebarMeta('New intersection count', '');
+  _sidebarActiveItem = 'setup';
+  renderAppSidebar();
+  showScreen('setup-screen');
+});
+
+document.getElementById('home-btn-area')?.addEventListener('click', () => {
+  projectType = 'area';
+  areaIntersections.length = 0;
+  enterWorkspace();
+  setSidebarMeta('New area study', '');
+  _sidebarActiveItem = null;
+  renderAppSidebar();
+  showScreen('area-setup-screen');
+});
+
+document.getElementById('home-btn-tripgen')?.addEventListener('click', () => {
+  projectType = 'tripgen';
+  enterWorkspace();
+  setSidebarMeta('New trip generation', '');
+  _sidebarActiveItem = 'tg-setup';
+  renderAppSidebar();
+  showScreen('tripgen-setup-screen');
+});
+
+document.getElementById('home-btn-load')?.addEventListener('click', () => {
+  document.getElementById('home-load-input')?.click();
+});
+document.getElementById('home-load-input')?.addEventListener('change', async (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  const errEl = document.getElementById('home-load-error');
+  try {
+    const text = await file.text();
+    const proj = JSON.parse(text);
+    loadProject(proj);
+    if (errEl) errEl.textContent = '';
+  } catch (err) {
+    if (errEl) errEl.textContent = `Could not load project: ${err.message}`;
+  }
+});
+
+document.getElementById('sidebar-back-btn')?.addEventListener('click', showHome);
+
+showScreen('home-screen');
+renderHomeResumeBanner();
 
 window.goToCountMode = function () {
   document.getElementById('btn-count-mode')?.classList.add('active');
   document.getElementById('btn-analyze-mode')?.classList.remove('active');
   showScreen('counter-screen');
   buildCounterSidebar();
+  if (periods.length) { buildPeriodTabs(); }
 };
 window.goToAnalyzeMode = async function () {
   document.getElementById('btn-count-mode')?.classList.remove('active');
@@ -246,7 +483,8 @@ document.getElementById('btn-analyze-print')?.addEventListener('click', () => {
 document.getElementById('btn-analyze-to-landing')?.addEventListener('click', () => {
   document.getElementById('btn-analyze-to-count').style.display = 'none';
   document.getElementById('btn-analyze-to-qaqc').style.display = 'none';
-  showScreen('landing-screen');
+  if (projectType === 'area') showSummaryScreen();
+  else showHome();
 });
 
 // ═══════════════════════════════════════════
@@ -290,7 +528,30 @@ function liveTmcParsed() {
     });
     return { label: slotLabel(i), start, end, counts };
   });
-  return { approaches, types: vPairs.map((p) => p.label), intervals, legLabels: intersection.legLabels || {} };
+  return { approaches, types: tmcPairs.map(p => ({ label: p.label, isBike: !!p.isBike })), intervals, legLabels: intersection.legLabels || {} };
+}
+
+function filterTmcParsedByIndices(parsed, indices) {
+  if (!indices || indices.length === parsed.types.length) return parsed;
+  const idxSet = new Set(indices);
+  return {
+    ...parsed,
+    types: parsed.types.filter((_, i) => idxSet.has(i)),
+    intervals: parsed.intervals.map(iv => ({
+      ...iv,
+      counts: Object.fromEntries(
+        Object.entries(iv.counts).map(([leg, dests]) => [
+          leg,
+          Object.fromEntries(
+            Object.entries(dests).map(([dest, arr]) => [
+              dest,
+              indices.map(i => arr[i] || 0),
+            ])
+          ),
+        ])
+      ),
+    })),
+  };
 }
 
 async function renderIntersectionAnalysis() {
@@ -300,6 +561,11 @@ async function renderIntersectionAnalysis() {
   const tmcParsed = liveTmcParsed();
   const hasTmc = intersection.approaches.some((a) => a.destinations.length);
 
+  const bikeIdx = tmcPairs.map((p, i) => p.isBike ? i : -1).filter(i => i >= 0);
+  const motorIdx = tmcPairs.map((p, i) => !p.isBike ? i : -1).filter(i => i >= 0);
+  const hasBikes = hasTmc && bikeIdx.length > 0;
+  const hasMotor = hasTmc && motorIdx.length > 0;
+
   root.innerHTML = `
     <div class="dataset-tabs no-print" id="analyze-dataset-tabs" style="display:flex;align-items:center;gap:0">
       <button class="dataset-tab active" data-kind="vehicle">Vehicle</button>
@@ -308,7 +574,9 @@ async function renderIntersectionAnalysis() {
       <button class="dataset-tab" style="margin-left:auto;border-left:.5px solid var(--border)" onclick="openPrintReport()">⎙ Print report</button>
     </div>
     <div class="section"><div class="section-head"><h2>Summary</h2></div><div id="analyze-summary-root"></div></div>
-    ${hasTmc ? '<div class="section"><div class="section-head"><h2>Turning movements</h2></div><div id="analyze-tmc-root"></div></div>' : ''}
+    ${hasMotor ? `<div class="section"><div class="section-head"><h2>Turning movements${hasBikes ? ' — motor vehicles' : ''}</h2></div><div id="analyze-tmc-root"></div></div>` : ''}
+    ${hasBikes ? `<div class="section"><div class="section-head"><h2>Turning movements — bicycles</h2></div><div id="analyze-bike-root"></div></div>` : ''}
+    ${hasTmc && !hasMotor && !hasBikes ? '<div class="section"><div class="section-head"><h2>Turning movements</h2></div><div id="analyze-tmc-root"></div></div>' : ''}
     <div class="section"><div class="section-head"><h2>Level of service</h2></div><div id="analyze-los-root"></div></div>
   `;
 
@@ -327,8 +595,13 @@ async function renderIntersectionAnalysis() {
   });
   await paintSummary();
 
-  if (hasTmc) {
+  if (hasMotor) {
+    await renderTmcSection(document.getElementById('analyze-tmc-root'), filterTmcParsedByIndices(tmcParsed, motorIdx));
+  } else if (hasTmc && !hasBikes) {
     await renderTmcSection(document.getElementById('analyze-tmc-root'), tmcParsed);
+  }
+  if (hasBikes) {
+    await renderTmcSection(document.getElementById('analyze-bike-root'), filterTmcParsedByIndices(tmcParsed, bikeIdx));
   }
 
   const losRows = [];
@@ -365,7 +638,7 @@ document.getElementById('btn-new-area-study')?.addEventListener('click', () => {
   projectType = 'area';
   showAreaSetup();
 });
-document.getElementById('btn-tripgen-to-landing')?.addEventListener('click', () => showScreen('landing-screen'));
+document.getElementById('btn-tripgen-to-landing')?.addEventListener('click', () => showHome());
 
 // ═══════════════════════════════════════════
 // AREA-WIDE STUDY SETUP SCREEN
@@ -376,6 +649,9 @@ function showProjectHub() {
   if (titleEl) titleEl.textContent = projectInfo.projectName || 'Untitled project';
   if (subEl) subEl.textContent = [projectInfo.companyName, projectInfo.studyPurpose].filter(Boolean).join(' · ');
   renderAreaIntersectionsList();
+  enterWorkspace();
+  setSidebarMeta(projectInfo.projectName || 'Area study', '');
+  renderAppSidebar();
   showScreen('area-setup-screen');
 }
 
@@ -392,8 +668,12 @@ function saveCurrentIntersectionToHub() {
   if (activeIntersectionIdx >= 0 && activeIntersectionIdx < areaIntersections.length) {
     areaIntersections[activeIntersectionIdx].snapshot = snap;
     areaIntersections[activeIntersectionIdx].name = name;
+    const { street1, street2 } = extractStreets({ name, street1: intersection.street1, street2: intersection.street2, snapshot: snap });
+    if (!areaIntersections[activeIntersectionIdx].street1) areaIntersections[activeIntersectionIdx].street1 = street1;
+    if (!areaIntersections[activeIntersectionIdx].street2) areaIntersections[activeIntersectionIdx].street2 = street2;
   } else {
-    areaIntersections.push({ name, snapshot: snap });
+    const streets = extractStreets({ name, street1: intersection.street1, street2: intersection.street2, snapshot: snap });
+    areaIntersections.push({ name, snapshot: snap, street1: streets.street1, street2: streets.street2, corridor: '', counterName: '', lat: '', lng: '' });
     activeIntersectionIdx = 0;
   }
 }
@@ -418,6 +698,9 @@ function renderAreaIntersectionsList() {
     const periodNames = snap?.periods?.map(p => p.name).join(', ') || '—';
     const isActive = i === activeIntersectionIdx;
     const counter = ix.counterName || '';
+    const corridor = ix.corridor || '';
+    const lat = ix.lat || '';
+    const lng = ix.lng || '';
     return `
       <div class="area-ix-row${isActive ? ' active' : ''}" data-idx="${i}">
         <div class="area-ix-num">${i + 1}</div>
@@ -425,8 +708,15 @@ function renderAreaIntersectionsList() {
           <div class="area-ix-name">${ix.name}</div>
           <div class="area-ix-meta">${periods} period${periods !== 1 ? 's' : ''} · ${periodNames}</div>
         </div>
-        <div class="area-ix-counter">
-          <input class="area-ix-counter-input" data-idx="${i}" type="text" value="${counter.replace(/"/g,'&quot;')}" placeholder="counter name">
+        <div class="area-ix-fields">
+          <div class="area-ix-fields-row">
+            <input class="area-ix-field-input area-ix-corridor-input" data-idx="${i}" type="text" value="${corridor.replace(/"/g,'&quot;')}" placeholder="corridor (optional)">
+            <input class="area-ix-field-input area-ix-counter-input" data-idx="${i}" type="text" value="${counter.replace(/"/g,'&quot;')}" placeholder="counter name">
+          </div>
+          <div class="area-ix-fields-row">
+            <input class="area-ix-field-input area-ix-lat-input" data-idx="${i}" type="text" value="${lat.replace(/"/g,'&quot;')}" placeholder="latitude">
+            <input class="area-ix-field-input area-ix-lng-input" data-idx="${i}" type="text" value="${lng.replace(/"/g,'&quot;')}" placeholder="longitude">
+          </div>
         </div>
         <div class="area-ix-actions">
           <button class="btn-icon area-ix-review" data-idx="${i}" title="Open for review">review →</button>
@@ -459,6 +749,13 @@ function renderAreaIntersectionsList() {
     });
   });
 
+  container.querySelectorAll('.area-ix-corridor-input').forEach(inp => {
+    inp.addEventListener('input', () => {
+      const idx = +inp.dataset.idx;
+      if (areaIntersections[idx]) areaIntersections[idx].corridor = inp.value;
+    });
+  });
+
   container.querySelectorAll('.area-ix-counter-input').forEach(inp => {
     inp.addEventListener('input', () => {
       const idx = +inp.dataset.idx;
@@ -466,12 +763,27 @@ function renderAreaIntersectionsList() {
     });
   });
 
+  container.querySelectorAll('.area-ix-lat-input').forEach(inp => {
+    inp.addEventListener('input', () => {
+      const idx = +inp.dataset.idx;
+      if (areaIntersections[idx]) areaIntersections[idx].lat = inp.value;
+    });
+  });
+
+  container.querySelectorAll('.area-ix-lng-input').forEach(inp => {
+    inp.addEventListener('input', () => {
+      const idx = +inp.dataset.idx;
+      if (areaIntersections[idx]) areaIntersections[idx].lng = inp.value;
+    });
+  });
+
   if (beginBtn) beginBtn.disabled = areaIntersections.length === 0;
 }
 
-document.getElementById('btn-area-to-landing')?.addEventListener('click', () => showScreen('landing-screen'));
+document.getElementById('btn-area-to-landing')?.addEventListener('click', () => showHome());
 document.getElementById('btn-summary-back')?.addEventListener('click', () => showProjectHub());
-document.getElementById('btn-summary-export-csv')?.addEventListener('click', exportSummaryCSV);
+document.getElementById('btn-summary-export')?.addEventListener('click', showExportScreen);
+document.getElementById('btn-export-back')?.addEventListener('click', () => showScreen('summary-screen'));
 // Summary print options popover
 (function () {
   const btn   = document.getElementById('btn-summary-print');
@@ -608,9 +920,179 @@ document.getElementById('btn-area-new-manual')?.addEventListener('click', () => 
     }]
   });
   const name = `Intersection ${areaIntersections.length + 1}`;
-  areaIntersections.push({ name, snapshot: snap });
+  areaIntersections.push({ name, snapshot: snap, street1: '', street2: '', corridor: '', counterName: '', lat: '', lng: '' });
   activeIntersectionIdx = areaIntersections.length - 1;
   loadIntersectionIntoView(snap);
+});
+
+// ── CSV Import ──
+let _csvImportMapping = null;
+let _csvImportHeaders = null;
+let _csvImportRows = null;
+let _csvImportIxName = '';
+
+const MIN_MOVEMENTS_TO_ACCEPT = 4; // built-in detection is considered successful with ≥ this many movements mapped
+
+function importSetStep(step) {
+  document.getElementById('import-step-upload').style.display       = step === 'upload' ? '' : 'none';
+  document.getElementById('import-step-ai-fallback').style.display  = step === 'fallback' ? '' : 'none';
+  document.getElementById('import-step-loading').style.display      = step === 'loading' ? '' : 'none';
+  document.getElementById('import-step-preview').style.display      = step === 'preview' ? '' : 'none';
+}
+
+function showImportScreen() {
+  _sidebarActiveItem = 'area-import';
+  renderAppSidebar();
+  showScreen('area-import-screen');
+  importSetStep('upload');
+  document.getElementById('import-step1-error').textContent = '';
+  // Pre-fill saved API key hint
+  const savedKey = localStorage.getItem(LS_API_KEY);
+  const note = document.getElementById('import-key-saved-note');
+  if (note) note.textContent = savedKey ? 'API key saved from previous import' : '';
+  const keyInput = document.getElementById('import-api-key-input');
+  if (keyInput && savedKey) keyInput.value = savedKey;
+}
+
+document.getElementById('btn-area-import-csv')?.addEventListener('click', showImportScreen);
+document.getElementById('btn-import-back')?.addEventListener('click', () => {
+  _sidebarActiveItem = null;
+  renderAppSidebar();
+  showScreen('area-setup-screen');
+});
+
+// Show/hide API key
+document.getElementById('import-key-toggle')?.addEventListener('click', () => {
+  const inp = document.getElementById('import-api-key-input');
+  const btn = document.getElementById('import-key-toggle');
+  if (!inp) return;
+  inp.type = inp.type === 'password' ? 'text' : 'password';
+  if (btn) btn.textContent = inp.type === 'password' ? 'show' : 'hide';
+});
+
+// ── Path 1: built-in local detection ──
+document.getElementById('import-detect-btn')?.addEventListener('click', async () => {
+  const fileInput = document.getElementById('import-csv-file-input');
+  const errEl = document.getElementById('import-step1-error');
+  if (errEl) errEl.textContent = '';
+
+  const file = fileInput?.files?.[0];
+  if (!file) { if (errEl) errEl.textContent = 'Please select a CSV file.'; return; }
+
+  _csvImportIxName = document.getElementById('import-ix-name-input')?.value?.trim() || '';
+
+  const text = await file.text();
+  const { headers, rows } = parseCSV(text);
+  _csvImportHeaders = headers;
+  _csvImportRows = rows;
+
+  const local = detectColumnsLocally(headers, rows);
+  if (local && local._localMatched >= MIN_MOVEMENTS_TO_ACCEPT) {
+    _csvImportMapping = local;
+    renderImportPreview(local, headers, rows, 'auto-detected');
+    importSetStep('preview');
+  } else {
+    // Show fallback panel
+    importSetStep('fallback');
+    const matched = local?._localMatched ?? 0;
+    const msgEl = document.getElementById('import-fallback-msg');
+    if (msgEl) {
+      msgEl.textContent = local
+        ? `Auto-detection matched ${matched} of 12 movement columns — not enough to import reliably.`
+        : 'Could not find a time column in this file. The format may use non-standard headers.';
+    }
+    document.getElementById('import-step-ai-error').textContent = '';
+  }
+});
+
+// ── Path 2: Claude AI fallback ──
+document.getElementById('import-analyze-btn')?.addEventListener('click', async () => {
+  const keyInput = document.getElementById('import-api-key-input');
+  const errEl = document.getElementById('import-step-ai-error');
+  if (errEl) errEl.textContent = '';
+
+  const apiKey = keyInput?.value?.trim();
+  if (!apiKey) { if (errEl) errEl.textContent = 'Please enter your Anthropic API key.'; return; }
+
+  try { localStorage.setItem(LS_API_KEY, apiKey); } catch (_) {}
+
+  importSetStep('loading');
+  try {
+    _csvImportMapping = await mapColumnsWithClaude(_csvImportHeaders, _csvImportRows, apiKey);
+    saveLearnedMappings(_csvImportMapping);
+    renderImportPreview(_csvImportMapping, _csvImportHeaders, _csvImportRows, 'Claude AI');
+    importSetStep('preview');
+  } catch (err) {
+    importSetStep('fallback');
+    if (errEl) errEl.textContent = `Claude error: ${err.message}`;
+  }
+});
+
+function renderImportPreview(mapping, headers, rows, source) {
+  const MOVE_CODES = ['NBL','NBT','NBR','SBL','SBT','SBR','EBL','EBT','EBR','WBL','WBT','WBR'];
+  const found = MOVE_CODES.filter(c => mapping.movements?.[c]);
+
+  const srcEl = document.getElementById('import-mapping-source');
+  if (srcEl) srcEl.textContent = source ? `via ${source}` : '';
+
+  const mappingEl = document.getElementById('import-mapping-table');
+  if (mappingEl) {
+    const tableRows = [
+      ['Time column', mapping.time_column || '—', mapping.time_column ? 'found' : 'null'],
+      ['Interval', `${mapping.interval_minutes || 15} min`, 'found'],
+      ['Start time', mapping.start_time || '—', mapping.start_time ? 'found' : 'null'],
+      ['Period name', mapping.period_name || '—', mapping.period_name ? 'found' : 'null'],
+      ...MOVE_CODES.map(c => [c, mapping.movements?.[c] || '—', mapping.movements?.[c] ? 'found' : 'null']),
+    ];
+    mappingEl.innerHTML = `<table class="import-mapping-table">
+      <thead><tr><th>Field</th><th>Mapped to column</th></tr></thead>
+      <tbody>${tableRows.map(([f, v, cls]) =>
+        `<tr><td>${f}</td><td class="import-mapping-${cls}">${v}</td></tr>`
+      ).join('')}</tbody>
+    </table>`;
+  }
+
+  const previewEl = document.getElementById('import-data-preview');
+  if (previewEl && found.length) {
+    const timeIdx = headers.findIndex(h => h === mapping.time_column);
+    previewEl.innerHTML = `<table class="import-preview-table">
+      <thead><tr><th>Time</th>${found.map(c => `<th>${c}</th>`).join('')}</tr></thead>
+      <tbody>${rows.slice(0, 8).map(row => {
+        const time = timeIdx >= 0 ? (row[timeIdx] || '') : '';
+        const cells = found.map(c => {
+          const idx = headers.findIndex(h => h === mapping.movements?.[c]);
+          return `<td>${idx >= 0 ? (row[idx] || '0') : '—'}</td>`;
+        }).join('');
+        return `<tr><td>${time}</td>${cells}</tr>`;
+      }).join('')}</tbody>
+    </table>`;
+  } else if (previewEl) {
+    previewEl.innerHTML = '<div style="font-size:12px;color:var(--text3);padding:8px 0">No movement columns detected. Check the mapping above.</div>';
+  }
+}
+
+document.getElementById('import-retry-btn')?.addEventListener('click', () => {
+  importSetStep('upload');
+  document.getElementById('import-step1-error').textContent = '';
+});
+
+document.getElementById('import-confirm-btn')?.addEventListener('click', () => {
+  const errEl = document.getElementById('import-step3-error');
+  if (errEl) errEl.textContent = '';
+  try {
+    const snapshot = buildSnapshotFromMapping(_csvImportMapping, _csvImportHeaders, _csvImportRows);
+    const name = _csvImportIxName || _csvImportMapping.period_name || `Intersection ${areaIntersections.length + 1}`;
+    areaIntersections.push({ name, snapshot, street1: '', street2: '', corridor: '', counterName: '', lat: '', lng: '' });
+    activeIntersectionIdx = areaIntersections.length - 1;
+    serializeCurrentProject();
+    autosave();
+    renderSidebarArea();
+    _sidebarActiveItem = null;
+    showScreen('area-setup-screen');
+    renderAreaIntersectionsList();
+  } catch (err) {
+    if (errEl) errEl.textContent = `Import failed: ${err.message}`;
+  }
 });
 
 document.getElementById('btn-load-project')?.addEventListener('click', () => document.getElementById('load-project-input').click());
@@ -831,7 +1313,8 @@ function loadRawCountSheet(sheet) {
       renderAreaIntersectionsList();
       return;
     }
-    areaIntersections.push({ name: locName, snapshot });
+    const _streets840 = extractStreets({ name: locName, snapshot });
+    areaIntersections.push({ name: locName, snapshot, street1: _streets840.street1, street2: _streets840.street2, corridor: '', counterName: '', lat: '', lng: '' });
     activeIntersectionIdx = areaIntersections.length - 1;
     // Stay on area setup screen if we're currently there; otherwise stay in counter
     if (document.getElementById('area-setup-screen')?.style.display !== 'none') {
@@ -845,7 +1328,8 @@ function loadRawCountSheet(sheet) {
     // Start a new area study from the landing screen import
     areaIntersections.length = 0;
     activeIntersectionIdx = 0;
-    areaIntersections.push({ name: locName, snapshot });
+    const _streets854 = extractStreets({ name: locName, snapshot });
+    areaIntersections.push({ name: locName, snapshot, street1: _streets854.street1, street2: _streets854.street2, corridor: '', counterName: '', lat: '', lng: '' });
     projectType = 'area';
     if (projectInfo.projectName === '') projectInfo.projectName = locName;
     showAreaSetup();
@@ -964,6 +1448,41 @@ function buildPeriodTabs() {
   timeWrap.appendChild(endLabel);
   timeWrap.appendChild(endInput);
   bar.appendChild(timeWrap);
+
+  buildPeriodMetaBar();
+}
+
+function buildPeriodMetaBar() {
+  const bar = document.getElementById('period-meta-bar');
+  if (!bar) return;
+  bar.innerHTML = '';
+  const mk = (tag, props) => Object.assign(document.createElement(tag), props);
+  const lbl = txt => bar.appendChild(mk('span', { className: 'period-meta-label', textContent: txt }));
+
+  lbl('date:');
+  const dateEl = mk('input', { type: 'date', className: 'period-meta-input', value: periodMeta.date || '' });
+  dateEl.addEventListener('change', () => { periodMeta.date = dateEl.value; window.scheduleAutosave(); });
+  bar.appendChild(dateEl);
+
+  lbl('weather:');
+  const wxEl = mk('select', { className: 'period-meta-input' });
+  ['', 'Clear', 'Partly cloudy', 'Overcast', 'Rain', 'Snow'].forEach(w => {
+    const o = mk('option', { value: w, textContent: w || '—' });
+    if (w === periodMeta.weather) o.selected = true;
+    wxEl.appendChild(o);
+  });
+  wxEl.addEventListener('change', () => { periodMeta.weather = wxEl.value; window.scheduleAutosave(); });
+  bar.appendChild(wxEl);
+
+  lbl('observer:');
+  const obsEl = mk('input', { type: 'text', className: 'period-meta-input period-meta-wide', placeholder: 'name', value: periodMeta.observer || '' });
+  obsEl.addEventListener('input', () => { periodMeta.observer = obsEl.value; window.scheduleAutosave(); });
+  bar.appendChild(obsEl);
+
+  lbl('notes:');
+  const notesEl = mk('input', { type: 'text', className: 'period-meta-input period-meta-notes', placeholder: 'optional', value: periodMeta.notes || '' });
+  notesEl.addEventListener('input', () => { periodMeta.notes = notesEl.value; window.scheduleAutosave(); });
+  bar.appendChild(notesEl);
 }
 
 function switchPeriod(newIdx) {
@@ -994,8 +1513,18 @@ function addPeriod(name) {
 // ═══════════════════════════════════════════
 // AREA STUDY — multi-intersection container
 // ═══════════════════════════════════════════
-const areaIntersections = []; // [{name, snapshot}]
+const areaIntersections = []; // [{name, street1, street2, corridor, counterName, snapshot}]
 let activeIntersectionIdx = 0;
+// Summary table UI state — persists across re-renders
+const sumState = { sortCol: null, sortDir: 1, filterCorr: '', selection: new Set(), view: 'summary' };
+
+function extractStreets(ix) {
+  // Return {street1, street2} from snapshot intersection data, falling back to parsing the name
+  const intr = ix.snapshot?.intersection;
+  const s1 = ix.street1 || intr?.street1 || ix.name.split(' & ')[0] || '';
+  const s2 = ix.street2 || intr?.street2 || ix.name.split(' & ')[1] || '';
+  return { street1: s1.trim(), street2: s2.trim() };
+}
 
 function buildIntersectionTabs() {
   const bar = document.getElementById('intersection-tabs-bar');
@@ -1031,6 +1560,7 @@ function serializeIntersectionSnapshot() {
     activePeriodIdx,
     periods: periods.map(p => ({
       name: p.name, cfg: p.data.cfg,
+      meta: p.data.meta || {},
       vData: JSON.parse(JSON.stringify(p.data.vData)),
       pedData: JSON.parse(JSON.stringify(p.data.pedData)),
       tmcData: JSON.parse(JSON.stringify(p.data.tmcData)),
@@ -1081,7 +1611,8 @@ function showSummaryScreen() {
   const subEl = document.getElementById('summary-subtitle');
   if (titleEl) titleEl.textContent = projectInfo.projectName || 'Untitled project';
   if (subEl) subEl.textContent = [projectInfo.companyName, projectInfo.studyPurpose].filter(Boolean).join(' · ');
-
+  _sidebarActiveItem = 'area-summary';
+  renderAppSidebar();
   renderSummaryContent();
   showScreen('summary-screen');
 }
@@ -1091,11 +1622,10 @@ function renderSummaryContent() {
   if (!container) return;
 
   if (!areaIntersections.length) {
-    container.innerHTML = `<div style="color:var(--text2);font-size:13px;padding:20px 0">No intersections loaded.</div>`;
+    container.innerHTML = '<div style="color:var(--text2);font-size:13px;padding:20px 0">No intersections loaded.</div>';
     return;
   }
 
-  // Collect all unique period names across all intersections
   const allPeriodNames = [];
   for (const ix of areaIntersections) {
     for (const p of (ix.snapshot?.periods || [])) {
@@ -1103,10 +1633,10 @@ function renderSummaryContent() {
     }
   }
 
-  // Build totals for each intersection
-  const rows = areaIntersections.map((ix, i) => {
+  const allRows = areaIntersections.map((ix, i) => {
     const snap = ix.snapshot;
     if (!snap) return null;
+    const { street1, street2 } = extractStreets(ix);
     const totalPed = sumPed(snap);
     const totalVeh = sumVehicle(snap);
     const totalTmc = sumTmc(snap);
@@ -1121,6 +1651,7 @@ function renderSummaryContent() {
     const vehByPeriod = allPeriodNames.map(pname => {
       const period = snap.periods?.find(p => p.name === pname);
       if (!period) return null;
+      if (!period.vData?.in) return null;
       let t = 0;
       for (let s = 0; s < period.vData.in.length; s++) {
         t += (period.vData.in[s]||[]).reduce((a,b)=>a+(b||0),0);
@@ -1128,91 +1659,559 @@ function renderSummaryContent() {
       }
       return t;
     });
-
-    return { ix, i, totalPed, totalVeh, totalTmc, hasTmcData, pedByPeriod, vehByPeriod };
+    return { ix, i, street1, street2, corridor: ix.corridor||'', totalPed, totalVeh, totalTmc, hasTmcData, pedByPeriod, vehByPeriod };
   }).filter(Boolean);
+
+  // Unique corridors for filter
+  const corridors = [...new Set(allRows.map(r => r.corridor).filter(Boolean))].sort();
+
+  // Apply corridor filter
+  let rows = sumState.filterCorr ? allRows.filter(r => r.corridor === sumState.filterCorr) : allRows;
+
+  // Sort
+  if (sumState.sortCol) {
+    rows = [...rows].sort((a, b) => {
+      let va, vb;
+      if (sumState.sortCol === 'num')      { va = a.i; vb = b.i; }
+      else if (sumState.sortCol === 'name')    { va = a.ix.name; vb = b.ix.name; }
+      else if (sumState.sortCol === 'street1') { va = a.street1; vb = b.street1; }
+      else if (sumState.sortCol === 'street2') { va = a.street2; vb = b.street2; }
+      else if (sumState.sortCol === 'corridor'){ va = a.corridor; vb = b.corridor; }
+      else if (sumState.sortCol === 'counter') { va = a.ix.counterName||''; vb = b.ix.counterName||''; }
+      else if (sumState.sortCol === 'periods') { va = a.ix.snapshot?.periods?.length||0; vb = b.ix.snapshot?.periods?.length||0; }
+      else if (sumState.sortCol === 'ped')     { va = a.totalPed; vb = b.totalPed; }
+      else if (sumState.sortCol === 'veh')     { va = a.totalVeh; vb = b.totalVeh; }
+      else if (sumState.sortCol === 'tmc')     { va = a.totalTmc; vb = b.totalTmc; }
+      else if (sumState.sortCol.startsWith('ped-p')) { const pi = +sumState.sortCol.slice(5); va = a.pedByPeriod[pi]??-1; vb = b.pedByPeriod[pi]??-1; }
+      else if (sumState.sortCol.startsWith('veh-p')) { const pi = +sumState.sortCol.slice(5); va = a.vehByPeriod[pi]??-1; vb = b.vehByPeriod[pi]??-1; }
+      else { va = 0; vb = 0; }
+      if (typeof va === 'string') return sumState.sortDir * va.localeCompare(vb);
+      return sumState.sortDir * (va - vb);
+    });
+  }
 
   const hasTmcAny = rows.some(r => r.hasTmcData);
   const hasVehAny = rows.some(r => r.totalVeh > 0);
   const hasPedAny = rows.some(r => r.totalPed > 0);
   const multiPeriod = allPeriodNames.length > 1;
 
+  function sortIcon(col) {
+    if (sumState.sortCol !== col) return '<span class="sum-sort-icon">⇅</span>';
+    return '<span class="sum-sort-icon sort-active">' + (sumState.sortDir > 0 ? '↑' : '↓') + '</span>';
+  }
+  function sTh(col, label, extra) {
+    const active = sumState.sortCol === col ? ' sort-active' : '';
+    return '<th class="sum-th sum-th-sort' + active + '" data-sort="' + col + '"' + (extra ? ' ' + extra : '') + '>' + label + sortIcon(col) + '</th>';
+  }
+
+  // View toggle — if view is 'alldata', delegate to its own renderer
+  if (sumState.view === 'alldata') {
+    renderSummaryAllData(allRows, corridors);
+    return;
+  }
+
+  // Filter bar
+  const corrOptions = ['', ...corridors].map(c =>
+    '<option value="' + c + '"' + (sumState.filterCorr === c ? ' selected' : '') + '>' + (c || 'All corridors') + '</option>'
+  ).join('');
+  const selCount = sumState.selection.size;
+  const filterBar = '<div class="sum-filter-bar">'
+    + '<div class="sum-view-toggle"><button class="sum-view-btn sum-view-btn-active" id="sum-view-summary">Summary</button><button class="sum-view-btn" id="sum-view-alldata">All Data</button></div>'
+    + '<label class="sum-filter-label">Corridor</label>'
+    + '<select class="sum-filter-select" id="sum-corr-filter">' + corrOptions + '</select>'
+    + '<button class="btn-sm" id="sum-select-all">Select all' + (selCount ? ' (' + selCount + ' selected)' : '') + '</button>'
+    + (selCount ? '<button class="btn-sm btn-sm-ghost" id="sum-clear-sel">Clear</button>' : '')
+    + '</div>';
+
+  // Period headers
   const periodHeadersPed = multiPeriod && hasPedAny
-    ? allPeriodNames.map(n => `<th class="sum-th sum-th-period" colspan="1">${n}<br><span style="font-size:10px;font-weight:400;color:var(--text3)">peds</span></th>`).join('')
+    ? allPeriodNames.map((n, pi) => sTh('ped-p' + pi, n + '<br><span class="sum-th-sub">peds</span>')).join('')
     : '';
   const periodHeadersVeh = multiPeriod && hasVehAny
-    ? allPeriodNames.map(n => `<th class="sum-th sum-th-period">${n}<br><span style="font-size:10px;font-weight:400;color:var(--text3)">vehs</span></th>`).join('')
+    ? allPeriodNames.map((n, pi) => sTh('veh-p' + pi, n + '<br><span class="sum-th-sub">vehs</span>')).join('')
     : '';
 
-  const html = `
-    <div style="overflow-x:auto">
-      <table class="summary-table">
-        <thead>
-          <tr>
-            <th class="sum-th sum-th-name">#</th>
-            <th class="sum-th sum-th-name">Intersection</th>
-            <th class="sum-th">Counter</th>
-            <th class="sum-th">Periods</th>
-            ${hasPedAny ? `<th class="sum-th sum-th-total" colspan="2">Pedestrians<br><span style="font-size:10px;font-weight:400;color:var(--text3)">total</span></th>` : ''}
-            ${periodHeadersPed}
-            ${hasVehAny ? `<th class="sum-th sum-th-total">Vehicles<br><span style="font-size:10px;font-weight:400;color:var(--text3)">in+out</span></th>` : ''}
-            ${periodHeadersVeh}
-            ${hasTmcAny ? `<th class="sum-th sum-th-total">TMC<br><span style="font-size:10px;font-weight:400;color:var(--text3)">total</span></th>` : ''}
-            <th class="sum-th"></th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rows.map(r => `
-            <tr class="sum-row" data-idx="${r.i}">
-              <td class="sum-td sum-td-num">${r.i + 1}</td>
-              <td class="sum-td sum-td-name">${r.ix.name}</td>
-              <td class="sum-td sum-td-meta">${r.ix.counterName || '<span style="color:var(--text3)">—</span>'}</td>
-              <td class="sum-td sum-td-meta">${r.ix.snapshot?.periods?.length || 0}</td>
-              ${hasPedAny ? `<td class="sum-td sum-td-num${r.totalPed > 0 ? ' sum-td-has-data' : ''}">${r.totalPed > 0 ? r.totalPed.toLocaleString() : '<span style="color:var(--text3)">—</span>'}</td><td class="sum-td" style="padding-left:0;width:90px"><div class="sum-mini-bar-wrap"><div class="sum-mini-bar" data-val="${r.totalPed}"></div></div></td>` : ''}
-              ${multiPeriod && hasPedAny ? r.pedByPeriod.map(v => `<td class="sum-td sum-td-num">${v != null ? (v > 0 ? v.toLocaleString() : '<span style="color:var(--text3)">—</span>') : '<span style="color:var(--text3)">·</span>'}</td>`).join('') : ''}
-              ${hasVehAny ? `<td class="sum-td sum-td-num${r.totalVeh > 0 ? ' sum-td-has-data' : ''}">${r.totalVeh > 0 ? r.totalVeh.toLocaleString() : '<span style="color:var(--text3)">—</span>'}</td>` : ''}
-              ${multiPeriod && hasVehAny ? r.vehByPeriod.map(v => `<td class="sum-td sum-td-num">${v != null ? (v > 0 ? v.toLocaleString() : '<span style="color:var(--text3)">—</span>') : '<span style="color:var(--text3)">·</span>'}</td>`).join('') : ''}
-              ${hasTmcAny ? `<td class="sum-td sum-td-num${r.totalTmc > 0 ? ' sum-td-has-data' : ''}">${r.totalTmc > 0 ? r.totalTmc.toLocaleString() : '<span style="color:var(--text3)">—</span>'}</td>` : ''}
-              <td class="sum-td"><button class="sum-review-btn" data-idx="${r.i}">review →</button></td>
-            </tr>
-          `).join('')}
-        </tbody>
-        ${rows.length > 1 ? `
-        <tfoot>
-          <tr class="sum-total-row">
-            <td class="sum-td" colspan="2" style="font-weight:600;font-size:12px">Total</td>
-            <td class="sum-td" colspan="2"></td>
-            ${hasPedAny ? `<td class="sum-td sum-td-num sum-td-total">${rows.reduce((a,r)=>a+r.totalPed,0).toLocaleString()}</td><td class="sum-td"></td>` : ''}
-            ${multiPeriod && hasPedAny ? allPeriodNames.map((_,pi) => `<td class="sum-td sum-td-num sum-td-total">${rows.reduce((a,r)=>a+(r.pedByPeriod[pi]||0),0).toLocaleString()}</td>`).join('') : ''}
-            ${hasVehAny ? `<td class="sum-td sum-td-num sum-td-total">${rows.reduce((a,r)=>a+r.totalVeh,0).toLocaleString()}</td>` : ''}
-            ${multiPeriod && hasVehAny ? allPeriodNames.map((_,pi) => `<td class="sum-td sum-td-num sum-td-total">${rows.reduce((a,r)=>a+(r.vehByPeriod[pi]||0),0).toLocaleString()}</td>`).join('') : ''}
-            ${hasTmcAny ? `<td class="sum-td sum-td-num sum-td-total">${rows.reduce((a,r)=>a+r.totalTmc,0).toLocaleString()}</td>` : ''}
-            <td class="sum-td"></td>
-          </tr>
-        </tfoot>` : ''}
-      </table>
-    </div>
-  `;
+  const tdDash = '<span style="color:var(--text3)">—</span>';
+  const tdDot  = '<span style="color:var(--text3)">·</span>';
 
-  container.innerHTML = html;
+  const rowsHtml = rows.map(r => {
+    const checked = sumState.selection.has(r.i) ? ' checked' : '';
+    const selCls = sumState.selection.has(r.i) ? ' sum-row-sel' : '';
+    const corrCell = r.corridor ? '<span class="sum-corr-badge">' + r.corridor + '</span>' : tdDash;
+    let cells = '<td class="sum-td sum-td-check"><input type="checkbox" class="sum-check"' + checked + ' data-idx="' + r.i + '"></td>'
+      + '<td class="sum-td sum-td-num">' + (r.i + 1) + '</td>'
+      + '<td class="sum-td sum-td-name">' + r.ix.name + '</td>'
+      + '<td class="sum-td sum-td-meta">' + (r.street1 || tdDash) + '</td>'
+      + '<td class="sum-td sum-td-meta">' + (r.street2 || tdDash) + '</td>'
+      + '<td class="sum-td sum-td-meta">' + corrCell + '</td>'
+      + '<td class="sum-td sum-td-meta">' + (r.ix.counterName || tdDash) + '</td>'
+      + '<td class="sum-td sum-td-meta">' + (r.ix.snapshot?.periods?.length || 0) + '</td>';
+    if (hasPedAny) {
+      cells += '<td class="sum-td sum-td-num' + (r.totalPed > 0 ? ' sum-td-has-data' : '') + '">' + (r.totalPed > 0 ? r.totalPed.toLocaleString() : tdDash) + '</td>'
+        + '<td class="sum-td" style="padding-left:0;width:80px"><div class="sum-mini-bar-wrap"><div class="sum-mini-bar" data-val="' + r.totalPed + '"></div></div></td>';
+    }
+    if (multiPeriod && hasPedAny) {
+      cells += r.pedByPeriod.map(v => '<td class="sum-td sum-td-num">' + (v != null ? (v > 0 ? v.toLocaleString() : tdDash) : tdDot) + '</td>').join('');
+    }
+    if (hasVehAny) {
+      cells += '<td class="sum-td sum-td-num' + (r.totalVeh > 0 ? ' sum-td-has-data' : '') + '">' + (r.totalVeh > 0 ? r.totalVeh.toLocaleString() : tdDash) + '</td>';
+    }
+    if (multiPeriod && hasVehAny) {
+      cells += r.vehByPeriod.map(v => '<td class="sum-td sum-td-num">' + (v != null ? (v > 0 ? v.toLocaleString() : tdDash) : tdDot) + '</td>').join('');
+    }
+    if (hasTmcAny) {
+      cells += '<td class="sum-td sum-td-num' + (r.totalTmc > 0 ? ' sum-td-has-data' : '') + '">' + (r.totalTmc > 0 ? r.totalTmc.toLocaleString() : tdDash) + '</td>';
+    }
+    cells += '<td class="sum-td"><button class="sum-review-btn" data-idx="' + r.i + '">review →</button></td>';
+    return '<tr class="sum-row' + selCls + '" data-idx="' + r.i + '">' + cells + '</tr>';
+  }).join('');
 
-  // Mini bars — compute max across all rows for scaling
+  // Tfoot totals (8 prefix cols: check + # + name + s1 + s2 + corr + counter + periods)
+  const PREFIX_COLS = 8;
+  const tfootHtml = rows.length > 1
+    ? '<tfoot><tr class="sum-total-row">'
+      + '<td class="sum-td"></td>'
+      + '<td class="sum-td" colspan="' + (PREFIX_COLS - 1) + '" style="font-weight:600;font-size:12px">Total</td>'
+      + (hasPedAny ? '<td class="sum-td sum-td-num sum-td-total">' + rows.reduce((a,r)=>a+r.totalPed,0).toLocaleString() + '</td><td class="sum-td"></td>' : '')
+      + (multiPeriod && hasPedAny ? allPeriodNames.map((_,pi) => '<td class="sum-td sum-td-num sum-td-total">' + rows.reduce((a,r)=>a+(r.pedByPeriod[pi]||0),0).toLocaleString() + '</td>').join('') : '')
+      + (hasVehAny ? '<td class="sum-td sum-td-num sum-td-total">' + rows.reduce((a,r)=>a+r.totalVeh,0).toLocaleString() + '</td>' : '')
+      + (multiPeriod && hasVehAny ? allPeriodNames.map((_,pi) => '<td class="sum-td sum-td-num sum-td-total">' + rows.reduce((a,r)=>a+(r.vehByPeriod[pi]||0),0).toLocaleString() + '</td>').join('') : '')
+      + (hasTmcAny ? '<td class="sum-td sum-td-num sum-td-total">' + rows.reduce((a,r)=>a+r.totalTmc,0).toLocaleString() + '</td>' : '')
+      + '<td class="sum-td"></td></tr></tfoot>'
+    : '';
+
+  container.innerHTML = filterBar + '<div id="sum-sel-panel"></div><div style="overflow-x:auto"><table class="summary-table"><thead><tr>'
+    + '<th class="sum-th sum-td-check"><input type="checkbox" id="sum-check-all"' + (rows.length && rows.every(r => sumState.selection.has(r.i)) ? ' checked' : '') + '></th>'
+    + sTh('num', '#')
+    + sTh('name', 'Intersection')
+    + sTh('street1', 'Street 1')
+    + sTh('street2', 'Street 2')
+    + sTh('corridor', 'Corridor')
+    + sTh('counter', 'Counter')
+    + sTh('periods', 'Periods')
+    + (hasPedAny ? sTh('ped', 'Pedestrians<br><span class="sum-th-sub">total</span>') + '<th class="sum-th"></th>' : '')
+    + periodHeadersPed
+    + (hasVehAny ? sTh('veh', 'Vehicles<br><span class="sum-th-sub">in+out</span>') : '')
+    + periodHeadersVeh
+    + (hasTmcAny ? sTh('tmc', 'TMC<br><span class="sum-th-sub">total</span>') : '')
+    + '<th class="sum-th"></th>'
+    + '</tr></thead><tbody>' + rowsHtml + '</tbody>' + tfootHtml + '</table></div>';
+
+  // Mini bars
   const maxPedAll = Math.max(...rows.map(r => r.totalPed), 1);
   container.querySelectorAll('.sum-mini-bar').forEach(el => {
-    const pct = Math.round((+el.dataset.val / maxPedAll) * 72);
-    el.style.width = pct + 'px';
+    el.style.width = Math.round((+el.dataset.val / maxPedAll) * 72) + 'px';
   });
 
+  updateSelectionPanel(allRows, allPeriodNames, hasPedAny, hasVehAny, multiPeriod);
+
+  // Event handlers
   container.querySelectorAll('.sum-review-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      showIntersectionAnalysis(+btn.dataset.idx);
+    btn.addEventListener('click', e => { e.stopPropagation(); showIntersectionAnalysis(+btn.dataset.idx); });
+  });
+  container.querySelectorAll('tr.sum-row').forEach(row => {
+    row.addEventListener('click', e => {
+      if (e.target.closest('.sum-review-btn, .sum-check')) return;
+      showIntersectionAnalysis(+row.dataset.idx);
     });
   });
-
-  container.querySelectorAll('tr.sum-row').forEach(row => {
-    row.addEventListener('click', () => showIntersectionAnalysis(+row.dataset.idx));
+  container.querySelectorAll('.sum-check').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const idx = +cb.dataset.idx;
+      if (cb.checked) sumState.selection.add(idx); else sumState.selection.delete(idx);
+      renderSummaryContent();
+    });
   });
+  container.querySelectorAll('.sum-th-sort').forEach(th => {
+    th.addEventListener('click', () => {
+      const col = th.dataset.sort;
+      if (sumState.sortCol === col) sumState.sortDir *= -1;
+      else { sumState.sortCol = col; sumState.sortDir = 1; }
+      renderSummaryContent();
+    });
+  });
+  document.getElementById('sum-check-all')?.addEventListener('change', e => {
+    if (e.target.checked) rows.forEach(r => sumState.selection.add(r.i));
+    else rows.forEach(r => sumState.selection.delete(r.i));
+    renderSummaryContent();
+  });
+  document.getElementById('sum-select-all')?.addEventListener('click', () => {
+    rows.forEach(r => sumState.selection.add(r.i));
+    renderSummaryContent();
+  });
+  document.getElementById('sum-clear-sel')?.addEventListener('click', () => {
+    sumState.selection.clear();
+    renderSummaryContent();
+  });
+  document.getElementById('sum-corr-filter')?.addEventListener('change', e => {
+    sumState.filterCorr = e.target.value;
+    renderSummaryContent();
+  });
+  document.getElementById('sum-view-summary')?.addEventListener('click', () => { sumState.view = 'summary'; renderSummaryContent(); });
+  document.getElementById('sum-view-alldata')?.addEventListener('click', () => { sumState.view = 'alldata'; renderSummaryContent(); });
+}
+
+function updateSelectionPanel(allRows, allPeriodNames, hasPedAny, hasVehAny, multiPeriod) {
+  const panel = document.getElementById('sum-sel-panel');
+  if (!panel) return;
+  const sel = allRows.filter(r => sumState.selection.has(r.i));
+  if (!sel.length) { panel.innerHTML = ''; return; }
+
+  const n = sel.length;
+  const sumPedSel = sel.reduce((a, r) => a + r.totalPed, 0);
+  const sumVehSel = sel.reduce((a, r) => a + r.totalVeh, 0);
+  const avgPedSel = Math.round(sumPedSel / n);
+  const avgVehSel = Math.round(sumVehSel / n);
+
+  let periodRows = '';
+  if (multiPeriod && (hasPedAny || hasVehAny)) {
+    periodRows = '<div class="sum-sel-periods">'
+      + allPeriodNames.map((pname, pi) => {
+          const nc = sel.filter(r => r.pedByPeriod[pi] != null || r.vehByPeriod[pi] != null).length || 1;
+          const pedSum = sel.reduce((a, r) => a + (r.pedByPeriod[pi] || 0), 0);
+          const vehSum = sel.reduce((a, r) => a + (r.vehByPeriod[pi] || 0), 0);
+          return '<div class="sum-sel-period-row"><span class="sum-sel-period-name">' + pname + '</span>'
+            + (hasPedAny ? '<span class="sum-sel-stat">ped &Sigma;' + pedSum.toLocaleString() + ' / avg ' + Math.round(pedSum/nc).toLocaleString() + '</span>' : '')
+            + (hasVehAny ? '<span class="sum-sel-stat">veh &Sigma;' + vehSum.toLocaleString() + ' / avg ' + Math.round(vehSum/nc).toLocaleString() + '</span>' : '')
+            + '</div>';
+        }).join('')
+      + '</div>';
+  }
+
+  const corridorMap = {};
+  for (const r of sel) {
+    const corr = r.corridor || '(no corridor)';
+    if (!corridorMap[corr]) corridorMap[corr] = [];
+    corridorMap[corr].push(r);
+  }
+  const corridorKeys = Object.keys(corridorMap).sort();
+  let corrRows = '';
+  if (corridorKeys.length > 1) {
+    corrRows = '<div class="sum-sel-corridors"><div class="sum-sel-sub-header">Corridor averages</div>'
+      + corridorKeys.map(corr => {
+          const crs = corridorMap[corr];
+          const avgP = Math.round(crs.reduce((a, r) => a + r.totalPed, 0) / crs.length);
+          const avgV = Math.round(crs.reduce((a, r) => a + r.totalVeh, 0) / crs.length);
+          return '<div class="sum-sel-corr-row"><span class="sum-corr-badge">' + corr + '</span>'
+            + '<span class="sum-sel-stat-sm">' + crs.length + ' ix</span>'
+            + (hasPedAny ? '<span class="sum-sel-stat-sm">avg ped ' + avgP.toLocaleString() + '</span>' : '')
+            + (hasVehAny ? '<span class="sum-sel-stat-sm">avg veh ' + avgV.toLocaleString() + '</span>' : '')
+            + '</div>';
+        }).join('')
+      + '</div>';
+  }
+
+  panel.innerHTML = '<div class="sum-sel-panel">'
+    + '<div class="sum-sel-header">'
+    + '<span class="sum-sel-count">' + n + ' intersection' + (n !== 1 ? 's' : '') + ' selected</span>'
+    + (hasPedAny ? '<span class="sum-sel-stat">Ped total <strong>' + sumPedSel.toLocaleString() + '</strong> &middot; avg <strong>' + avgPedSel.toLocaleString() + '</strong></span>' : '')
+    + (hasVehAny ? '<span class="sum-sel-stat">Veh total <strong>' + sumVehSel.toLocaleString() + '</strong> &middot; avg <strong>' + avgVehSel.toLocaleString() + '</strong></span>' : '')
+    + '</div>'
+    + periodRows + corrRows
+    + '</div>';
+}
+
+// ── Export builder ──────────────────────────────────────────────────────────
+
+const exportState = {
+  layout: 'alldata',   // 'summary' | 'alldata'
+  fields: {
+    name: true, street1: true, street2: true, corridor: true, counter: true, lat: true, lng: true,
+    // alldata only
+    period: true, start: true, end: true, intervalMin: true,
+    pedTotal: true, pedByCw: true, vehTotal: true, tmcTotal: false,
+    // summary only
+    periods: false, pedByPeriod: true, vehByPeriod: true,
+  },
+};
+
+function showExportScreen() {
+  const sub = document.getElementById('export-subtitle');
+  if (sub) sub.textContent = projectInfo.projectName || '';
+  renderExportBuilder();
+  showScreen('export-screen');
+}
+
+function renderExportBuilder() {
+  const container = document.getElementById('export-builder-content');
+  if (!container) return;
+
+  // Collect metadata about the data
+  const allPeriodNames = [];
+  const cwAssigns = [];
+  for (const ix of areaIntersections) {
+    for (const p of (ix.snapshot?.periods || [])) {
+      if (!allPeriodNames.includes(p.name)) allPeriodNames.push(p.name);
+    }
+    for (const xw of (ix.snapshot?.intersection?.crosswalks || [])) {
+      if (xw.assign && !cwAssigns.includes(xw.assign)) cwAssigns.push(xw.assign);
+    }
+  }
+  if (!cwAssigns.length) cwAssigns.push('N', 'E', 'S', 'W');
+  const multiPeriod = allPeriodNames.length > 1;
+  const f = exportState.fields;
+
+  function chk(key, label, disabled) {
+    const checked = f[key] ? ' checked' : '';
+    const dis = disabled ? ' disabled' : '';
+    return '<label class="exp-field-check' + (disabled ? ' exp-field-disabled' : '') + '">'
+      + '<input type="checkbox" data-field="' + key + '"' + checked + dis + '> ' + label + '</label>';
+  }
+
+  // Layout cards
+  const layoutCards = '<div class="exp-section">'
+    + '<div class="exp-section-title">Layout</div>'
+    + '<div class="exp-layout-cards">'
+    + '<button class="exp-layout-card' + (exportState.layout === 'summary' ? ' active' : '') + '" data-layout="summary">'
+    + '<div class="exp-layout-name">Summary</div>'
+    + '<div class="exp-layout-desc">One row per intersection — totals across all periods</div>'
+    + '</button>'
+    + '<button class="exp-layout-card' + (exportState.layout === 'alldata' ? ' active' : '') + '" data-layout="alldata">'
+    + '<div class="exp-layout-name">All Data <span class="exp-layout-tag">GIS-ready</span></div>'
+    + '<div class="exp-layout-desc">One row per intersection × period — long format, join to a point layer by name or counter</div>'
+    + '</button>'
+    + '</div></div>';
+
+  // Location fields (shared by both layouts)
+  const locationFields = '<div class="exp-field-group">'
+    + '<div class="exp-field-group-label">Location</div>'
+    + '<div class="exp-field-checks">'
+    + chk('name', 'Intersection name') + chk('street1', 'Street 1') + chk('street2', 'Street 2')
+    + chk('corridor', 'Corridor') + chk('counter', 'Counter name')
+    + chk('lat', 'Latitude') + chk('lng', 'Longitude')
+    + '</div></div>';
+
+  // Period fields (alldata layout only)
+  const periodFields = exportState.layout === 'alldata'
+    ? '<div class="exp-field-group">'
+      + '<div class="exp-field-group-label">Period</div>'
+      + '<div class="exp-field-checks">'
+      + chk('period', 'Period name') + chk('start', 'Start time') + chk('end', 'End time') + chk('intervalMin', 'Interval (min)')
+      + '</div></div>'
+    : '<div class="exp-field-group">'
+      + '<div class="exp-field-group-label">Period</div>'
+      + '<div class="exp-field-checks">'
+      + chk('periods', 'Period count')
+      + (multiPeriod ? chk('pedByPeriod', 'Ped by period') + chk('vehByPeriod', 'Veh by period') : '')
+      + '</div></div>';
+
+  // Count fields
+  const cwLabel = 'Ped by crosswalk (' + cwAssigns.join('/') + ')';
+  const countFields = '<div class="exp-field-group">'
+    + '<div class="exp-field-group-label">Counts</div>'
+    + '<div class="exp-field-checks">'
+    + chk('pedTotal', 'Ped total')
+    + (exportState.layout === 'alldata' ? chk('pedByCw', cwLabel) : '')
+    + chk('vehTotal', 'Veh total')
+    + chk('tmcTotal', 'TMC total')
+    + '</div></div>';
+
+  // Preview: first 3 header columns
+  const previewHeaders = buildExportHeaders(allPeriodNames, cwAssigns);
+  const previewHtml = '<div class="exp-section">'
+    + '<div class="exp-section-title">Column preview</div>'
+    + '<div class="exp-preview-wrap"><div class="exp-preview">'
+    + previewHeaders.map(h => '<span class="exp-preview-col">' + h + '</span>').join('')
+    + '</div></div></div>';
+
+  container.innerHTML = layoutCards
+    + '<div class="exp-section">'
+    + '<div class="exp-section-title">Fields</div>'
+    + locationFields + periodFields + countFields
+    + '</div>'
+    + previewHtml
+    + '<div class="exp-section">'
+    + '<button class="btn-primary exp-download-btn" id="btn-export-download">Download CSV ↓</button>'
+    + '<span class="exp-row-count" id="exp-row-count"></span>'
+    + '</div>';
+
+  // Update row count
+  updateExportRowCount();
+
+  // Wire events
+  container.querySelectorAll('.exp-layout-card').forEach(btn => {
+    btn.addEventListener('click', () => {
+      exportState.layout = btn.dataset.layout;
+      renderExportBuilder();
+    });
+  });
+  container.querySelectorAll('[data-field]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      exportState.fields[cb.dataset.field] = cb.checked;
+      renderExportBuilder();
+    });
+  });
+  document.getElementById('btn-export-download')?.addEventListener('click', runExport);
+}
+
+function buildExportHeaders(allPeriodNames, cwAssigns) {
+  const f = exportState.fields;
+  const h = [];
+  if (f.name)     h.push('intersection_name');
+  if (f.street1)  h.push('street_1');
+  if (f.street2)  h.push('street_2');
+  if (f.corridor) h.push('corridor');
+  if (f.counter)  h.push('counter_name');
+  if (f.lat)      h.push('latitude');
+  if (f.lng)      h.push('longitude');
+  if (exportState.layout === 'alldata') {
+    if (f.period)      h.push('period_name');
+    if (f.start)       h.push('period_start');
+    if (f.end)         h.push('period_end');
+    if (f.intervalMin) h.push('interval_min');
+    if (f.pedTotal)    h.push('ped_total');
+    if (f.pedByCw)     cwAssigns.forEach(a => h.push('ped_' + a.toLowerCase()));
+    if (f.vehTotal)    h.push('veh_total');
+    if (f.tmcTotal)    h.push('tmc_total');
+  } else {
+    if (f.periods)    h.push('periods');
+    if (f.pedTotal)   h.push('ped_total');
+    if (f.pedByPeriod && allPeriodNames.length > 1) allPeriodNames.forEach(n => h.push('ped_' + n.toLowerCase().replace(/\s+/g,'_')));
+    if (f.vehTotal)   h.push('veh_total');
+    if (f.vehByPeriod && allPeriodNames.length > 1) allPeriodNames.forEach(n => h.push('veh_' + n.toLowerCase().replace(/\s+/g,'_')));
+    if (f.tmcTotal)   h.push('tmc_total');
+  }
+  return h;
+}
+
+function updateExportRowCount() {
+  const el = document.getElementById('exp-row-count');
+  if (!el) return;
+  let count = 0;
+  for (const ix of areaIntersections) {
+    if (!ix.snapshot) continue;
+    if (exportState.layout === 'alldata') {
+      count += (ix.snapshot.periods?.length || 0) || 1;
+    } else {
+      count += 1;
+    }
+  }
+  el.textContent = count + ' row' + (count !== 1 ? 's' : '');
+}
+
+function runExport() {
+  const allPeriodNames = [];
+  const cwAssigns = [];
+  for (const ix of areaIntersections) {
+    for (const p of (ix.snapshot?.periods || [])) {
+      if (!allPeriodNames.includes(p.name)) allPeriodNames.push(p.name);
+    }
+    for (const xw of (ix.snapshot?.intersection?.crosswalks || [])) {
+      if (xw.assign && !cwAssigns.includes(xw.assign)) cwAssigns.push(xw.assign);
+    }
+  }
+  if (!cwAssigns.length) cwAssigns.push('N', 'E', 'S', 'W');
+
+  const f = exportState.fields;
+  const headers = buildExportHeaders(allPeriodNames, cwAssigns);
+  const csvRows = [headers.join(',')];
+
+  function q(s) { return '"' + String(s == null ? '' : s).replace(/"/g, '""') + '"'; }
+  function toHHMM(m) {
+    if (m == null) return '';
+    return String(Math.floor(m / 60) % 24).padStart(2,'0') + ':' + String(m % 60).padStart(2,'0');
+  }
+
+  for (const ix of areaIntersections) {
+    const snap = ix.snapshot;
+    if (!snap) continue;
+    const { street1, street2 } = extractStreets(ix);
+    const xws = snap.intersection?.crosswalks || cwAssigns.map(a => ({ assign: a }));
+
+    const locationCells = () => {
+      const c = [];
+      if (f.name)     c.push(q(ix.name));
+      if (f.street1)  c.push(q(street1));
+      if (f.street2)  c.push(q(street2));
+      if (f.corridor) c.push(q(ix.corridor || ''));
+      if (f.counter)  c.push(q(ix.counterName || ''));
+      if (f.lat)      c.push(q(ix.lat || ''));
+      if (f.lng)      c.push(q(ix.lng || ''));
+      return c;
+    };
+
+    if (exportState.layout === 'alldata') {
+      const periods = snap.periods || [];
+      const rows = periods.length ? periods : [null];
+      for (const period of rows) {
+        const cfg = period?.cfg || {};
+        const startMin = cfg.startMinutes ?? null;
+        const durMin = cfg.durationMin ?? null;
+        const intMin = cfg.intervalMin ?? null;
+        let pedTotal = 0;
+        const pedByCw = cwAssigns.map(assign => {
+          const xi = xws.findIndex(x => x.assign === assign);
+          if (xi < 0 || !period) return '';
+          let t = 0;
+          for (const sl of (period.pedData?.[xi] || [])) t += (sl[0]||0) + (sl[1]||0);
+          pedTotal += t;
+          return t;
+        });
+        let vehTotal = 0;
+        if (period?.vData?.in) {
+          for (let s = 0; s < period.vData.in.length; s++) {
+            vehTotal += (period.vData.in[s]||[]).reduce((a,b)=>a+(b||0),0);
+            vehTotal += (period.vData.out[s]||[]).reduce((a,b)=>a+(b||0),0);
+          }
+        }
+        let tmcTotal = 0;
+        for (const leg of Object.values(period?.tmcData || {}))
+          for (const mov of Object.values(leg))
+            if (Array.isArray(mov)) for (const v of mov) tmcTotal += (v||0);
+
+        const row = [...locationCells()];
+        if (f.period)      row.push(q(period?.name || ''));
+        if (f.start)       row.push(startMin != null ? toHHMM(startMin) : '');
+        if (f.end)         row.push(startMin != null && durMin != null ? toHHMM(startMin + durMin) : '');
+        if (f.intervalMin) row.push(intMin != null ? intMin : '');
+        if (f.pedTotal)    row.push(pedTotal);
+        if (f.pedByCw)     pedByCw.forEach(v => row.push(v));
+        if (f.vehTotal)    row.push(vehTotal);
+        if (f.tmcTotal)    row.push(tmcTotal);
+        csvRows.push(row.join(','));
+      }
+    } else {
+      // Summary layout — one row per intersection
+      const totalPed = sumPed(snap);
+      const totalVeh = sumVehicle(snap);
+      const totalTmc = sumTmc(snap);
+      const periodPeds = allPeriodNames.map(pname => {
+        const p = snap.periods?.find(p => p.name === pname);
+        if (!p) return '';
+        let t = 0;
+        for (const xw of p.pedData) for (const sl of xw) t += (sl[0]||0)+(sl[1]||0);
+        return t;
+      });
+      const periodVehs = allPeriodNames.map(pname => {
+        const p = snap.periods?.find(p => p.name === pname);
+        if (!p || !p.vData?.in) return '';
+        let t = 0;
+        for (let s = 0; s < p.vData.in.length; s++) {
+          t += (p.vData.in[s]||[]).reduce((a,b)=>a+(b||0),0);
+          t += (p.vData.out[s]||[]).reduce((a,b)=>a+(b||0),0);
+        }
+        return t;
+      });
+      const row = [...locationCells()];
+      if (f.periods)    row.push(snap.periods?.length || 0);
+      if (f.pedTotal)   row.push(totalPed);
+      if (f.pedByPeriod && allPeriodNames.length > 1) periodPeds.forEach(v => row.push(v));
+      if (f.vehTotal)   row.push(totalVeh);
+      if (f.vehByPeriod && allPeriodNames.length > 1) periodVehs.forEach(v => row.push(v));
+      if (f.tmcTotal)   row.push(totalTmc);
+      csvRows.push(row.join(','));
+    }
+  }
+
+  const bom = '﻿';
+  const blob = new Blob([bom + csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const suffix = exportState.layout === 'alldata' ? '-gis-export' : '-summary';
+  a.download = (projectInfo.projectName||'study').replace(/[^a-z0-9]/gi,'-') + suffix + '.csv';
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 function exportSummaryCSV() {
@@ -1222,13 +2221,16 @@ function exportSummaryCSV() {
       if (!allPeriodNames.includes(p.name)) allPeriodNames.push(p.name);
     }
   }
-  const headers = ['#', 'Intersection', 'Counter', 'Periods', 'Total Pedestrians',
-    ...allPeriodNames.map(n => `Peds – ${n}`)];
+  const headers = ['#', 'Intersection', 'Street 1', 'Street 2', 'Corridor', 'Counter', 'Periods',
+    'Total Pedestrians', ...allPeriodNames.map(n => 'Peds – ' + n),
+    'Total Vehicles', ...allPeriodNames.map(n => 'Vehs – ' + n)];
   const csvRows = [headers.join(',')];
   areaIntersections.forEach((ix, i) => {
     const snap = ix.snapshot;
     if (!snap) return;
+    const { street1, street2 } = extractStreets(ix);
     const totalPed = sumPed(snap);
+    const totalVeh = sumVehicle(snap);
     const periodPeds = allPeriodNames.map(pname => {
       const period = snap.periods?.find(p => p.name === pname);
       if (!period) return '';
@@ -1236,21 +2238,565 @@ function exportSummaryCSV() {
       for (const xw of period.pedData) for (const sl of xw) t += (sl[0]||0)+(sl[1]||0);
       return t;
     });
-    csvRows.push([i+1, `"${ix.name.replace(/"/g,'""')}"`, `"${(ix.counterName||'').replace(/"/g,'""')}"`,
-      snap.periods?.length||0, totalPed, ...periodPeds].join(','));
+    const periodVehs = allPeriodNames.map(pname => {
+      const period = snap.periods?.find(p => p.name === pname);
+      if (!period || !period.vData?.in) return '';
+      let t = 0;
+      for (let s = 0; s < period.vData.in.length; s++) {
+        t += (period.vData.in[s]||[]).reduce((a,b)=>a+(b||0),0);
+        t += (period.vData.out[s]||[]).reduce((a,b)=>a+(b||0),0);
+      }
+      return t;
+    });
+    csvRows.push([
+      i+1,
+      '"' + ix.name.replace(/"/g,'""') + '"',
+      '"' + street1.replace(/"/g,'""') + '"',
+      '"' + street2.replace(/"/g,'""') + '"',
+      '"' + (ix.corridor||'').replace(/"/g,'""') + '"',
+      '"' + (ix.counterName||'').replace(/"/g,'""') + '"',
+      snap.periods?.length||0,
+      totalPed, ...periodPeds,
+      totalVeh, ...periodVehs
+    ].join(','));
   });
   const bom = '﻿';
   const blob = new Blob([bom + csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `${(projectInfo.projectName||'summary').replace(/[^a-z0-9]/gi,'-')}-pedestrian-counts.csv`;
+  a.download = (projectInfo.projectName||'summary').replace(/[^a-z0-9]/gi,'-') + '-summary.csv';
   a.click();
   URL.revokeObjectURL(url);
 }
 
+function renderSummaryAllData(allRows, corridors) {
+  const container = document.getElementById('summary-content');
+  if (!container) return;
+
+  // Corridor filter options
+  const corrOptions = ['', ...corridors].map(c =>
+    '<option value="' + c + '"' + (sumState.filterCorr === c ? ' selected' : '') + '>' + (c || 'All corridors') + '</option>'
+  ).join('');
+  const filterBar = '<div class="sum-filter-bar">'
+    + '<div class="sum-view-toggle"><button class="sum-view-btn" id="sum-view-summary">Summary</button><button class="sum-view-btn sum-view-btn-active" id="sum-view-alldata">All Data</button></div>'
+    + '<label class="sum-filter-label">Corridor</label>'
+    + '<select class="sum-filter-select" id="sum-corr-filter">' + corrOptions + '</select>'
+    + '</div>';
+
+  const rows = sumState.filterCorr ? allRows.filter(r => r.corridor === sumState.filterCorr) : allRows;
+
+  // Collect all crosswalk assignments across snapshots
+  const cwAssigns = [];
+  for (const r of rows) {
+    const xws = r.ix.snapshot?.intersection?.crosswalks || [];
+    for (const xw of xws) {
+      if (xw.assign && !cwAssigns.includes(xw.assign)) cwAssigns.push(xw.assign);
+    }
+  }
+  if (!cwAssigns.length) cwAssigns.push('N', 'E', 'S', 'W');
+
+  const tdDash = '<span style="color:var(--text3)">—</span>';
+
+  function toHHMM(m) {
+    if (m == null) return '';
+    const h = Math.floor(m / 60) % 24, mn = m % 60;
+    return String(h).padStart(2,'0') + ':' + String(mn).padStart(2,'0');
+  }
+
+  let dataRows = '';
+  let rowNum = 0;
+  for (const r of rows) {
+    const snap = r.ix.snapshot;
+    const periods = snap?.periods || [];
+    const lat = r.ix.lat || '';
+    const lng = r.ix.lng || '';
+    if (!periods.length) {
+      rowNum++;
+      dataRows += '<tr class="sum-row">'
+        + '<td class="sum-td sum-td-num">' + rowNum + '</td>'
+        + '<td class="sum-td sum-td-name">' + r.ix.name + '</td>'
+        + '<td class="sum-td sum-td-meta">' + (r.street1 || tdDash) + '</td>'
+        + '<td class="sum-td sum-td-meta">' + (r.street2 || tdDash) + '</td>'
+        + '<td class="sum-td sum-td-meta">' + (r.corridor ? '<span class="sum-corr-badge">' + r.corridor + '</span>' : tdDash) + '</td>'
+        + '<td class="sum-td sum-td-meta">' + (r.ix.counterName || tdDash) + '</td>'
+        + '<td class="sum-td sum-td-meta">' + (lat || tdDash) + '</td>'
+        + '<td class="sum-td sum-td-meta">' + (lng || tdDash) + '</td>'
+        + '<td class="sum-td" colspan="99">' + tdDash + '</td>'
+        + '</tr>';
+      continue;
+    }
+    for (const period of periods) {
+      rowNum++;
+      const cfg = period.cfg || {};
+      const startMin = cfg.startMinutes ?? null;
+      const durMin = cfg.durationMin ?? null;
+      const intMin = cfg.intervalMin ?? null;
+
+      // Ped total + per-crosswalk
+      let pedTotal = 0;
+      const xws = snap.intersection?.crosswalks || cwAssigns.map((a, i) => ({ assign: a, _idx: i }));
+      const pedByCw = cwAssigns.map(assign => {
+        const xi = xws.findIndex(x => x.assign === assign);
+        if (xi < 0) return null;
+        const cwSlots = period.pedData?.[xi] || [];
+        let t = 0;
+        for (const sl of cwSlots) t += (sl[0]||0) + (sl[1]||0);
+        pedTotal += t;
+        return t;
+      });
+
+      // Veh total
+      let vehTotal = 0;
+      if (period.vData?.in) {
+        for (let s = 0; s < period.vData.in.length; s++) {
+          vehTotal += (period.vData.in[s]||[]).reduce((a,b)=>a+(b||0),0);
+          vehTotal += (period.vData.out[s]||[]).reduce((a,b)=>a+(b||0),0);
+        }
+      }
+
+      // TMC total
+      let tmcTotal = 0;
+      for (const leg of Object.values(period.tmcData || {})) {
+        for (const mov of Object.values(leg)) {
+          if (Array.isArray(mov)) for (const v of mov) tmcTotal += (v||0);
+        }
+      }
+
+      dataRows += '<tr class="sum-row">'
+        + '<td class="sum-td sum-td-num">' + rowNum + '</td>'
+        + '<td class="sum-td sum-td-name">' + r.ix.name + '</td>'
+        + '<td class="sum-td sum-td-meta">' + (r.street1 || tdDash) + '</td>'
+        + '<td class="sum-td sum-td-meta">' + (r.street2 || tdDash) + '</td>'
+        + '<td class="sum-td sum-td-meta">' + (r.corridor ? '<span class="sum-corr-badge">' + r.corridor + '</span>' : tdDash) + '</td>'
+        + '<td class="sum-td sum-td-meta">' + (r.ix.counterName || tdDash) + '</td>'
+        + '<td class="sum-td sum-td-meta">' + (lat || tdDash) + '</td>'
+        + '<td class="sum-td sum-td-meta">' + (lng || tdDash) + '</td>'
+        + '<td class="sum-td sum-td-meta">' + period.name + '</td>'
+        + '<td class="sum-td sum-td-meta">' + (startMin != null ? toHHMM(startMin) : tdDash) + '</td>'
+        + '<td class="sum-td sum-td-meta">' + (startMin != null && durMin != null ? toHHMM(startMin + durMin) : tdDash) + '</td>'
+        + '<td class="sum-td sum-td-num">' + (intMin != null ? intMin : tdDash) + '</td>'
+        + '<td class="sum-td sum-td-num' + (pedTotal > 0 ? ' sum-td-has-data' : '') + '">' + (pedTotal > 0 ? pedTotal.toLocaleString() : tdDash) + '</td>'
+        + pedByCw.map(v => '<td class="sum-td sum-td-num">' + (v != null && v > 0 ? v : v === 0 ? '0' : tdDash) + '</td>').join('')
+        + '<td class="sum-td sum-td-num' + (vehTotal > 0 ? ' sum-td-has-data' : '') + '">' + (vehTotal > 0 ? vehTotal.toLocaleString() : tdDash) + '</td>'
+        + '<td class="sum-td sum-td-num' + (tmcTotal > 0 ? ' sum-td-has-data' : '') + '">' + (tmcTotal > 0 ? tmcTotal.toLocaleString() : tdDash) + '</td>'
+        + '</tr>';
+    }
+  }
+
+  const cwHeaders = cwAssigns.map(a => '<th class="sum-th">Ped ' + a + '</th>').join('');
+
+  container.innerHTML = filterBar
+    + '<div style="overflow-x:auto"><table class="summary-table"><thead><tr>'
+    + '<th class="sum-th sum-td-num">#</th>'
+    + '<th class="sum-th">Intersection</th>'
+    + '<th class="sum-th">Street 1</th>'
+    + '<th class="sum-th">Street 2</th>'
+    + '<th class="sum-th">Corridor</th>'
+    + '<th class="sum-th">Counter</th>'
+    + '<th class="sum-th">Lat</th>'
+    + '<th class="sum-th">Lng</th>'
+    + '<th class="sum-th">Period</th>'
+    + '<th class="sum-th">Start</th>'
+    + '<th class="sum-th">End</th>'
+    + '<th class="sum-th">Int (min)</th>'
+    + '<th class="sum-th">Ped Total</th>'
+    + cwHeaders
+    + '<th class="sum-th">Veh Total</th>'
+    + '<th class="sum-th">TMC Total</th>'
+    + '</tr></thead><tbody>' + dataRows + '</tbody></table></div>';
+
+  document.getElementById('sum-view-summary')?.addEventListener('click', () => { sumState.view = 'summary'; renderSummaryContent(); });
+  document.getElementById('sum-view-alldata')?.addEventListener('click', () => { sumState.view = 'alldata'; renderSummaryContent(); });
+  document.getElementById('sum-corr-filter')?.addEventListener('change', e => { sumState.filterCorr = e.target.value; renderSummaryContent(); });
+}
+
+function exportGISCSV() {
+  const rows = [];
+  // Collect all crosswalk assignments
+  const cwAssigns = [];
+  for (const ix of areaIntersections) {
+    const xws = ix.snapshot?.intersection?.crosswalks || [];
+    for (const xw of xws) {
+      if (xw.assign && !cwAssigns.includes(xw.assign)) cwAssigns.push(xw.assign);
+    }
+  }
+  if (!cwAssigns.length) cwAssigns.push('N', 'E', 'S', 'W');
+
+  function toHHMM(m) {
+    if (m == null) return '';
+    const h = Math.floor(m / 60) % 24, mn = m % 60;
+    return String(h).padStart(2,'0') + ':' + String(mn).padStart(2,'0');
+  }
+  function q(s) { return '"' + String(s||'').replace(/"/g,'""') + '"'; }
+
+  const headers = ['intersection_num','intersection_name','street_1','street_2','corridor','counter_name','latitude','longitude',
+    'period_name','period_start','period_end','interval_min',
+    'ped_total', ...cwAssigns.map(a => 'ped_' + a.toLowerCase()),
+    'veh_total','tmc_total'];
+  rows.push(headers.join(','));
+
+  areaIntersections.forEach((ix, i) => {
+    const snap = ix.snapshot;
+    if (!snap) return;
+    const { street1, street2 } = extractStreets(ix);
+    const xws = snap.intersection?.crosswalks || cwAssigns.map((a, idx) => ({ assign: a, _idx: idx }));
+    const periods = snap.periods || [];
+
+    if (!periods.length) {
+      rows.push([i+1, q(ix.name), q(street1), q(street2), q(ix.corridor||''), q(ix.counterName||''), q(ix.lat||''), q(ix.lng||''),
+        '','','','','', ...cwAssigns.map(() => ''), '',''].join(','));
+      return;
+    }
+
+    for (const period of periods) {
+      const cfg = period.cfg || {};
+      const startMin = cfg.startMinutes ?? null;
+      const durMin = cfg.durationMin ?? null;
+      const intMin = cfg.intervalMin ?? null;
+
+      let pedTotal = 0;
+      const pedByCw = cwAssigns.map(assign => {
+        const xi = xws.findIndex(x => x.assign === assign);
+        if (xi < 0) return '';
+        const cwSlots = period.pedData?.[xi] || [];
+        let t = 0;
+        for (const sl of cwSlots) t += (sl[0]||0) + (sl[1]||0);
+        pedTotal += t;
+        return t;
+      });
+
+      let vehTotal = 0;
+      if (period.vData?.in) {
+        for (let s = 0; s < period.vData.in.length; s++) {
+          vehTotal += (period.vData.in[s]||[]).reduce((a,b)=>a+(b||0),0);
+          vehTotal += (period.vData.out[s]||[]).reduce((a,b)=>a+(b||0),0);
+        }
+      }
+
+      let tmcTotal = 0;
+      for (const leg of Object.values(period.tmcData || {})) {
+        for (const mov of Object.values(leg)) {
+          if (Array.isArray(mov)) for (const v of mov) tmcTotal += (v||0);
+        }
+      }
+
+      rows.push([
+        i+1, q(ix.name), q(street1), q(street2), q(ix.corridor||''), q(ix.counterName||''), q(ix.lat||''), q(ix.lng||''),
+        q(period.name),
+        startMin != null ? toHHMM(startMin) : '',
+        startMin != null && durMin != null ? toHHMM(startMin + durMin) : '',
+        intMin != null ? intMin : '',
+        pedTotal, ...pedByCw,
+        vehTotal, tmcTotal
+      ].join(','));
+    }
+  });
+
+  const bom = '﻿';
+  const blob = new Blob([bom + rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = (projectInfo.projectName||'study').replace(/[^a-z0-9]/gi,'-') + '-gis-export.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ══════════════════════════════════════════════════════
+// STAGE 1 CHARTS  (TMD · Time-of-Day · Mode Split)
+// ══════════════════════════════════════════════════════
+
+/**
+ * Convert snapshot period.tmcData → flat { NBL, NBT, NBR, SBL, … WBR }
+ * summed over the peak-hour window (4 × intervalMin consecutive slots, max total).
+ * Returns { flat, hasTmc, peakHrStart, windowSize }
+ */
+function snapshotTmcPeakHour(period) {
+  const td = period.tmcData || {};
+  const intervalMin = period.cfg?.intervalMin || 15;
+  const slots = period.pedData?.[0]?.length || period.vData?.in?.length || 0;
+  if (!slots) return { flat: {}, hasTmc: false };
+
+  const slotTotals = Array.from({ length: slots }, (_, s) => {
+    let t = 0;
+    for (const toLegMap of Object.values(td)) {
+      for (const slotsArr of Object.values(toLegMap)) {
+        t += (slotsArr[s] || []).reduce((a, b) => a + (b || 0), 0);
+      }
+    }
+    return t;
+  });
+
+  const windowSize = Math.max(1, Math.round(60 / intervalMin));
+  let bestStart = 0, bestVol = -Infinity;
+  let ws = slotTotals.slice(0, windowSize).reduce((a, b) => a + b, 0);
+  bestVol = ws;
+  for (let i = 1; i + windowSize <= slots; i++) {
+    ws = ws - slotTotals[i - 1] + slotTotals[i + windowSize - 1];
+    if (ws > bestVol) { bestVol = ws; bestStart = i; }
+  }
+
+  // NBL=N→E, NBT=N→S, NBR=N→W | SBL=S→W, SBT=S→N, SBR=S→E
+  // EBL=E→S, EBT=E→W, EBR=E→N | WBL=W→N, WBT=W→E, WBR=W→S
+  const MOVE_MAP = {
+    N: { E: 'NBL', S: 'NBT', W: 'NBR' },
+    S: { W: 'SBL', N: 'SBT', E: 'SBR' },
+    E: { S: 'EBL', W: 'EBT', N: 'EBR' },
+    W: { N: 'WBL', E: 'WBT', S: 'WBR' },
+  };
+
+  const flat = { NBL:0,NBT:0,NBR:0,SBL:0,SBT:0,SBR:0,EBL:0,EBT:0,EBR:0,WBL:0,WBT:0,WBR:0 };
+  for (let si = bestStart; si < Math.min(bestStart + windowSize, slots); si++) {
+    for (const [fromLeg, toLegMap] of Object.entries(td)) {
+      const moves = MOVE_MAP[fromLeg];
+      if (!moves) continue;
+      for (const [toLeg, slotsArr] of Object.entries(toLegMap)) {
+        const key = moves[toLeg];
+        if (!key) continue;
+        flat[key] += (slotsArr[si] || []).reduce((a, b) => a + (b || 0), 0);
+      }
+    }
+  }
+
+  return { flat, hasTmc: Object.values(flat).some(v => v > 0), peakHrStart: bestStart, windowSize };
+}
+
+/**
+ * Classic TMC spider diagram. peakHourData = { NBL, NBT, … WBR }.
+ * Renders an SVG into the element with containerId.
+ */
+function renderTMDiagram(peakHourData, containerId, options = {}) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  const d = peakHourData;
+  const scaled = options.scaled === true;
+
+  const nbTotal = (d.NBL||0)+(d.NBT||0)+(d.NBR||0);
+  const sbTotal = (d.SBL||0)+(d.SBT||0)+(d.SBR||0);
+  const ebTotal = (d.EBL||0)+(d.EBT||0)+(d.EBR||0);
+  const wbTotal = (d.WBL||0)+(d.WBT||0)+(d.WBR||0);
+  const grandTotal = nbTotal + sbTotal + ebTotal + wbTotal;
+  const maxV = Math.max(1, ...Object.values(d).map(v => v||0));
+
+  function sw(v) { return Math.max(1.5, Math.min(11, 1.5 + ((v||0) / maxV) * 9.5)); }
+
+  const COL_L = 'var(--in-text)';
+  const COL_T = 'var(--blue-text)';
+  const COL_R = 'var(--out-text)';
+
+  // Layout constants
+  const W = 520, H = 520, cx = 260, cy = 260;
+  const BH = 52;   // half-box: box from (208,208) to (312,312)
+  const ARM = 108; // arm length from box edge to tip
+  const ARMW = 58; // arm width
+  const LO = 9;    // lane offset from arm centre
+
+  // Box edges
+  const NY = cy - BH, SY = cy + BH, EX = cx + BH, WX = cx - BH;
+  // Arm tips
+  const NT = NY - ARM, ST = SY + ARM, ET = EX + ARM, WT = WX - ARM;
+  // Entry/exit x or y on each arm (at box edge)
+  // NB entry (vehicles from N): east of centre on N arm → (cx+LO, NY)
+  // NB exit  (vehicles leaving to N): west → (cx-LO, NY)
+  const nEnt = [cx + LO, NY],  nExt = [cx - LO, NY];
+  const sEnt = [cx - LO, SY],  sExt = [cx + LO, SY];
+  const eEnt = [EX, cy - LO],  eExt = [EX, cy + LO];
+  const wEnt = [WX, cy + LO],  wExt = [WX, cy - LO];
+
+  // Cubic bezier: pull control points 48% toward intersection centre
+  function bez(ax, ay, bx, by, pull = 0.48) {
+    const c1x = +(ax + (cx - ax) * pull).toFixed(1);
+    const c1y = +(ay + (cy - ay) * pull).toFixed(1);
+    const c2x = +(bx + (cx - bx) * pull).toFixed(1);
+    const c2y = +(by + (cy - by) * pull).toFixed(1);
+    return { path: `M ${ax} ${ay} C ${c1x} ${c1y} ${c2x} ${c2y} ${bx} ${by}`, c1x, c1y, c2x, c2y };
+  }
+
+  // Mid-point of cubic bezier at t=0.5
+  function bezMid(ax, ay, c1x, c1y, c2x, c2y, bx, by) {
+    const t = 0.5, u = 0.5;
+    return [
+      u*u*u*ax + 3*u*u*t*c1x + 3*u*t*t*c2x + t*t*t*bx,
+      u*u*u*ay + 3*u*u*t*c1y + 3*u*t*t*c2y + t*t*t*by,
+    ];
+  }
+
+  function mov(ax, ay, bx, by, col, vol) {
+    if (!vol) return '';
+    const { path, c1x, c1y, c2x, c2y } = bez(ax, ay, bx, by);
+    const [mx, my] = bezMid(ax, ay, c1x, c1y, c2x, c2y, bx, by);
+    const strokeW = scaled ? sw(vol).toFixed(1) : '2.5';
+    return `
+      <path d="${path}" fill="none" stroke="${col}" stroke-width="${strokeW}" stroke-linecap="round" marker-end="url(#tmd-a)" opacity="0.82"/>
+      <text x="${mx.toFixed(1)}" y="${my.toFixed(1)}" text-anchor="middle" dominant-baseline="middle"
+        font-size="10" font-weight="700" fill="${col}"
+        stroke="var(--surface)" stroke-width="2.5" paint-order="stroke">${vol}</text>`;
+  }
+
+  // Road arms
+  const roads = [
+    `<rect x="${cx-ARMW/2}" y="${NT}" width="${ARMW}" height="${NY-NT}" fill="var(--surface3)" stroke="var(--border)" stroke-width=".5"/>`,
+    `<rect x="${cx-ARMW/2}" y="${SY}" width="${ARMW}" height="${ST-SY}" fill="var(--surface3)" stroke="var(--border)" stroke-width=".5"/>`,
+    `<rect x="${EX}" y="${cy-ARMW/2}" width="${ET-EX}" height="${ARMW}" fill="var(--surface3)" stroke="var(--border)" stroke-width=".5"/>`,
+    `<rect x="${WT}" y="${cy-ARMW/2}" width="${WX-WT}" height="${ARMW}" fill="var(--surface3)" stroke="var(--border)" stroke-width=".5"/>`,
+  ].join('');
+
+  const box = `<rect x="${WX}" y="${NY}" width="${BH*2}" height="${BH*2}" fill="var(--surface2)" stroke="var(--border)" stroke-width="1.5"/>`;
+
+  const defs = `<defs>
+    <marker id="tmd-a" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="5" markerHeight="5" orient="auto">
+      <path d="M0 0 L8 3 L0 6 Z" fill="context-stroke"/>
+    </marker>
+  </defs>`;
+
+  const moves = [
+    mov(...nEnt, ...eExt, COL_L, d.NBL||0), // NBL: N→E
+    mov(...nEnt, ...sExt, COL_T, d.NBT||0), // NBT: N→S
+    mov(...nEnt, ...wExt, COL_R, d.NBR||0), // NBR: N→W
+    mov(...sEnt, ...wExt, COL_L, d.SBL||0), // SBL: S→W
+    mov(...sEnt, ...nExt, COL_T, d.SBT||0), // SBT: S→N
+    mov(...sEnt, ...eExt, COL_R, d.SBR||0), // SBR: S→E
+    mov(...eEnt, ...sExt, COL_L, d.EBL||0), // EBL: E→S
+    mov(...eEnt, ...wExt, COL_T, d.EBT||0), // EBT: E→W
+    mov(...eEnt, ...nExt, COL_R, d.EBR||0), // EBR: E→N
+    mov(...wEnt, ...nExt, COL_L, d.WBL||0), // WBL: W→N
+    mov(...wEnt, ...eExt, COL_T, d.WBT||0), // WBT: W→E
+    mov(...wEnt, ...sExt, COL_R, d.WBR||0), // WBR: W→S
+  ].join('');
+
+  const approachTotals = [
+    `<text x="${cx}" y="${NT-14}" text-anchor="middle" font-size="12" font-weight="700" fill="var(--text2)">${nbTotal}</text>`,
+    `<text x="${cx}" y="${ST+20}" text-anchor="middle" font-size="12" font-weight="700" fill="var(--text2)">${sbTotal}</text>`,
+    `<text x="${ET+18}" y="${cy+4}" text-anchor="start" font-size="12" font-weight="700" fill="var(--text2)">${ebTotal}</text>`,
+    `<text x="${WT-18}" y="${cy+4}" text-anchor="end" font-size="12" font-weight="700" fill="var(--text2)">${wbTotal}</text>`,
+  ].join('');
+
+  const dirLabels = [
+    `<text x="${cx}" y="${NT-30}" text-anchor="middle" font-size="14" font-weight="800" fill="var(--text)" font-family="var(--mono)">N</text>`,
+    `<text x="${cx}" y="${ST+37}" text-anchor="middle" font-size="14" font-weight="800" fill="var(--text)" font-family="var(--mono)">S</text>`,
+    `<text x="${ET+36}" y="${cy+5}" text-anchor="start" font-size="14" font-weight="800" fill="var(--text)" font-family="var(--mono)">E</text>`,
+    `<text x="${WT-36}" y="${cy+5}" text-anchor="end" font-size="14" font-weight="800" fill="var(--text)" font-family="var(--mono)">W</text>`,
+  ].join('');
+
+  const centerLabel = grandTotal > 0 ? `
+    <text x="${cx}" y="${cy-8}" text-anchor="middle" font-size="17" font-weight="800" fill="var(--blue-text)">${grandTotal}</text>
+    <text x="${cx}" y="${cy+9}" text-anchor="middle" font-size="9" fill="var(--text3)">peak hr total</text>` : '';
+
+  el.innerHTML = `
+    <div class="tmd-wrap">
+      <svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:520px;display:block;margin:0 auto" xmlns="http://www.w3.org/2000/svg">
+        ${defs}${roads}${box}${moves}${approachTotals}${dirLabels}${centerLabel}
+      </svg>
+      <div class="tmd-legend">
+        <span class="tmd-leg-item"><span class="tmd-swatch" style="background:var(--in-text)"></span>Left</span>
+        <span class="tmd-leg-item"><span class="tmd-swatch" style="background:var(--blue-text)"></span>Through</span>
+        <span class="tmd-leg-item"><span class="tmd-swatch" style="background:var(--out-text)"></span>Right</span>
+        ${scaled ? '<span class="tmd-leg-hint">line weight ∝ volume</span>' : ''}
+      </div>
+    </div>`;
+}
+
+/**
+ * Bar chart of volume by 15-min interval.
+ * intervals: [{ time, vehicles, peds }]
+ */
+function renderTimeOfDayChart(intervals, containerId) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  if (!intervals?.length) {
+    el.innerHTML = '<div style="color:var(--text3);font-size:13px;padding:16px 0">No interval data.</div>';
+    return;
+  }
+
+  const W = 900, H = 220, pL = 40, pB = 30, pT = 12, pR = 12;
+  const iW = W - pL - pR, iH = H - pT - pB;
+  const hasVeh = intervals.some(iv => (iv.vehicles||0) > 0);
+  const hasPed = intervals.some(iv => (iv.peds||0) > 0);
+  const maxV = Math.max(1, ...intervals.map(iv => Math.max(iv.vehicles||0, iv.peds||0)));
+  const n = intervals.length;
+  const grpGap = 2;
+  const grpW = Math.max(2, iW / n - grpGap);
+  const dual = hasVeh && hasPed;
+  const barW = dual ? Math.max(1, (grpW - 1) / 2) : Math.max(2, grpW);
+
+  const steps = 4;
+  let grid = '';
+  for (let i = 0; i <= steps; i++) {
+    const y = pT + iH - (i / steps) * iH;
+    const v = Math.round((i / steps) * maxV);
+    grid += `<line class="chart-gridline" x1="${pL}" y1="${y.toFixed(1)}" x2="${W-pR}" y2="${y.toFixed(1)}"/>`;
+    grid += `<text class="chart-axis-label" x="${pL-5}" y="${(y+3).toFixed(1)}" text-anchor="end">${v}</text>`;
+  }
+
+  let bars = '';
+  intervals.forEach((iv, i) => {
+    const gx = pL + i * (grpW + grpGap);
+    const vv = iv.vehicles||0, pv = iv.peds||0;
+    if (dual) {
+      const hv = (vv / maxV) * iH, hp = (pv / maxV) * iH;
+      bars += `<rect class="chart-bar chart-bar-a" x="${gx.toFixed(1)}" y="${(pT+iH-hv).toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(0,hv).toFixed(1)}"><title>${iv.time}: ${vv} vehicles</title></rect>`;
+      bars += `<rect class="chart-bar chart-bar-b" x="${(gx+barW+1).toFixed(1)}" y="${(pT+iH-hp).toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(0,hp).toFixed(1)}"><title>${iv.time}: ${pv} peds</title></rect>`;
+    } else {
+      const v = hasVeh ? vv : pv;
+      const h = (v / maxV) * iH;
+      bars += `<rect class="${hasVeh?'chart-bar chart-bar-a':'chart-bar chart-bar-b'}" x="${gx.toFixed(1)}" y="${(pT+iH-h).toFixed(1)}" width="${grpW.toFixed(1)}" height="${Math.max(0,h).toFixed(1)}"><title>${iv.time}: ${v}</title></rect>`;
+    }
+  });
+
+  const labelSkip = Math.max(1, Math.ceil(n / 14));
+  let xLabels = '';
+  intervals.forEach((iv, i) => {
+    if (i % labelSkip !== 0) return;
+    const x = pL + i * (grpW + grpGap) + grpW / 2;
+    xLabels += `<text class="chart-axis-label" x="${x.toFixed(1)}" y="${H-8}" text-anchor="middle">${iv.time}</text>`;
+  });
+
+  const legend = dual
+    ? `<div class="legend"><span class="legend-item"><span class="legend-swatch" style="background:var(--chart-bar)"></span>Vehicles</span><span class="legend-item"><span class="legend-swatch" style="background:var(--chart-bar2)"></span>Pedestrians</span></div>`
+    : hasVeh
+      ? `<div class="legend"><span class="legend-item"><span class="legend-swatch" style="background:var(--chart-bar)"></span>Vehicles</span></div>`
+      : `<div class="legend"><span class="legend-item"><span class="legend-swatch" style="background:var(--chart-bar2)"></span>Pedestrians</span></div>`;
+
+  el.innerHTML = `<div class="chart-wrap"><svg class="chart-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMinYMin meet">${grid}${bars}${xLabels}</svg></div>${legend}`;
+}
+
+/**
+ * Mode split proportional bar + percentage numbers.
+ */
+function renderModeSplit(vehicleTotal, pedTotal, containerId) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  const total = (vehicleTotal||0) + (pedTotal||0);
+  if (!total) { el.innerHTML = '<div style="color:var(--text3);font-size:13px;padding:12px 0">No data.</div>'; return; }
+  const vPct = Math.round(((vehicleTotal||0) / total) * 100);
+  const pPct = 100 - vPct;
+  el.innerHTML = `
+    <div class="mode-split-wrap">
+      <div class="mode-split-nums">
+        <div class="mode-split-item">
+          <div class="mode-split-pct" style="color:var(--blue-text)">${vPct}%</div>
+          <div class="mode-split-label">Vehicles</div>
+          <div class="mode-split-count">${(vehicleTotal||0).toLocaleString()}</div>
+        </div>
+        <div class="mode-split-vsep"></div>
+        <div class="mode-split-item">
+          <div class="mode-split-pct" style="color:var(--in-text)">${pPct}%</div>
+          <div class="mode-split-label">Pedestrians</div>
+          <div class="mode-split-count">${(pedTotal||0).toLocaleString()}</div>
+        </div>
+      </div>
+      <div class="mode-split-bar">
+        ${vPct > 0 ? `<div class="mode-split-seg" style="width:${vPct}%;background:var(--blue-text)"></div>` : ''}
+        ${pPct > 0 ? `<div class="mode-split-seg" style="width:${pPct}%;background:var(--in-border)"></div>` : ''}
+      </div>
+    </div>`;
+}
+
 // ── Intersection detail analysis ──
 let ixAnalysisPeriodIdx = 0;
+let ixAnalysisView = 'data'; // 'data' | 'charts'
+let _tmdScaled = false;
 
 function showIntersectionAnalysis(idx) {
   activeIntersectionIdx = idx;
@@ -1262,11 +2808,14 @@ function showIntersectionAnalysis(idx) {
   if (projectInfo.projectName) parts.push(projectInfo.projectName);
   document.getElementById('ix-analysis-sub').textContent = parts.join(' · ');
   ixAnalysisPeriodIdx = 0;
+  _sidebarActiveItem = `area-ix-${idx}`;
+  renderAppSidebar();
   renderIxAnalysis(0);
   showScreen('ix-analysis-screen');
 }
 
-function renderIxAnalysis(periodIdx) {
+function renderIxAnalysis(periodIdx, view) {
+  if (view !== undefined) ixAnalysisView = view;
   ixAnalysisPeriodIdx = periodIdx;
   const container = document.getElementById('ix-analysis-content');
   if (!container) return;
@@ -1279,8 +2828,8 @@ function renderIxAnalysis(periodIdx) {
   const snPeriods = snap.periods;
   const period = snPeriods[periodIdx];
   const cfg = period.cfg;
-  const intervalMin = cfg.intervalMin || 15;
-  const startMin = cfg.startMinutes;
+  const intervalMin = cfg?.intervalMin || 15;
+  const startMin = cfg?.startMinutes || 0;
   const crosswalks = snap.intersection?.crosswalks || [
     { name: 'N crosswalk', dir0: 'EB', dir1: 'WB', assign: 'N' },
     { name: 'E crosswalk', dir0: 'NB', dir1: 'SB', assign: 'E' },
@@ -1335,7 +2884,75 @@ function renderIxAnalysis(periodIdx) {
       ).join('')}</div>`
     : `<div class="ix-period-label">${period.name}</div>`;
 
-  // Charts
+  // View toggle (Data | Charts)
+  const viewTabsHtml = `<div class="ix-view-tabs no-print">
+    <button class="ix-view-tab${ixAnalysisView==='data'?' active':''}" data-view="data">Data</button>
+    <button class="ix-view-tab${ixAnalysisView==='charts'?' active':''}" data-view="charts">Charts</button>
+  </div>`;
+
+  // ── CHARTS VIEW ────────────────────────────────────────
+  if (ixAnalysisView === 'charts') {
+    const tmcInfo = snapshotTmcPeakHour(period);
+    const vTotalPerSlot = Array.from({ length: slots }, (_, s) => {
+      const inArr = period.vData?.in?.[s] || [];
+      const outArr = period.vData?.out?.[s] || [];
+      return inArr.reduce((a, b) => a + (b||0), 0) + outArr.reduce((a, b) => a + (b||0), 0);
+    });
+    const chartIntervals = slotData.map((s, i) => ({
+      time: toHHMM(s.time),
+      vehicles: vTotalPerSlot[i] || 0,
+      peds: s.total,
+    }));
+    const vPeriodTotal = vTotalPerSlot.reduce((a, b) => a + b, 0);
+    const hasModeData = grandTotal > 0 || vPeriodTotal > 0;
+
+    container.innerHTML = `
+      ${tabsHtml}
+      ${viewTabsHtml}
+      ${tmcInfo.hasTmc ? `<div class="ix-card ix-card-full" style="margin-bottom:14px">
+        <div class="ix-card-header">Turning Movement Diagram
+          <span class="ix-card-hint">peak hour</span>
+          <button class="ix-card-toggle no-print" id="tmd-scale-btn" title="Toggle scaled line weights">${_tmdScaled ? 'scaled ✓' : 'scaled'}</button>
+        </div>
+        <div id="ix-tmd-root"></div>
+      </div>` : ''}
+      <div class="ix-card ix-card-full" style="margin-bottom:14px">
+        <div class="ix-card-header">Time-of-Day Volume
+          <span class="ix-card-hint">15-min intervals</span>
+        </div>
+        <div id="ix-tod-root"></div>
+      </div>
+      ${hasModeData ? `<div class="ix-card ix-card-full">
+        <div class="ix-card-header">Mode Split</div>
+        <div id="ix-mode-root"></div>
+      </div>` : ''}`;
+
+    function wireViewTabs() {
+      container.querySelectorAll('.ix-period-tab').forEach(btn =>
+        btn.addEventListener('click', () => renderIxAnalysis(+btn.dataset.pi)));
+      container.querySelectorAll('[data-pi]').forEach(el =>
+        el.addEventListener('click', () => renderIxAnalysis(+el.dataset.pi)));
+      container.querySelectorAll('.ix-view-tab').forEach(btn =>
+        btn.addEventListener('click', () => renderIxAnalysis(ixAnalysisPeriodIdx, btn.dataset.view)));
+    }
+    wireViewTabs();
+
+    if (tmcInfo.hasTmc) {
+      renderTMDiagram(tmcInfo.flat, 'ix-tmd-root', { scaled: _tmdScaled });
+      document.getElementById('tmd-scale-btn')?.addEventListener('click', () => {
+        _tmdScaled = !_tmdScaled;
+        renderTMDiagram(tmcInfo.flat, 'ix-tmd-root', { scaled: _tmdScaled });
+        const btn = document.getElementById('tmd-scale-btn');
+        if (btn) btn.textContent = _tmdScaled ? 'scaled ✓' : 'scaled';
+      });
+    }
+    renderTimeOfDayChart(chartIntervals, 'ix-tod-root');
+    if (hasModeData) renderModeSplit(vPeriodTotal, grandTotal, 'ix-mode-root');
+    return;
+  }
+  // ── END CHARTS VIEW ─────────────────────────────────────
+
+  // Charts (existing ped volume profile)
   const volumeSvg = buildVolumeProfileSVG(slotData, crosswalks, intervalMin);
   const cwBarSvg  = buildCrosswalkBarSVG(xwTotals);
   const legendHtml = buildChartLegend(crosswalks);
@@ -1405,6 +3022,7 @@ function renderIxAnalysis(periodIdx) {
 
   container.innerHTML = `
     ${tabsHtml}
+    ${viewTabsHtml}
     <div class="ix-grid">
       <div class="ix-card">
         <div class="ix-card-header">Crosswalk Summary
@@ -1485,6 +3103,8 @@ function renderIxAnalysis(periodIdx) {
     btn.addEventListener('click', () => renderIxAnalysis(+btn.dataset.pi)));
   container.querySelectorAll('[data-pi]').forEach(el =>
     el.addEventListener('click', () => renderIxAnalysis(+el.dataset.pi)));
+  container.querySelectorAll('.ix-view-tab').forEach(btn =>
+    btn.addEventListener('click', () => renderIxAnalysis(ixAnalysisPeriodIdx, btn.dataset.view)));
 }
 
 function loadIntersectionIntoView(snap) {
@@ -1498,6 +3118,7 @@ function loadIntersectionIntoView(snap) {
       name: p.name,
       data: {
         cfg: p.cfg,
+        meta: p.meta || { date:'', weather:'', observer:'', notes:'' },
         vData: JSON.parse(JSON.stringify(p.vData)),
         pedData: JSON.parse(JSON.stringify(p.pedData)),
         tmcData: JSON.parse(JSON.stringify(p.tmcData || {})),
@@ -1554,6 +3175,10 @@ function loadProject(proj) {
     if (proj.qaqcReviewerName) { const el = document.getElementById('qaqc-reviewer-name'); if (el) el.value = proj.qaqcReviewerName; }
     if (proj.qaqcReviewDate) { const el = document.getElementById('qaqc-review-date'); if (el) el.value = proj.qaqcReviewDate; }
     projectType = 'tripgen';
+    enterWorkspace();
+    setSidebarMeta(proj.projectInfo?.projectName || 'Trip generation', proj.siteInfo?.location || '');
+    _sidebarActiveItem = 'tg-setup';
+    renderAppSidebar();
     showScreen('tripgen-setup-screen');
     wireSiteInfoFields();
     renderTripgenLocationsList();
@@ -1561,9 +3186,13 @@ function loadProject(proj) {
   }
   if (proj.projectType === 'area') {
     areaIntersections.length = 0;
-    areaIntersections.push(...(proj.intersections || []).map(ix => ({ name: ix.name, snapshot: ix.snapshot })));
+    areaIntersections.push(...(proj.intersections || []).map(ix => ({ name: ix.name, snapshot: ix.snapshot, street1: ix.street1 || '', street2: ix.street2 || '', corridor: ix.corridor || '', counterName: ix.counterName || '', lat: ix.lat || '', lng: ix.lng || '' })));
     activeIntersectionIdx = Math.min(proj.activeIntersectionIdx ?? 0, Math.max(0, areaIntersections.length - 1));
     projectType = 'area';
+    enterWorkspace();
+    setSidebarMeta(proj.projectInfo?.projectName || 'Area study', '');
+    _sidebarActiveItem = null;
+    renderAppSidebar();
     showAreaSetup();
     return;
   }
@@ -1582,6 +3211,7 @@ function loadProject(proj) {
         name: p.name,
         data: {
           cfg: p.cfg,
+          meta: p.meta || { date:'', weather:'', observer:'', notes:'' },
           vData: JSON.parse(JSON.stringify(p.vData)),
           pedData: JSON.parse(JSON.stringify(p.pedData)),
           tmcData: JSON.parse(JSON.stringify(p.tmcData || {})),
@@ -1613,6 +3243,10 @@ function loadProject(proj) {
   }
 
   projectType = 'intersection';
+  enterWorkspace();
+  setSidebarMeta(proj.projectInfo?.projectName || 'Intersection count', '');
+  _sidebarActiveItem = 'count';
+  renderAppSidebar();
   buildTemplateGrid(); renderVPairsList(); renderTmcPairsList(); updateDerived(); renderLegConfig(); renderSetupDiagram();
   updateTemplateSuboption(); initApproaches();
   // Jump straight to the counter screen with restored data, skipping setup.
@@ -1628,7 +3262,7 @@ function loadProject(proj) {
 // ═══════════════════════════════════════════
 // AUTOSAVE — localStorage
 // ═══════════════════════════════════════════
-const LS_KEY = 'traffic-app-autosave';
+// LS_KEY moved to top of file — see const declaration near imports
 
 function serializeCurrentProject() {
   if (projectType === 'area') {
@@ -1637,7 +3271,7 @@ function serializeCurrentProject() {
       version: 2, projectType: 'area', savedAt: new Date().toISOString(),
       projectInfo: { ...projectInfo },
       activeIntersectionIdx,
-      intersections: areaIntersections.map(ix => ({ name: ix.name, snapshot: ix.snapshot })),
+      intersections: areaIntersections.map(ix => ({ name: ix.name, snapshot: ix.snapshot, street1: ix.street1 || '', street2: ix.street2 || '', corridor: ix.corridor || '', counterName: ix.counterName || '', lat: ix.lat || '', lng: ix.lng || '' })),
     };
   }
   if (projectType === 'intersection') {
@@ -2414,7 +4048,7 @@ async function rerenderTripgenAnalysis() {
   });
 }
 
-checkAutosave();
+// checkAutosave() — replaced by renderHomeResumeBanner() called from showHome()
 
 window.saveTripgenProject = function () {
   const proj = {

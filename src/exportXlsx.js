@@ -68,14 +68,27 @@ export function exportXLSX() {
   const hasVehicle = hasData(vData.in) || hasData(vData.out);
   const hasPed     = hasData(pedData);
   const hasTMC     = intersection.approaches.some(a => a.destinations.some(d => hasData(tmcData[a.leg]?.[d])));
+  const bikeIdx  = tmcPairs.map((p, i) => p.isBike ? i : -1).filter(i => i >= 0);
+  const motorIdx = tmcPairs.map((p, i) => !p.isBike ? i : -1).filter(i => i >= 0);
+  const hasBikePairs = bikeIdx.length > 0;
+
+  function appendTmcSheets(wb) {
+    if (hasBikePairs && motorIdx.length > 0) {
+      buildTMCSheet(wb, motorIdx, 'TMC');
+      buildTMCSheet(wb, bikeIdx, 'TMC-Bikes');
+    } else {
+      buildTMCSheet(wb);
+    }
+  }
+
   if (!hasVehicle && !hasPed && !hasTMC) {
     if (mode === 'vehicle') buildVehicleSheet(wb);
     else if (mode === 'ped') buildPedSheet(wb);
-    else buildTMCSheet(wb);
+    else appendTmcSheets(wb);
   } else {
     if (hasVehicle) buildVehicleSheet(wb);
     if (hasPed)     buildPedSheet(wb);
-    if (hasTMC)     buildTMCSheet(wb);
+    if (hasTMC)     appendTmcSheets(wb);
   }
   const base = fnames.vehicle || fnames.tmc || fnames.ped || 'traffic_counts';
   XLSX.writeFile(wb, base.replace(/\.(csv|xlsx)$/i, '') + '.xlsx');
@@ -90,7 +103,9 @@ export function exportXLSX() {
 //   Row 7:    type sub-labels (only when multi-type)
 //   Row 8+:   data — col A = Time, remaining cols = counts
 
-function buildTMCSheet(wb) {
+// origIndices: optional array of tmcPairs indices to include (for bike filtering).
+// sheetName: optional override for the sheet tab label.
+function buildTMCSheet(wb, origIndices, sheetName) {
   const apps = intersection.approaches;
   // Derive actual recorded type count from tmcData so header matches data
   // even if tmcPairs was reset to defaults after the count was recorded.
@@ -101,11 +116,14 @@ function buildTMCSheet(wb) {
       if (Array.isArray(s0)) { nT = s0.length; break outer; }
     }
   }
-  // Build a types array with .label per entry
-  const types = Array.from({ length: nT }, (_, i) => ({
-    label: tmcPairs[i]?.label || `type ${i + 1}`,
+  // Build a types array preserving original data index for each selected type.
+  const allIndices = Array.from({ length: nT }, (_, i) => i);
+  const selectedIndices = (origIndices && origIndices.length) ? origIndices.filter(i => i < nT) : allIndices;
+  const types = selectedIndices.map(origIdx => ({
+    label: tmcPairs[origIdx]?.label || `type ${origIdx + 1}`,
+    origIdx,
   }));
-  const multi = nT > 1;
+  const multi = types.length > 1;
 
   const colDefs = [];
   let ci = 1; // column index (0 = Time)
@@ -118,23 +136,23 @@ function buildTMCSheet(wb) {
       const movLabel = `${aLbl} - ${TURN_CLS_LABEL[cls]}`;
       const movStart = ci;
       if (multi) {
-        types.forEach((p, ti) => {
+        types.forEach(p => {
           colDefs.push({ c: ci++, kind: 'type', ai, appLabel: aLbl, appStart, movLabel, movStart, typLabel: p.label,
-            getVal: ri => tmcData[app.leg]?.[dest]?.[ri]?.[ti] ?? 0 });
+            getVal: ri => tmcData[app.leg]?.[dest]?.[ri]?.[p.origIdx] ?? 0 });
         });
       }
       colDefs.push({ c: ci++, kind: 'mvmt-total', ai, appLabel: aLbl, appStart, movLabel, movStart,
-        getVal: ri => types.reduce((s, _, ti) => s + (tmcData[app.leg]?.[dest]?.[ri]?.[ti] ?? 0), 0) });
+        getVal: ri => types.reduce((s, p) => s + (tmcData[app.leg]?.[dest]?.[ri]?.[p.origIdx] ?? 0), 0) });
     });
     colDefs.push({ c: ci++, kind: 'app-total', ai, appLabel: aLbl, appStart,
       getVal: ri => app.destinations.reduce((s, dest) =>
-        s + types.reduce((s2, _, ti) => s2 + (tmcData[app.leg]?.[dest]?.[ri]?.[ti] ?? 0), 0), 0) });
+        s + types.reduce((s2, p) => s2 + (tmcData[app.leg]?.[dest]?.[ri]?.[p.origIdx] ?? 0), 0), 0) });
   });
 
   colDefs.push({ c: ci++, kind: 'grand-total',
     getVal: ri => apps.reduce((s, app) =>
       s + app.destinations.reduce((s2, dest) =>
-        s2 + types.reduce((s3, _, ti) => s3 + (tmcData[app.leg]?.[dest]?.[ri]?.[ti] ?? 0), 0), 0), 0) });
+        s2 + types.reduce((s3, p) => s3 + (tmcData[app.leg]?.[dest]?.[ri]?.[p.origIdx] ?? 0), 0), 0), 0) });
 
   const totalCols = ci;
   const nHdr = multi ? 3 : 2;
@@ -209,7 +227,7 @@ function buildTMCSheet(wb) {
   ws['!cols'] = cols;
   // Freeze: col 1 (after Time), row after all headers
   ws['!views'] = [{ state: 'frozen', xSplit: 1, ySplit: META + nHdr }];
-  window.XLSX.utils.book_append_sheet(wb, ws, 'TMC');
+  window.XLSX.utils.book_append_sheet(wb, ws, sheetName || 'TMC');
 }
 
 // ─── Vehicle sheet ───────────────────────────────────────────────────────────

@@ -23,21 +23,26 @@ function tmcCountAt(appLeg, destLeg, slotIdx) {
   return (tmcData[appLeg] && tmcData[appLeg][destLeg] && tmcData[appLeg][destLeg][slotIdx]) || tmcPairs.map(() => 0);
 }
 
-function slotTmcTotal(slotIdx) {
+function sumAtIndices(arr, indices) {
+  if (!indices) return arr.reduce((s, v) => s + v, 0);
+  return indices.reduce((s, i) => s + (arr[i] || 0), 0);
+}
+
+function slotTmcTotal(slotIdx, typeIndices) {
   let t = 0;
-  intersection.approaches.forEach(a => a.destinations.forEach(d => { tmcCountAt(a.leg, d, slotIdx).forEach(v => { t += v; }); }));
+  intersection.approaches.forEach(a => a.destinations.forEach(d => { t += sumAtIndices(tmcCountAt(a.leg, d, slotIdx), typeIndices); }));
   return t;
 }
 
 // Rolling 1-hour peak within a search window (returns startIdx, endIdx, or -1 if no data)
-function findPeak(searchStartMin, searchEndMin) {
+function findPeak(searchStartMin, searchEndMin, typeIndices) {
   const sph = Math.max(1, Math.round(60 / cfg.intervalMin));
   let best = -1, bestVol = -1;
   for (let i = 0; i + sph <= cfg.slots; i++) {
     const slotMin = cfg.startMinutes + i * cfg.intervalMin;
     if (slotMin < searchStartMin || slotMin >= searchEndMin) continue;
     let vol = 0;
-    for (let j = i; j < i + sph; j++) vol += slotTmcTotal(j);
+    for (let j = i; j < i + sph; j++) vol += slotTmcTotal(j, typeIndices);
     if (vol > bestVol) { bestVol = vol; best = i; }
   }
   return best === -1 ? null : { startIdx: best, endIdx: best + sph - 1, volume: bestVol };
@@ -105,7 +110,7 @@ function buildReportSVG(peakRange) {
 
 // ── Full interval TMC table ───────────────────────────────────────────────────
 
-function buildTmcTable(peakSlots) {
+function buildTmcTable(peakSlots, typeIndices) {
   const apps = intersection.approaches.filter(a => a.destinations.length);
   if (!apps.length) return '';
 
@@ -127,7 +132,7 @@ function buildTmcTable(peakSlots) {
     apps.forEach(a => {
       let appTot = 0;
       a.destinations.forEach(d => {
-        const tot = tmcCountAt(a.leg, d, i).reduce((s, v) => s + v, 0);
+        const tot = sumAtIndices(tmcCountAt(a.leg, d, i), typeIndices);
         appTot += tot;
         cells.push(tot || '');
       });
@@ -141,7 +146,7 @@ function buildTmcTable(peakSlots) {
   apps.forEach(a => {
     let appTot = 0;
     a.destinations.forEach(d => {
-      const tot = Array.from({ length: cfg.slots }, (_, i) => tmcCountAt(a.leg, d, i).reduce((s, v) => s + v, 0)).reduce((a, b) => a + b, 0);
+      const tot = Array.from({ length: cfg.slots }, (_, i) => sumAtIndices(tmcCountAt(a.leg, d, i), typeIndices)).reduce((a, b) => a + b, 0);
       appTot += tot;
       totCells.push(tot || '');
     });
@@ -160,16 +165,15 @@ function buildTmcTable(peakSlots) {
 
 // ── Peak hour summary boxes ───────────────────────────────────────────────────
 
-function buildPeakBox(label, peak) {
+function buildPeakBox(label, peak, typeIndices) {
   if (!peak) return '';
-  const sph = Math.max(1, Math.round(60 / cfg.intervalMin));
   const timeRange = `${slotLabel(peak.startIdx).split('–')[0].trim()} – ${minToHHMM(cfg.startMinutes + (peak.endIdx + 1) * cfg.intervalMin)}`;
   const rows = [];
   intersection.approaches.filter(a => a.destinations.length).forEach(a => {
     let appTot = 0;
     a.destinations.forEach(d => {
       let tot = 0;
-      for (let i = peak.startIdx; i <= peak.endIdx; i++) tot += tmcCountAt(a.leg, d, i).reduce((s, v) => s + v, 0);
+      for (let i = peak.startIdx; i <= peak.endIdx; i++) tot += sumAtIndices(tmcCountAt(a.leg, d, i), typeIndices);
       appTot += tot;
       if (tot > 0) rows.push(`<tr><td>${movLabel(a.leg, d)}</td><td class="num-col">${tot}</td></tr>`);
     });
@@ -188,14 +192,21 @@ export function openPrintReport(projectInfo = {}) {
   const apps = intersection.approaches.filter(a => a.destinations.length);
   const hasTmc = apps.length > 0;
 
-  // Find peaks (search windows in minutes from midnight)
-  const amPeak  = hasTmc ? findPeak(7 * 60, 11 * 60)  : null;
-  const midPeak = hasTmc ? findPeak(11 * 60, 15 * 60) : null;
-  const pmPeak  = hasTmc ? findPeak(16 * 60, 19 * 60) : null;
+  // Separate bike and motor vehicle type indices
+  const bikeIdx  = tmcPairs.map((p, i) => p.isBike  ? i : -1).filter(i => i >= 0);
+  const motorIdx = tmcPairs.map((p, i) => !p.isBike ? i : -1).filter(i => i >= 0);
+  const hasBikes = hasTmc && bikeIdx.length > 0 && motorIdx.length > 0;
+  const peakTypeIdx = hasBikes ? motorIdx : undefined;
+
+  // Find peaks (search windows in minutes from midnight) — always on motor vehicles when bikes present
+  const amPeak  = hasTmc ? findPeak(7 * 60, 11 * 60,  peakTypeIdx) : null;
+  const midPeak = hasTmc ? findPeak(11 * 60, 15 * 60, peakTypeIdx) : null;
+  const pmPeak  = hasTmc ? findPeak(16 * 60, 19 * 60, peakTypeIdx) : null;
   const peakSlots = new Set([amPeak, midPeak, pmPeak].filter(Boolean).flatMap(p => Array.from({ length: p.endIdx - p.startIdx + 1 }, (_, i) => p.startIdx + i)));
 
   const diagramSvg = hasTmc ? buildReportSVG(amPeak || pmPeak) : '';
-  const tmcTable  = hasTmc ? buildTmcTable(peakSlots) : '';
+  const tmcTable  = hasTmc ? buildTmcTable(peakSlots, hasBikes ? motorIdx : undefined) : '';
+  const bikeTmcTable = hasBikes ? buildTmcTable(null, bikeIdx) : '';
 
   const logoHtml = projectInfo.logoUrl
     ? `<img src="${projectInfo.logoUrl}" style="max-height:56px;max-width:180px;object-fit:contain">`
@@ -208,7 +219,10 @@ export function openPrintReport(projectInfo = {}) {
     projectInfo.companyAddress,
   ].filter(Boolean).map(l => `<div>${l}</div>`).join('');
 
+  const fmtDate = d => { if (!d) return ''; const [y,m,dy] = d.split('-'); return `${m}/${dy}/${y}`; };
   const countInfo = [
+    projectInfo.date          && `Date: ${fmtDate(projectInfo.date)}`,
+    projectInfo.weather       && `Weather: ${projectInfo.weather}`,
     projectInfo.counterName   && `Counter: ${projectInfo.counterName}`,
     projectInfo.qaCounterName && `QA: ${projectInfo.qaCounterName}`,
     projectInfo.studyPurpose  && `Notes: ${projectInfo.studyPurpose}`,
@@ -283,11 +297,12 @@ body{font-family:-apple-system,'Helvetica Neue',Arial,sans-serif;font-size:11px;
   ${diagramSvg ? `<div class="diagram-col">${diagramSvg}</div>` : ''}
   <div class="data-col">
     <div class="peak-boxes">
-      ${buildPeakBox('AM', amPeak)}
-      ${buildPeakBox('Midday', midPeak)}
-      ${buildPeakBox('PM', pmPeak)}
+      ${buildPeakBox('AM', amPeak, peakTypeIdx)}
+      ${buildPeakBox('Midday', midPeak, peakTypeIdx)}
+      ${buildPeakBox('PM', pmPeak, peakTypeIdx)}
     </div>
-    ${hasTmc ? '<div class="section-label">Full count — all intervals</div>' + tmcTable : '<p style="color:#888">No turning movement data recorded.</p>'}
+    ${hasTmc ? `<div class="section-label">${hasBikes ? 'Motor vehicles — full count' : 'Full count — all intervals'}</div>` + tmcTable : '<p style="color:#888">No turning movement data recorded.</p>'}
+    ${hasBikes ? '<div class="section-label" style="margin-top:18px">Bicycles — full count</div>' + bikeTmcTable : ''}
   </div>
 </div>
 

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Traffic App v2.7.0</title>
+<title>Traffic App v3.3.0</title>
 </head>
 <body>
 
@@ -22,14 +22,62 @@
   <div class="ctx-item" id="ctx-reset-interval">↺ reset this interval</div>
 </div>
 
-<!-- = LANDING / PROJECT PICKER = -->
-<div id="landing-screen" style="min-height:100vh;display:flex;align-items:flex-start;justify-content:center;padding:3rem 2rem">
+<!-- = PERSISTENT SIDEBAR = -->
+<aside class="app-sidebar" id="app-sidebar">
+  <div class="sidebar-header">
+    <button class="sidebar-back-btn" id="sidebar-back-btn">← All Projects</button>
+    <div class="sidebar-project-name" id="sidebar-project-name"></div>
+    <div class="sidebar-project-sub" id="sidebar-project-sub"></div>
+  </div>
+  <nav class="sidebar-body" id="sidebar-body"></nav>
+</aside>
+
+<!-- = HOME SCREEN (project portfolio) = -->
+<div id="home-screen">
+  <div class="home-inner">
+    <div class="home-wordmark">
+      <h1>Traffic App</h1>
+      <div class="home-version">v3.3.0</div>
+    </div>
+    <div id="home-resume-banner" style="display:none" class="home-resume-banner"></div>
+    <div class="home-section-label" style="margin-bottom:10px">Start a new study</div>
+    <div class="home-cards" style="margin-bottom:20px">
+      <button class="home-card home-card-primary" id="home-btn-intersection">
+        <span class="home-card-title">Intersection count</span>
+        <span class="home-card-desc">Vehicle, pedestrian, and TMC at one intersection</span>
+      </button>
+      <button class="home-card" id="home-btn-tripgen">
+        <span class="home-card-title">Trip generation count</span>
+        <span class="home-card-desc">Per-location classification counts for a site</span>
+      </button>
+      <button class="home-card home-card-full" id="home-btn-area">
+        <div>
+          <span class="home-card-title">Area-wide study</span>
+          <div class="home-card-desc">Multiple intersections — import raw counts, compare across locations</div>
+        </div>
+        <span style="font-size:18px;color:var(--text3);margin-left:16px">→</span>
+      </button>
+    </div>
+    <div class="home-section-label">Open existing</div>
+    <div class="home-cards" style="grid-template-columns:1fr">
+      <button class="home-card" id="home-btn-load" style="flex-direction:row;align-items:center;gap:12px">
+        <span class="home-card-title">Load project file…</span>
+        <span class="home-card-desc" style="margin-left:auto;font-size:11px;color:var(--text3)">.json / .tcproject</span>
+      </button>
+    </div>
+    <input type="file" id="home-load-input" accept=".json,.tcproject" style="display:none" />
+    <div style="margin-top:8px"><span id="home-load-error" style="color:var(--danger);font-size:12px"></span></div>
+  </div>
+</div>
+
+<!-- = LEGACY LANDING / PROJECT PICKER (hidden in v3, kept for field wiring) = -->
+<div id="landing-screen" style="display:none;min-height:100vh;align-items:flex-start;justify-content:center;padding:3rem 2rem">
   <div style="max-width:600px;width:100%">
 
     <!-- wordmark -->
     <div style="margin-bottom:2rem">
       <h1 style="font-size:22px;font-weight:500;letter-spacing:-.01em">Traffic App</h1>
-      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v2.7.0</span>
+      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v3.3.0</span>
     </div>
 
     <!-- autosave / resume banner -->
@@ -95,7 +143,7 @@
 </div>
 
 <!-- = AREA-WIDE STUDY SETUP = -->
-<div id="area-setup-screen" style="display:none;min-height:100vh;padding:2rem;max-width:860px;margin:0 auto">
+<div id="area-setup-screen" class="workspace-screen" style="display:none;min-height:100vh;padding:2rem">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem;flex-wrap:wrap;gap:12px">
     <div>
       <h1 style="font-size:22px;font-weight:500;letter-spacing:-.01em">Area-wide study <span id="area-study-title" style="font-size:14px;font-weight:400;color:var(--text2);margin-left:8px"></span></h1>
@@ -114,10 +162,14 @@
   <!-- add intersection card -->
   <div style="background:var(--surface);border:.5px solid var(--border);border-radius:var(--rl);padding:20px 24px;margin-bottom:14px">
     <div style="font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--text3);margin-bottom:14px">Add an intersection</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
       <button id="btn-area-import-xlsx" style="padding:14px 16px;text-align:left;display:flex;flex-direction:column;gap:3px">
         <span style="font-size:13px;font-weight:500">Import Raw Count XLSX</span>
         <span style="font-size:11px;color:var(--text2)">NYC DOT format — auto-detects AM/PM periods</span>
+      </button>
+      <button id="btn-area-import-csv" style="padding:14px 16px;text-align:left;display:flex;flex-direction:column;gap:3px">
+        <span style="font-size:13px;font-weight:500">Import CSV (AI-assisted)</span>
+        <span style="font-size:11px;color:var(--text2)">Any TMC CSV — Claude maps columns automatically</span>
       </button>
       <button id="btn-area-new-manual" style="padding:14px 16px;text-align:left;display:flex;flex-direction:column;gap:3px">
         <span style="font-size:13px;font-weight:500">Set up manually</span>
@@ -131,7 +183,7 @@
 </div>
 
 <!-- = TRIP GENERATION SETUP = -->
-<div id="tripgen-setup-screen" style="display:none;min-height:100vh;padding:2rem;max-width:900px;margin:0 auto">
+<div id="tripgen-setup-screen" class="workspace-screen" style="display:none;min-height:100vh;padding:2rem">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem">
     <h1 style="font-size:22px;font-weight:500">trip generation <span style="font-size:14px;font-weight:400;color:var(--text2,#6b6960);margin-left:10px">setup</span></h1>
     <div style="display:flex;gap:8px">
@@ -298,12 +350,12 @@
       </div>
     </div>
   </div>
-  <div class="counter-bottom">counts stored in this tab — do not refresh · click any count cell to edit</div>
+  <div class="counter-bottom">counts stored in this tab — do not refresh ·· click any count cell to edit</div>
 </div>
 
 <!-- = QA/QC SCREEN (standalone — separate from Analysis so recount entry isn't
      competing for screen space with site info / category grouping / charts) = -->
-<div id="tripgen-qaqc-screen" style="display:none;min-height:100vh;padding:2rem;max-width:980px;margin:0 auto">
+<div id="tripgen-qaqc-screen" style="display:none;min-height:100vh;padding:2rem">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem">
     <h1 style="font-size:22px;font-weight:500">QA/QC <span style="font-size:14px;font-weight:400;color:var(--text2,#6b6960);margin-left:10px">second-counter recounts</span></h1>
     <div style="display:flex;gap:8px">
@@ -328,7 +380,7 @@
 </div>
 
 <!-- = ANALYZE SCREEN = -->
-<div id="analyze-screen" style="display:none;min-height:100vh;padding:1.5rem 1.5rem 4rem;max-width:1180px;margin:0 auto">
+<div id="analyze-screen" style="display:none;min-height:100vh;padding:1.5rem 1.5rem 4rem">
   <div class="app-header">
     <h1>Analysis <span id="analyze-sub"></span></h1>
     <div class="actions no-print" style="display:flex;gap:8px">
@@ -522,9 +574,12 @@
         <input type="file" id="copy-tmcpairs-input" accept=".json" style="display:none">
       </div>
       <div class="pair-header">
-        <span></span><span>label</span><span>definition</span><span>key</span>
+        <span></span><span>label</span><span>definition</span><span>key</span><span title="mark as bicycle type" style="font-size:12px">🚲</span>
       </div>
       <div id="tmc-pairs-list"></div>
+      <div style="margin-top:6px">
+        <button class="preset-btn" onclick="addBikeClass()" title="Add a bicycle class — reported separately from motor vehicles">+ bicycle class</button>
+      </div>
       <div class="conflict-msg" id="tmc-conflict">⚠ duplicate keys — each key must be unique</div>
       <div class="warn-banner" id="warn-tmc">⚠ counts recorded — renaming changes labels only</div>
     </div>
@@ -622,7 +677,7 @@
 
   <header class="counter-header">
     <button id="btn-back-to-project" style="font-size:12px;padding:4px 10px;margin-right:8px">← Project</button>
-    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v2.7.0</span></h1>
+    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v3.3.0</span></h1>
     <div class="hcontrols">
       <div class="mode-toggle" style="display:none">
         <button class="mode-btn active" id="btn-count-mode" onclick="goToCountMode()">count</button>
@@ -646,7 +701,7 @@
       <button class="btn-red btn-icon" onclick="confirmReset()" title="Reset mode">↺</button>
       <button class="btn-icon" id="btn-diag" onclick="toggleDiagram()" title="Crosswalk diagram" style="display:none">⊞</button>
       <button class="btn-icon" id="btn-tmc-diag" onclick="toggleTurningDiagram()" title="Turning diagram" style="display:none">⊞</button>
-      <button class="btn-focus" id="btn-focus" onclick="toggleFocusMode()" title="Focus mode (\\)">○ focus</button>
+      <button class="btn-focus" id="btn-focus" onclick="toggleFocusMode()" title="Focus mode (\\)">⊕ focus</button>
       <button class="btn-icon" onclick="openSettings()" title="Settings">⚙</button>
       <button class="btn-icon" onclick="openHelp()" title="Help">?</button>
       <button class="btn-icon" onclick="goSetup()" title="Back to setup" style="font-size:12px">setup</button>
@@ -655,6 +710,7 @@
 
   <div id="intersection-tabs-bar" class="intersection-tabs-bar" style="display:none"></div>
   <div id="period-tabs-bar" class="period-tabs-bar"></div>
+  <div id="period-meta-bar" class="period-meta-bar"></div>
 
   <!-- hidden keyboard focus anchor — receives focus after clicking non-input UI elements in the counter -->
   <button id="counter-kbd-anchor" tabindex="-1" aria-hidden="true" style="position:fixed;top:0;left:0;width:0;height:0;opacity:0;pointer-events:none;border:none;padding:0;outline:none"></button>
@@ -665,7 +721,7 @@
 
   <!-- focus bar (vehicle / pedestrian modes) -->
   <div class="focus-bar" id="focus-bar" style="display:none">
-    <span class="focus-bar-label">◎ focus mode — only the selected crosswalk or type registers</span>
+    <span class="focus-bar-label">⊕ focus mode — only the selected crosswalk or type registers</span>
     <div class="focus-chips" id="focus-chips"></div>
     <span class="focus-bar-hint"><kbd>[</kbd> <kbd>]</kbd> swap · <kbd>\</kbd> exit</span>
   </div>
@@ -702,7 +758,7 @@
     <div id="tables-tmc" class="tables-wrap hidden"></div>
   </div>
 
-  <div class="counter-bottom">counts stored in this tab — do not refresh · right-click any time cell to reset that interval · click any count cell to edit</div>
+  <div class="counter-bottom">counts stored in this tab — do not refresh ·· right-click any time cell to reset that interval ·· click any count cell to edit</div>
 
   </div><!-- counter-main -->
   </div><!-- counter-body -->
@@ -738,7 +794,7 @@
             <li>Fill in the <strong>setup</strong> tabs — study parameters, intersection layout (crosswalks and approaches), vehicle types, and filenames.</li>
             <li>Click <strong>start counting →</strong> to enter the counter.</li>
             <li>Run your video. Use the video clock to track interval boundaries.</li>
-            <li>Press <kbd>↓</kbd> each time the clock crosses an interval boundary.</li>
+            <li>Press <kbd>↵</kbd> each time the clock crosses an interval boundary.</li>
             <li>Count with the keyboard shortcuts shown in the reference bar. Switch between vehicle, pedestrian, and TMC modes with the toggle in the header — each keeps independent data.</li>
             <li>Click <strong>↓</strong> in the header to export at any time.</li>
           </ul>
@@ -747,8 +803,8 @@
         <div class="modal-section">
           <h3>navigation, editing &amp; correction</h3>
           <div class="key-table">
-            <kbd>↓</kbd><span>advance to next interval</span>
-            <kbd>↑</kbd><span>go back to previous interval</span>
+            <kbd>▶</kbd><span>advance to next interval</span>
+            <kbd>◀</kbd><span>go back to previous interval</span>
             <kbd>Z</kbd><span>undo last action</span>
             <kbd>Y</kbd><span>redo</span>
           </div>
@@ -895,7 +951,7 @@
         <div class="modal-divider"></div>
         <div class="modal-section">
           <h3>output</h3>
-          <p>TMC CSV exports one section per approach leg, with rows for each interval and columns for each destination × vehicle type combination.</p>
+          <p>TMC CSV exports one section per approach leg, with rows for each interval and columns for each destination → vehicle type combination.</p>
         </div>
       </div>
 
@@ -903,7 +959,7 @@
       <div class="modal-tab" id="htab-export">
         <div class="modal-section">
           <h3>exporting</h3>
-          <p>Click the <strong>↓</strong> button in the header to download the current mode's data as a CSV. Vehicle and pedestrian modes export separately, using the filenames set in setup (editable mid-session via the ⚙ settings button).</p>
+          <p>Click the <strong></strong> button in the header to download the current mode's data as a CSV. Vehicle and pedestrian modes export separately, using the filenames set in setup (editable mid-session via the ⚙ settings button).</p>
         </div>
         <div class="modal-divider"></div>
         <div class="modal-section">
@@ -969,14 +1025,14 @@
 </div>
 
 <!-- = SUMMARY ANALYSIS = -->
-<div id="summary-screen" style="display:none;min-height:100vh;padding:2rem;max-width:1100px;margin:0 auto">
+<div id="summary-screen" class="workspace-screen" style="display:none;min-height:100vh;padding:2rem">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem;flex-wrap:wrap;gap:12px">
     <div>
       <h1 style="font-size:22px;font-weight:500;letter-spacing:-.01em">Summary <span id="summary-project-title" style="font-size:14px;font-weight:400;color:var(--text2);margin-left:8px"></span></h1>
       <div id="summary-subtitle" style="font-size:12px;color:var(--text3);margin-top:2px"></div>
     </div>
     <div style="display:flex;gap:8px">
-      <button id="btn-summary-export-csv" class="btn-blue" style="font-size:12px">Export CSV</button>
+      <button id="btn-summary-export" style="font-size:12px">Export ↓</button>
       <div class="btn-print-wrap">
         <button id="btn-summary-print" style="font-size:12px">Print Report ▾</button>
         <div id="sum-print-opts" class="print-opts-popover" style="display:none">
@@ -995,8 +1051,20 @@
   <div id="summary-content"></div>
 </div>
 
+<!-- = EXPORT BUILDER = -->
+<div id="export-screen" class="workspace-screen" style="display:none;min-height:100vh;padding:2rem">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem">
+    <div>
+      <h1 style="font-size:22px;font-weight:500;letter-spacing:-.01em">Export</h1>
+      <div id="export-subtitle" style="font-size:12px;color:var(--text3);margin-top:2px"></div>
+    </div>
+    <button id="btn-export-back" style="font-size:12px">← Back to summary</button>
+  </div>
+  <div id="export-builder-content"></div>
+</div>
+
 <!-- = INTERSECTION DETAIL ANALYSIS = -->
-<div id="ix-analysis-screen" style="display:none;min-height:100vh;padding:2rem;max-width:1100px;margin:0 auto">
+<div id="ix-analysis-screen" class="workspace-screen" style="display:none;min-height:100vh;padding:2rem">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem;flex-wrap:wrap;gap:12px">
     <div style="display:flex;align-items:center;gap:14px">
       <button id="btn-ix-analysis-back" style="font-size:12px;flex-shrink:0">← Summary</button>
@@ -1024,6 +1092,85 @@
     </div>
   </div>
   <div id="ix-analysis-content"></div>
+</div>
+
+<!-- = CSV AI IMPORT SCREEN = -->
+<div id="area-import-screen" class="workspace-screen" style="display:none;min-height:100vh;padding-top:2rem;padding-right:2rem;padding-bottom:2rem">
+  <div style="display:flex;align-items:center;gap:14px;margin-bottom:1.5rem">
+    <button id="btn-import-back" style="font-size:12px">← Back</button>
+    <h1 style="font-size:22px;font-weight:500;letter-spacing:-.01em">Import CSV <span style="font-size:14px;font-weight:400;color:var(--text2);margin-left:6px">column mapping</span></h1>
+  </div>
+
+  <!-- Step 1: Upload -->
+  <div id="import-step-upload" class="ix-card ix-card-full" style="max-width:620px">
+    <div class="ix-card-header">Select file</div>
+    <div style="display:flex;flex-direction:column;gap:14px;padding:4px 0">
+      <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--text2)">
+        CSV file (turning movement count format)
+        <input type="file" id="import-csv-file-input" accept=".csv,text/csv" style="font-size:12px">
+      </label>
+      <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--text2)">
+        Intersection name <span style="font-size:11px">(optional)</span>
+        <input type="text" id="import-ix-name-input" placeholder="e.g. Main St &amp; Oak Ave"
+          style="font-size:12px;padding:6px 10px;border:.5px solid var(--border);border-radius:4px;background:var(--surface2);color:var(--text1)">
+      </label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn-primary" id="import-detect-btn">Detect columns</button>
+        <span id="import-step1-error" style="font-size:12px;color:var(--danger)"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 2a: AI fallback (shown when local detection fails) -->
+  <div id="import-step-ai-fallback" style="display:none;max-width:620px;margin-top:14px">
+    <div class="ix-card ix-card-full">
+      <div class="ix-card-header">Auto-detection result</div>
+      <div id="import-fallback-msg" style="font-size:13px;color:var(--text2);margin-bottom:14px"></div>
+      <div style="border-top:.5px solid var(--border);padding-top:14px">
+        <div style="font-size:13px;font-weight:500;margin-bottom:10px">Use Claude AI for better mapping</div>
+        <div style="font-size:12px;color:var(--text2);margin-bottom:12px">Claude reads your column headers and maps them to the standard movement format. Requires an Anthropic API key.</div>
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--text2);margin-bottom:12px">
+          Anthropic API key
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="password" id="import-api-key-input" placeholder="sk-ant-…" autocomplete="off"
+              style="flex:1;font-size:12px;font-family:monospace;padding:6px 10px;border:.5px solid var(--border);border-radius:4px;background:var(--surface2);color:var(--text1)">
+            <button id="import-key-toggle" style="font-size:11px;padding:4px 10px;white-space:nowrap">show</button>
+          </div>
+          <span id="import-key-saved-note" style="font-size:11px;color:var(--text3)"></span>
+        </label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn-primary" id="import-analyze-btn">Analyze with Claude →</button>
+          <span id="import-step-ai-error" style="font-size:12px;color:var(--danger)"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 2b: Loading -->
+  <div id="import-step-loading" style="display:none;max-width:620px;margin-top:14px">
+    <div class="ix-card ix-card-full">
+      <div class="ix-card-header">Analyzing with Claude…</div>
+      <div style="padding:12px 0;font-size:13px;color:var(--text2)">Claude is reading your CSV headers and mapping them to the standard movement format. This usually takes 3–5 seconds.</div>
+      <div class="import-spinner"></div>
+    </div>
+  </div>
+
+  <!-- Step 3: Preview & confirm -->
+  <div id="import-step-preview" style="display:none;max-width:800px;margin-top:14px">
+    <div class="ix-card ix-card-full" style="margin-bottom:14px">
+      <div class="ix-card-header">Column mapping <span id="import-mapping-source" class="ix-card-hint"></span></div>
+      <div id="import-mapping-table"></div>
+    </div>
+    <div class="ix-card ix-card-full" style="margin-bottom:14px">
+      <div class="ix-card-header">Count preview <span class="ix-card-hint">first 8 intervals</span></div>
+      <div id="import-data-preview" style="overflow-x:auto"></div>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button class="btn-primary" id="import-confirm-btn">Import as intersection →</button>
+      <button id="import-retry-btn">← Start over</button>
+      <span id="import-step3-error" style="font-size:12px;color:var(--danger)"></span>
+    </div>
+  </div>
 </div>
 
 <script type="module" src="/src/main.js"></script>

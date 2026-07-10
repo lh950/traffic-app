@@ -59,54 +59,72 @@ export function exportCSV(){
       }
       if(nT!==tmcPairs.length)break;
     }
-    // Use tmcPairs labels when count matches, otherwise fall back to generic labels
-    const typeLabels=nT===tmcPairs.length
-      ?tmcPairs.map(p=>p.label)
-      :Array.from({length:nT},(_,i)=>tmcPairs[i]?.label||`type ${i+1}`);
 
-    const hdrCols=['time'];
-    apps.forEach(app=>{
-      const aLbl=legLabel(app.leg);
-      app.destinations.forEach(dest=>{
-        const cls=classifyTurn(app.leg,dest);
-        const dLbl=legLabel(dest);
-        const mvmt=`${aLbl} → ${TURN_CLS_LABEL[cls]} (${dLbl})`;
-        typeLabels.forEach(lbl=>{hdrCols.push(`${mvmt} ${lbl}`);});
-        hdrCols.push(`${mvmt} total`);
+    // Separate bike and motor vehicle indices
+    const bikeOrigIdx  = tmcPairs.map((p,i)=>p.isBike?i:-1).filter(i=>i>=0&&i<nT);
+    const motorOrigIdx = tmcPairs.map((p,i)=>!p.isBike?i:-1).filter(i=>i>=0&&i<nT);
+    const hasBikePairs = bikeOrigIdx.length > 0 && motorOrigIdx.length > 0;
+
+    function buildTmcCsv(origIndices){
+      const labels=origIndices.map(i=>tmcPairs[i]?.label||`type ${i+1}`);
+      const hdrCols=['time'];
+      apps.forEach(app=>{
+        const aLbl=legLabel(app.leg);
+        app.destinations.forEach(dest=>{
+          const cls=classifyTurn(app.leg,dest);
+          const dLbl=legLabel(dest);
+          const mvmt=`${aLbl} → ${TURN_CLS_LABEL[cls]} (${dLbl})`;
+          labels.forEach(lbl=>{hdrCols.push(`${mvmt} ${lbl}`);});
+          hdrCols.push(`${mvmt} total`);
+        });
+        hdrCols.push(`${aLbl} approach total`);
       });
-      hdrCols.push(`${aLbl} approach total`);
-    });
-    hdrCols.push('grand total');
-    const rows=Array.from({length:cfg.slots},(_,ri)=>{
-      const row=[slotLabel(ri)];
-      let grandTot=0;
+      hdrCols.push('grand total');
+      const rows=Array.from({length:cfg.slots},(_,ri)=>{
+        const row=[slotLabel(ri)];
+        let grandTot=0;
+        apps.forEach(app=>{
+          let appTot=0;
+          app.destinations.forEach(dest=>{
+            const allCounts=(tmcData[app.leg]&&tmcData[app.leg][dest]&&tmcData[app.leg][dest][ri])||Array(nT).fill(0);
+            const counts=origIndices.map(i=>allCounts[i]||0);
+            const sub=counts.reduce((a,b)=>a+b,0);
+            counts.forEach(v=>row.push(v));
+            row.push(sub); appTot+=sub;
+          });
+          row.push(appTot); grandTot+=appTot;
+        });
+        row.push(grandTot);
+        return row.join(',');
+      });
+      const totRow=['total'];
+      let gTot=0;
       apps.forEach(app=>{
         let appTot=0;
         app.destinations.forEach(dest=>{
-          const counts=(tmcData[app.leg]&&tmcData[app.leg][dest]&&tmcData[app.leg][dest][ri])||Array(nT).fill(0);
-          const sub=counts.reduce((a,b)=>a+b,0);
-          counts.forEach(v=>row.push(v));
-          row.push(sub); appTot+=sub;
+          const typeTots=origIndices.map(ti=>Array.from({length:cfg.slots},(_,ri)=>(tmcData[app.leg]&&tmcData[app.leg][dest]&&tmcData[app.leg][dest][ri]&&tmcData[app.leg][dest][ri][ti])||0).reduce((a,b)=>a+b,0));
+          const sub=typeTots.reduce((a,b)=>a+b,0);
+          typeTots.forEach(v=>totRow.push(v));
+          totRow.push(sub); appTot+=sub;
         });
-        row.push(appTot); grandTot+=appTot;
+        totRow.push(appTot); gTot+=appTot;
       });
-      row.push(grandTot);
-      return row.join(',');
-    });
-    const totRow=['total'];
-    let gTot=0;
-    apps.forEach(app=>{
-      let appTot=0;
-      app.destinations.forEach(dest=>{
-        const typeTots=Array.from({length:nT},(_,ti)=>Array.from({length:cfg.slots},(_,ri)=>(tmcData[app.leg]&&tmcData[app.leg][dest]&&tmcData[app.leg][dest][ri]&&tmcData[app.leg][dest][ri][ti])||0).reduce((a,b)=>a+b,0));
-        const sub=typeTots.reduce((a,b)=>a+b,0);
-        typeTots.forEach(v=>totRow.push(v));
-        totRow.push(sub); appTot+=sub;
-      });
-      totRow.push(appTot); gTot+=appTot;
-    });
-    totRow.push(gTot);
-    csv=[hdrCols.join(','),...rows,totRow.join(',')].join('\n');
+      totRow.push(gTot);
+      return [hdrCols.join(','),...rows,totRow.join(',')].join('\n');
+    }
+
+    function triggerDownload(csvStr, filename){
+      const a=document.createElement('a');
+      a.href=URL.createObjectURL(new Blob(['﻿'+csvMeta()+csvStr],{type:'text/csv;charset=utf-8'}));
+      a.download=filename; a.click();
+    }
+
+    if(hasBikePairs){
+      triggerDownload(buildTmcCsv(motorOrigIdx), getCSVFilename(mode));
+      triggerDownload(buildTmcCsv(bikeOrigIdx), getCSVFilename(mode).replace(/\.csv$/i,'')+'_bike.csv');
+      return;
+    }
+    csv=buildTmcCsv(Array.from({length:nT},(_,i)=>i));
   }
   const a=document.createElement('a');
   a.href=URL.createObjectURL(new Blob(['﻿'+csvMeta()+csv],{type:'text/csv;charset=utf-8'}));
