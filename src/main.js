@@ -44,6 +44,7 @@ import { renderSummary } from './analysis/ui/summary.js';
 import { renderTmcSection } from './analysis/ui/tmcDiagram.js';
 import { renderLosSection } from './analysis/ui/losSection.js';
 import { openPrintReport } from './printReport.js';
+import { runTmcQA, runVehicleQA, renderQASection } from './qa.js';
 import { printSummaryReport, printIntersectionReport } from './printPedReport.js';
 import { buildVolumeProfileSVG, buildCrosswalkBarSVG, buildChartLegend, dirSplitBar, CW_COLORS } from './chartUtils.js';
 import { renderTripGenSection, DEFAULT_PEAK_WINDOWS } from './analysis/ui/tripgenSection.js';
@@ -528,7 +529,7 @@ function liveTmcParsed() {
     });
     return { label: slotLabel(i), start, end, counts };
   });
-  return { approaches, types: tmcPairs.map(p => ({ label: p.label, isBike: !!p.isBike })), intervals, legLabels: intersection.legLabels || {} };
+  return { approaches, types: tmcPairs.map(p => ({ label: p.label, isBike: !!p.isBike })), intervals, legLabels: intersection.legLabels || {}, intervalMin: cfg.intervalMin };
 }
 
 function filterTmcParsedByIndices(parsed, indices) {
@@ -574,6 +575,7 @@ async function renderIntersectionAnalysis() {
       <button class="dataset-tab" style="margin-left:auto;border-left:.5px solid var(--border)" onclick="openPrintReport()">⎙ Print report</button>
     </div>
     <div class="section"><div class="section-head"><h2>Summary</h2></div><div id="analyze-summary-root"></div></div>
+    <div class="section"><div class="section-head"><h2>Data quality</h2></div><div id="analyze-qa-root"></div></div>
     ${hasMotor ? `<div class="section"><div class="section-head"><h2>Turning movements${hasBikes ? ' — motor vehicles' : ''}</h2></div><div id="analyze-tmc-root"></div></div>` : ''}
     ${hasBikes ? `<div class="section"><div class="section-head"><h2>Turning movements — bicycles</h2></div><div id="analyze-bike-root"></div></div>` : ''}
     ${hasTmc && !hasMotor && !hasBikes ? '<div class="section"><div class="section-head"><h2>Turning movements</h2></div><div id="analyze-tmc-root"></div></div>' : ''}
@@ -581,6 +583,16 @@ async function renderIntersectionAnalysis() {
   `;
 
   let activeKind = 'vehicle';
+
+  function paintQA() {
+    const qaRoot = document.getElementById('analyze-qa-root');
+    if (!qaRoot) return;
+    const findings = activeKind === 'vehicle'
+      ? runVehicleQA(vehParsed)
+      : runTmcQA(hasBikes ? filterTmcParsedByIndices(tmcParsed, motorIdx) : tmcParsed);
+    renderQASection(qaRoot, findings);
+  }
+
   async function paintSummary() {
     const parsed = activeKind === 'vehicle' ? vehParsed : activeKind === 'ped' ? pedParsed : tmcParsed;
     await renderSummary(document.getElementById('analyze-summary-root'), activeKind, [{ id: 1, dayLabel: 'Current session', parsed }]);
@@ -591,9 +603,11 @@ async function renderIntersectionAnalysis() {
       btn.classList.add('active');
       activeKind = btn.dataset.kind;
       paintSummary();
+      paintQA();
     });
   });
   await paintSummary();
+  paintQA();
 
   if (hasMotor) {
     await renderTmcSection(document.getElementById('analyze-tmc-root'), filterTmcParsedByIndices(tmcParsed, motorIdx));

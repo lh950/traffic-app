@@ -788,6 +788,67 @@ body.workspace-mode #btn-analyze-to-qaqc{display:none!important}
 #setup-screen.workspace-screen{padding:0;max-width:none}
 #setup-screen.workspace-screen .setup-header{display:none}
 
+/* ── QA SECTION ── */
+.qa-clean{
+  padding:10px 14px;border-radius:6px;
+  background:color-mix(in srgb,var(--success,#22c55e) 10%,transparent);
+  color:var(--success,#16a34a);font-size:13px;font-weight:500
+}
+@media(prefers-color-scheme:dark){
+  .qa-clean{background:color-mix(in srgb,#22c55e 12%,transparent);color:#4ade80}
+}
+:root[data-theme="dark"] .qa-clean{background:color-mix(in srgb,#22c55e 12%,transparent);color:#4ade80}
+:root[data-theme="light"] .qa-clean{background:color-mix(in srgb,#22c55e 10%,transparent);color:#16a34a}
+
+.qa-badges{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.qa-badge{
+  display:inline-flex;align-items:center;gap:4px;
+  padding:3px 9px;border-radius:99px;font-size:11px;font-weight:600;letter-spacing:.02em
+}
+.qa-badge-error{background:color-mix(in srgb,#ef4444 15%,transparent);color:#b91c1c}
+.qa-badge-warn {background:color-mix(in srgb,#f59e0b 15%,transparent);color:#b45309}
+.qa-badge-info {background:color-mix(in srgb,#3b82f6 13%,transparent);color:#1d4ed8}
+@media(prefers-color-scheme:dark){
+  .qa-badge-error{background:color-mix(in srgb,#ef4444 20%,transparent);color:#fca5a5}
+  .qa-badge-warn {background:color-mix(in srgb,#f59e0b 20%,transparent);color:#fcd34d}
+  .qa-badge-info {background:color-mix(in srgb,#3b82f6 18%,transparent);color:#93c5fd}
+}
+:root[data-theme="dark"] .qa-badge-error{background:color-mix(in srgb,#ef4444 20%,transparent);color:#fca5a5}
+:root[data-theme="dark"] .qa-badge-warn {background:color-mix(in srgb,#f59e0b 20%,transparent);color:#fcd34d}
+:root[data-theme="dark"] .qa-badge-info {background:color-mix(in srgb,#3b82f6 18%,transparent);color:#93c5fd}
+:root[data-theme="light"] .qa-badge-error{background:color-mix(in srgb,#ef4444 15%,transparent);color:#b91c1c}
+:root[data-theme="light"] .qa-badge-warn {background:color-mix(in srgb,#f59e0b 15%,transparent);color:#b45309}
+:root[data-theme="light"] .qa-badge-info {background:color-mix(in srgb,#3b82f6 13%,transparent);color:#1d4ed8}
+
+.qa-list{display:flex;flex-direction:column;gap:6px}
+.qa-item{
+  display:flex;align-items:flex-start;gap:8px;
+  padding:8px 12px;border-radius:6px;font-size:13px;line-height:1.4
+}
+.qa-error{background:color-mix(in srgb,#ef4444 8%,transparent);border-left:3px solid #ef4444}
+.qa-warn {background:color-mix(in srgb,#f59e0b 8%,transparent);border-left:3px solid #f59e0b}
+.qa-info {background:color-mix(in srgb,#3b82f6 6%,transparent);border-left:3px solid #3b82f6}
+@media(prefers-color-scheme:dark){
+  .qa-error{background:color-mix(in srgb,#ef4444 12%,transparent)}
+  .qa-warn {background:color-mix(in srgb,#f59e0b 12%,transparent)}
+  .qa-info {background:color-mix(in srgb,#3b82f6 10%,transparent)}
+}
+:root[data-theme="dark"] .qa-error{background:color-mix(in srgb,#ef4444 12%,transparent)}
+:root[data-theme="dark"] .qa-warn {background:color-mix(in srgb,#f59e0b 12%,transparent)}
+:root[data-theme="dark"] .qa-info {background:color-mix(in srgb,#3b82f6 10%,transparent)}
+:root[data-theme="light"] .qa-error{background:color-mix(in srgb,#ef4444 8%,transparent)}
+:root[data-theme="light"] .qa-warn {background:color-mix(in srgb,#f59e0b 8%,transparent)}
+:root[data-theme="light"] .qa-info {background:color-mix(in srgb,#3b82f6 6%,transparent)}
+
+.qa-icon{
+  flex-shrink:0;width:18px;height:18px;display:flex;align-items:center;justify-content:center;
+  border-radius:50%;font-size:10px;font-weight:700;line-height:1;margin-top:1px
+}
+.qa-error .qa-icon{background:#ef4444;color:#fff}
+.qa-warn  .qa-icon{background:#f59e0b;color:#fff}
+.qa-info  .qa-icon{background:#3b82f6;color:#fff}
+.qa-msg{flex:1;min-width:0}
+
 @media print{
   @page{size:letter portrait;margin:14mm 16mm}
 
@@ -815,6 +876,9 @@ body.workspace-mode #btn-analyze-to-qaqc{display:none!important}
   .section{break-before:page}
   .section:first-of-type{break-before:auto}
   .card,.stat-card{break-inside:avoid;box-shadow:none!important;border:.5px solid #ccc!important}
+
+  /* Hide QA section from print */
+  #analyze-qa-root{display:none}
 
   /* Tighten fonts and spacing */
   body{font-size:9.5px}
