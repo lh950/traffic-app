@@ -46,6 +46,7 @@ import { renderLosSection } from './analysis/ui/losSection.js';
 import { openPrintReport } from './printReport.js';
 import { runTmcQA, runVehicleQA, renderQASection } from './qa.js';
 import { renderWarrantSection } from './warrant.js';
+import { parseProjectSnapshot, parseCurrentSnapshot, renderComparisonSection, pickComparisonFile } from './compare.js';
 import { printSummaryReport, printIntersectionReport } from './printPedReport.js';
 import { buildVolumeProfileSVG, buildCrosswalkBarSVG, buildChartLegend, dirSplitBar, CW_COLORS } from './chartUtils.js';
 import { renderTripGenSection, DEFAULT_PEAK_WINDOWS } from './analysis/ui/tripgenSection.js';
@@ -582,6 +583,7 @@ async function renderIntersectionAnalysis() {
     ${hasTmc && !hasMotor && !hasBikes ? '<div class="section"><div class="section-head"><h2>Turning movements</h2></div><div id="analyze-tmc-root"></div></div>' : ''}
     <div class="section"><div class="section-head"><h2>Level of service</h2></div><div id="analyze-los-root"></div></div>
     <div class="section no-print"><div class="section-head"><h2>Signal warrants</h2><span class="section-sub">MUTCD Warrants 1–4</span></div><div id="analyze-warrant-root"></div></div>
+    <div class="section no-print"><div class="section-head"><h2>Before / After comparison</h2></div><div id="analyze-compare-root"></div></div>
   `;
 
   let activeKind = 'vehicle';
@@ -636,6 +638,53 @@ async function renderIntersectionAnalysis() {
   if (warrantRoot) {
     const allLegs = intersection.approaches.map(a => a.leg);
     renderWarrantSection(warrantRoot, tmcParsed, pedParsed, cfg.intervalMin, allLegs);
+  }
+
+  const compareRoot = document.getElementById('analyze-compare-root');
+  if (compareRoot) {
+    let referenceSnap = null;
+
+    function paintComparison() {
+      if (!referenceSnap) {
+        compareRoot.innerHTML = `
+          <div class="cmp-empty-state">
+            <p>Load a second study to compare volumes before and after.</p>
+            <button id="btn-load-reference" class="btn-primary">Load reference study…</button>
+          </div>`;
+        compareRoot.querySelector('#btn-load-reference').addEventListener('click', loadReference);
+      } else {
+        const info = projectInfo || {};
+        const currentLabel = [info.location, info.intersection].filter(Boolean).join(' — ') || 'Current session';
+        const currentDate  = info.date || '';
+        const currentSnap  = parseCurrentSnapshot(
+          hasBikes ? filterTmcParsedByIndices(tmcParsed, motorIdx) : tmcParsed,
+          vehParsed, pedParsed, motorIdx,
+          intersection.legLabels || {}, currentLabel, currentDate
+        );
+        const cmpRoot = document.createElement('div');
+        cmpRoot.innerHTML = `<button id="btn-change-reference" style="font-size:11px;margin-bottom:14px">← Change reference study</button>`;
+        const tableRoot = document.createElement('div');
+        cmpRoot.appendChild(tableRoot);
+        compareRoot.innerHTML = '';
+        compareRoot.appendChild(cmpRoot);
+        renderComparisonSection(tableRoot, referenceSnap, currentSnap);
+        compareRoot.querySelector('#btn-change-reference').addEventListener('click', () => {
+          referenceSnap = null;
+          paintComparison();
+        });
+      }
+    }
+
+    function loadReference() {
+      pickComparisonFile((proj) => {
+        const snap = parseProjectSnapshot(proj);
+        if (!snap) { alert('This file does not appear to be an intersection count project.'); return; }
+        referenceSnap = snap;
+        paintComparison();
+      });
+    }
+
+    paintComparison();
   }
 }
 
