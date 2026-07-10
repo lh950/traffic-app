@@ -849,6 +849,65 @@ body.workspace-mode #btn-analyze-to-qaqc{display:none!important}
 .qa-info  .qa-icon{background:#3b82f6;color:#fff}
 .qa-msg{flex:1;min-width:0}
 
+/* ── SIGNAL WARRANTS ── */
+.section-sub{font-size:11px;color:var(--text3);font-weight:400;margin-left:10px}
+
+.warrant-config{
+  background:var(--bg2);border:1px solid var(--border);border-radius:8px;
+  padding:14px 16px;margin-bottom:18px;display:flex;flex-direction:column;gap:10px
+}
+.warrant-config-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.wc-label{font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;
+  color:var(--text3);min-width:140px;flex-shrink:0}
+.wleg-group{display:flex;gap:4px}
+.wleg-btn{
+  padding:3px 10px;border-radius:4px;font-size:12px;font-weight:500;
+  background:var(--bg3);border:1px solid var(--border);cursor:pointer;color:var(--text2)
+}
+.wleg-btn.active{background:var(--accent,#6a8fc8);border-color:var(--accent,#6a8fc8);color:#fff}
+.wc-radios{display:flex;gap:14px;font-size:13px}
+.wc-radios label{display:flex;align-items:center;gap:5px;cursor:pointer;color:var(--text2)}
+.wc-radios input[type="radio"]{accent-color:var(--accent,#6a8fc8)}
+
+.warrant-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
+
+.warrant-card{
+  background:var(--bg2);border:1px solid var(--border);border-radius:8px;
+  overflow:hidden;display:flex;flex-direction:column
+}
+.warrant-card-head{
+  display:flex;align-items:flex-start;justify-content:space-between;
+  padding:12px 14px 10px;gap:10px
+}
+.warrant-num{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text3);margin-bottom:2px}
+.warrant-title{font-size:13px;font-weight:600;color:var(--text1)}
+.warrant-badge{
+  display:inline-flex;align-items:center;padding:3px 9px;
+  border-radius:99px;font-size:10px;font-weight:700;letter-spacing:.06em;
+  white-space:nowrap;flex-shrink:0;margin-top:2px
+}
+.warrant-pass{background:color-mix(in srgb,#22c55e 15%,transparent);color:#16a34a}
+.warrant-fail{background:color-mix(in srgb,#6b7280 12%,transparent);color:var(--text3)}
+.warrant-na  {background:color-mix(in srgb,#6b7280 10%,transparent);color:var(--text3)}
+@media(prefers-color-scheme:dark){
+  .warrant-pass{background:color-mix(in srgb,#22c55e 18%,transparent);color:#4ade80}
+  .warrant-fail{background:color-mix(in srgb,#6b7280 18%,transparent);color:var(--text3)}
+}
+:root[data-theme="dark"] .warrant-pass{background:color-mix(in srgb,#22c55e 18%,transparent);color:#4ade80}
+:root[data-theme="light"] .warrant-pass{background:color-mix(in srgb,#22c55e 15%,transparent);color:#16a34a}
+
+.warrant-detail{
+  padding:0 14px 12px;border-top:1px solid var(--border);padding-top:10px;
+  font-size:12px;color:var(--text2)
+}
+.wc-table{width:100%;border-collapse:collapse;font-size:11.5px}
+.wc-table td{padding:3px 4px;vertical-align:top}
+.wc-table td:first-child{color:var(--text2)}
+.wc-table .wc-num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--text1);font-weight:500;padding-right:10px}
+.wc-table .wc-thresh{color:var(--text3);font-size:10.5px}
+.wc-table tr.wc-met td{color:var(--success,#22c55e) !important}
+.wc-note{margin:0;font-size:11.5px;color:var(--text3);line-height:1.45}
+
 @media print{
   @page{size:letter portrait;margin:14mm 16mm}
 

@@ -45,6 +45,7 @@ import { renderTmcSection } from './analysis/ui/tmcDiagram.js';
 import { renderLosSection } from './analysis/ui/losSection.js';
 import { openPrintReport } from './printReport.js';
 import { runTmcQA, runVehicleQA, renderQASection } from './qa.js';
+import { renderWarrantSection } from './warrant.js';
 import { printSummaryReport, printIntersectionReport } from './printPedReport.js';
 import { buildVolumeProfileSVG, buildCrosswalkBarSVG, buildChartLegend, dirSplitBar, CW_COLORS } from './chartUtils.js';
 import { renderTripGenSection, DEFAULT_PEAK_WINDOWS } from './analysis/ui/tripgenSection.js';
@@ -580,6 +581,7 @@ async function renderIntersectionAnalysis() {
     ${hasBikes ? `<div class="section"><div class="section-head"><h2>Turning movements — bicycles</h2></div><div id="analyze-bike-root"></div></div>` : ''}
     ${hasTmc && !hasMotor && !hasBikes ? '<div class="section"><div class="section-head"><h2>Turning movements</h2></div><div id="analyze-tmc-root"></div></div>' : ''}
     <div class="section"><div class="section-head"><h2>Level of service</h2></div><div id="analyze-los-root"></div></div>
+    <div class="section no-print"><div class="section-head"><h2>Signal warrants</h2><span class="section-sub">MUTCD Warrants 1–4</span></div><div id="analyze-warrant-root"></div></div>
   `;
 
   let activeKind = 'vehicle';
@@ -629,6 +631,12 @@ async function renderIntersectionAnalysis() {
   losRows.push({ key: 'veh-in', label: 'Vehicle — inbound', volume: inTotal });
   losRows.push({ key: 'veh-out', label: 'Vehicle — outbound', volume: outTotal });
   renderLosSection(document.getElementById('analyze-los-root'), losRows);
+
+  const warrantRoot = document.getElementById('analyze-warrant-root');
+  if (warrantRoot) {
+    const allLegs = intersection.approaches.map(a => a.leg);
+    renderWarrantSection(warrantRoot, tmcParsed, pedParsed, cfg.intervalMin, allLegs);
+  }
 }
 
 // ═══════════════════════════════════════════
