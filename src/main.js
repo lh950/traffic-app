@@ -47,6 +47,7 @@ import { openPrintReport } from './printReport.js';
 import { runTmcQA, runVehicleQA, renderQASection } from './qa.js';
 import { renderWarrantSection } from './warrant.js';
 import { parseProjectSnapshot, parseCurrentSnapshot, renderComparisonSection, pickComparisonFile } from './compare.js';
+import { renderCorridorChart } from './corridorChart.js';
 import { printSummaryReport, printIntersectionReport } from './printPedReport.js';
 import { buildVolumeProfileSVG, buildCrosswalkBarSVG, buildChartLegend, dirSplitBar, CW_COLORS } from './chartUtils.js';
 import { renderTripGenSection, DEFAULT_PEAK_WINDOWS } from './analysis/ui/tripgenSection.js';
@@ -1775,9 +1776,13 @@ function renderSummaryContent() {
     return '<th class="sum-th sum-th-sort' + active + '" data-sort="' + col + '"' + (extra ? ' ' + extra : '') + '>' + label + sortIcon(col) + '</th>';
   }
 
-  // View toggle — if view is 'alldata', delegate to its own renderer
+  // View toggle — delegate early to specialised renderers
   if (sumState.view === 'alldata') {
     renderSummaryAllData(allRows, corridors);
+    return;
+  }
+  if (sumState.view === 'corridor') {
+    renderCorridorView(allRows, corridors);
     return;
   }
 
@@ -1787,7 +1792,7 @@ function renderSummaryContent() {
   ).join('');
   const selCount = sumState.selection.size;
   const filterBar = '<div class="sum-filter-bar">'
-    + '<div class="sum-view-toggle"><button class="sum-view-btn sum-view-btn-active" id="sum-view-summary">Summary</button><button class="sum-view-btn" id="sum-view-alldata">All Data</button></div>'
+    + '<div class="sum-view-toggle"><button class="sum-view-btn sum-view-btn-active" id="sum-view-summary">Summary</button><button class="sum-view-btn" id="sum-view-alldata">All Data</button>' + (corridors.length ? '<button class="sum-view-btn" id="sum-view-corridor">Corridor Chart</button>' : '') + '</div>'
     + '<label class="sum-filter-label">Corridor</label>'
     + '<select class="sum-filter-select" id="sum-corr-filter">' + corrOptions + '</select>'
     + '<button class="btn-sm" id="sum-select-all">Select all' + (selCount ? ' (' + selCount + ' selected)' : '') + '</button>'
@@ -1920,6 +1925,57 @@ function renderSummaryContent() {
   });
   document.getElementById('sum-view-summary')?.addEventListener('click', () => { sumState.view = 'summary'; renderSummaryContent(); });
   document.getElementById('sum-view-alldata')?.addEventListener('click', () => { sumState.view = 'alldata'; renderSummaryContent(); });
+  document.getElementById('sum-view-corridor')?.addEventListener('click', () => { sumState.view = 'corridor'; renderSummaryContent(); });
+}
+
+function renderCorridorView(allRows, corridors) {
+  const container = document.getElementById('summary-content');
+  if (!container) return;
+
+  // Collect all period names
+  const allPeriodNames = [];
+  for (const { ix } of allRows) {
+    for (const p of (ix.snapshot?.periods || [])) {
+      if (!allPeriodNames.includes(p.name)) allPeriodNames.push(p.name);
+    }
+  }
+
+  let selCorridor = sumState.filterCorr || corridors[0] || '';
+  let selPeriod   = allPeriodNames[0] || '';
+
+  function paint() {
+    const ixRows = selCorridor
+      ? allRows.filter(r => r.corridor === selCorridor)
+      : allRows;
+
+    const corrOptions = corridors.map(c =>
+      `<option value="${c}"${c === selCorridor ? ' selected' : ''}>${c}</option>`).join('');
+    const periodOptions = allPeriodNames.map(p =>
+      `<option value="${p}"${p === selPeriod ? ' selected' : ''}>${p}</option>`).join('');
+
+    container.innerHTML = `
+    <div class="sum-filter-bar">
+      <div class="sum-view-toggle">
+        <button class="sum-view-btn" id="corr-back-summary">Summary</button>
+        <button class="sum-view-btn" id="corr-back-alldata">All Data</button>
+        <button class="sum-view-btn sum-view-btn-active" id="sum-view-corridor">Corridor Chart</button>
+      </div>
+      ${corridors.length > 1 ? `<label class="sum-filter-label">Corridor</label>
+        <select class="sum-filter-select" id="corr-sel-corridor">${corrOptions}</select>` : ''}
+      ${allPeriodNames.length > 1 ? `<label class="sum-filter-label">Period</label>
+        <select class="sum-filter-select" id="corr-sel-period">${periodOptions}</select>` : ''}
+    </div>
+    <div id="corr-chart-root" style="margin-top:16px;overflow-x:auto"></div>`;
+
+    renderCorridorChart(document.getElementById('corr-chart-root'), ixRows, selPeriod);
+
+    document.getElementById('corr-back-summary')?.addEventListener('click', () => { sumState.view = 'summary'; renderSummaryContent(); });
+    document.getElementById('corr-back-alldata')?.addEventListener('click', () => { sumState.view = 'alldata'; renderSummaryContent(); });
+    document.getElementById('corr-sel-corridor')?.addEventListener('change', e => { selCorridor = e.target.value; paint(); });
+    document.getElementById('corr-sel-period')?.addEventListener('change', e => { selPeriod = e.target.value; paint(); });
+  }
+
+  paint();
 }
 
 function updateSelectionPanel(allRows, allPeriodNames, hasPedAny, hasVehAny, multiPeriod) {
@@ -2350,7 +2406,7 @@ function renderSummaryAllData(allRows, corridors) {
     '<option value="' + c + '"' + (sumState.filterCorr === c ? ' selected' : '') + '>' + (c || 'All corridors') + '</option>'
   ).join('');
   const filterBar = '<div class="sum-filter-bar">'
-    + '<div class="sum-view-toggle"><button class="sum-view-btn" id="sum-view-summary">Summary</button><button class="sum-view-btn sum-view-btn-active" id="sum-view-alldata">All Data</button></div>'
+    + '<div class="sum-view-toggle"><button class="sum-view-btn" id="sum-view-summary">Summary</button><button class="sum-view-btn sum-view-btn-active" id="sum-view-alldata">All Data</button>' + (corridors.length ? '<button class="sum-view-btn" id="sum-view-corridor">Corridor Chart</button>' : '') + '</div>'
     + '<label class="sum-filter-label">Corridor</label>'
     + '<select class="sum-filter-select" id="sum-corr-filter">' + corrOptions + '</select>'
     + '</div>';
@@ -2479,6 +2535,7 @@ function renderSummaryAllData(allRows, corridors) {
 
   document.getElementById('sum-view-summary')?.addEventListener('click', () => { sumState.view = 'summary'; renderSummaryContent(); });
   document.getElementById('sum-view-alldata')?.addEventListener('click', () => { sumState.view = 'alldata'; renderSummaryContent(); });
+  document.getElementById('sum-view-corridor')?.addEventListener('click', () => { sumState.view = 'corridor'; renderSummaryContent(); });
   document.getElementById('sum-corr-filter')?.addEventListener('change', e => { sumState.filterCorr = e.target.value; renderSummaryContent(); });
 }
 

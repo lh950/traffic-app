@@ -944,6 +944,20 @@ body.workspace-mode #btn-analyze-to-qaqc{display:none!important}
 .cmp-move .cmp-name{padding-left:14px;color:var(--text3)}
 .cmp-move:hover td{background:color-mix(in srgb,var(--accent,#6a8fc8) 6%,transparent)}
 
+/* ── CORRIDOR CHART ── */
+.corr-period-label{font-size:12px;color:var(--text3);margin-bottom:10px}
+.corr-period-label strong{color:var(--text1)}
+.corr-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.corr-svg{display:block}
+.corr-cell{fill:var(--accent,#6a8fc8)}
+.corr-axis{font-size:9px;fill:var(--text3);font-family:var(--mono,monospace)}
+.corr-grid{stroke:var(--border);stroke-width:.5;opacity:.5}
+.corr-row-label{font-size:10px;fill:var(--text2);text-anchor:end;font-family:inherit}
+.corr-row-total{font-size:9px;fill:var(--text3);font-family:var(--mono,monospace)}
+.corr-empty{color:var(--text3);font-size:13px;padding:16px 0}
+.corr-legend{margin-top:10px;display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text3)}
+.corr-legend-svg .corr-axis{font-size:9px;fill:var(--text3)}
+
 @media print{
   @page{size:letter portrait;margin:14mm 16mm}
 
