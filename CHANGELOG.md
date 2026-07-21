@@ -1,5 +1,73 @@
 # Changelog
 
+## v3.10.0 — 2026-07-21
+
+### Added
+- **Project recents list** — up to 8 recent projects shown on the home screen above "Open existing." Populated automatically on autosave, explicit save, and project file load. Each card shows name, type, and time-ago. × button removes individual entries. Section hides when empty.
+- **TMD in shareable page** — turning movement diagram SVG now included at the top of the self-contained HTML export, before the volume chart. Peak hour computed from the 4 best consecutive 15-min intervals. Works with dark/light themes in standalone page via CSS variable definitions.
+- **Intersection drill-down from corridor chart** — intersection name labels in the area study corridor chart are now clickable links that navigate directly to that intersection's Analyze/Charts view (`showIntersectionAnalysis`). Styled with accent color + underline.
+
+---
+
+## v3.9.0 — 2026-07-21
+
+### Added
+- **Intersection / site address field** (`data-pi="location"`) in project info tab — single text input for the street address or intersection name; feeds into analyze screen sub-title, comparison label, and print report sub-line. Also fixes two broken references (`projectInfo?.location` at analyze subtitle and compare label) that were silently `undefined` before
+- **Count date field** (`data-pi="countDate"`) in project info tab — date picker; formatted as "Jul 21, 2026" in the print report meta row using local-date constructor to avoid timezone off-by-one
+
+### Fixed
+- Export tab: TMC filename row was using counter-settings classes (`cfg-field` / `cfg-label`) instead of setup classes (`setup-field` / plain `<label>`) — now consistent with vehicle and pedestrian rows
+- Period planner preset buttons no longer add duplicate periods — `addPlannedPeriod()` now guards on name match before pushing
+
+---
+
+## v3.8.0 — 2026-07-21
+
+### Added
+- Per-period timing: when periods are defined in the period planner, each period's start/end times are applied to `cfg` via `applyPlannedTiming()` before that period's data snapshot is captured at count start — so each period carries its own time range in its stored `cfg`
+- Timing card note: a contextual note appears in the Setup timing card when period planner entries exist, explaining that start time and duration are controlled per-period by the planner
+- `plannedPeriods` persisted in autosave: the period planner array is now serialized in `serializeCurrentProject()` and restored in `loadProject()` so planned periods survive reload
+- Time range inline on counter period tabs: each period tab in the counter shows the period's time range (e.g. `07:00–09:00`) in the tab title attribute
+- Time range inline on analyze period tabs: period picker tabs in both analyze paths now show the time range below the period name
+  - Non-workspace path (`renderIntersectionAnalysis` / `buildPeriodBar`): `.apb-tab` flex-column with `.apb-tab-name` + `.apb-tab-time`
+  - Workspace path (`renderIxAnalysis`): `.ix-period-tab` flex-column with `.ixt-time` span
+
+---
+
+## v3.7.0 — 2026-07-21
+
+### Fixed
+- `startCounting()` now routes through `openWorkspaceTab('count')` when already in workspace mode instead of directly toggling display styles, so the sidebar active state stays in sync
+- `goSetup()` now routes through `openWorkspaceTab('setup')` in workspace mode (counter "setup" button and sidebar "Setup" item both go to the same place)
+- Setup screen header ("traffic counter setup") no longer appears in workspace mode — hidden via `body.workspace-mode .setup-header`
+- Counter header "← Project" and "setup" buttons hidden in workspace mode (sidebar provides equivalent navigation)
+- `'landing-screen'` removed from SCREENS array — it was legacy HTML that was never navigated to, causing `showScreen()` to iterate over it needlessly
+
+### Added
+- Period planner card in Setup → Study Parameters — define named count periods (AM Peak, Midday, PM Peak, etc.) with time ranges before counting starts; periods are applied automatically when "start counting →" is clicked; custom period entry with name and start/end time fields
+
+---
+
+## v3.6.0 — 2026-07-10
+
+### Added
+- Multi-period analyze: workspace Analyze/Charts tabs now work for intersection count projects (previously showed "No period data available")
+- Period tabs in the analyze screen show all defined periods; clicking switches the view to that period's data without disturbing the active counting period
+- Period Comparison table auto-appears in the analyze Data view when 2+ periods exist
+- Inline period naming: clicking `+ period` now shows a keyboard-friendly inline input instead of a browser `prompt()` dialog; double-clicking an existing period tab renames it inline
+
+### Fixed
+- `← Summary` and `Open in counter →` buttons hidden correctly when viewing intersection count project in analyze screen; restored when viewing area study intersections
+
+---
+
+## v3.5.0 — 2026-07-10
+
+### Added
+- Shareable study page export (Stage 3 Step 4) — "↓ Export page" button in the analyze tab bar generates a self-contained HTML file with all charts and tables
+
+---
+
 ## v3.3.0 — 2026-07-09
 
 ### Changed

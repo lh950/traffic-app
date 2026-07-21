@@ -2,6 +2,7 @@ import './style.css';
 import './analysis/style.css';
 
 const LS_KEY = 'traffic-app-autosave';
+const LS_RECENTS_KEY = 'tc_recents';
 
 import {
   cfg, vPairs, tmcPairs, setTmcPairs, intersection, fnames, vData, pedData, tmcData,
@@ -148,16 +149,36 @@ Object.assign(window, {
 
 // Wrap startCounting to initialize periods after data is ready
 window.startCounting = function () {
-  startCounting();
-  initDefaultPeriods();
+  startCounting(); // reads form inputs → cfg, runs initVData/ped/tmc
+  if (plannedPeriods.length > 0) {
+    // Override cfg with period 0's planner timing, then build all period snapshots.
+    // Each period gets its own cfg so the counter rows/slots reflect that period's window.
+    applyPlannedTiming(plannedPeriods[0]);
+    initVData(); initPedData(); initTMCData(initApproaches);
+    initDefaultPeriods(plannedPeriods[0].name);
+    // Build periods 1+ directly to avoid UI rebuild side effects of addPeriod()
+    plannedPeriods.slice(1).forEach(p => {
+      applyPlannedTiming(p);
+      initVData(); initPedData(); initTMCData(initApproaches);
+      periods.push({ name: p.name, data: captureActivePeriod() });
+    });
+    // Restore period 0 as the active counting period (activePeriodIdx stays 0)
+    if (plannedPeriods.length > 1) restoreActivePeriod(periods[0].data);
+  } else {
+    initDefaultPeriods();
+  }
   buildPeriodTabs();
   buildCounterSidebar();
-  // Enter workspace when starting a count from setup screen
   if (projectType === 'intersection') {
-    enterWorkspace();
-    setSidebarMeta(projectInfo.projectName || 'Intersection count', '');
-    _sidebarActiveItem = 'count';
-    renderAppSidebar();
+    if (document.body.classList.contains('workspace-mode')) {
+      // Already in workspace (user navigated back to Setup tab); route via workspace router
+      openWorkspaceTab('count');
+    } else {
+      enterWorkspace();
+      setSidebarMeta(projectInfo.projectName || 'Intersection count', '');
+      _sidebarActiveItem = 'count';
+      renderAppSidebar();
+    }
   }
 };
 
@@ -231,7 +252,7 @@ initApproaches();
 // ═══════════════════════════════════════════
 // SCREEN ROUTER
 // ═══════════════════════════════════════════
-const SCREENS = ['home-screen', 'landing-screen', 'area-setup-screen', 'area-import-screen', 'summary-screen', 'export-screen', 'ix-analysis-screen', 'setup-screen', 'counter-screen', 'tripgen-setup-screen', 'tripgen-counter-screen', 'tripgen-qaqc-screen', 'analyze-screen'];
+const SCREENS = ['home-screen', 'area-setup-screen', 'area-import-screen', 'summary-screen', 'export-screen', 'ix-analysis-screen', 'setup-screen', 'counter-screen', 'tripgen-setup-screen', 'tripgen-counter-screen', 'tripgen-qaqc-screen', 'analyze-screen'];
 let projectType = null; // 'intersection' | 'area' | 'tripgen' | null
 
 function showScreen(id) {
@@ -261,6 +282,7 @@ function showHome() {
   _sidebarActiveItem = null;
   showScreen('home-screen');
   renderHomeResumeBanner();
+  renderHomeRecents();
 }
 
 function setSidebarMeta(name, sub) {
@@ -356,16 +378,25 @@ function openWorkspaceTab(tab, idx) {
   _sidebarActiveItem = tab === 'area-ix' ? `area-ix-${idx}` : tab;
   renderAppSidebar();
   switch (tab) {
-    case 'setup': showScreen('setup-screen'); break;
+    case 'setup': showScreen('setup-screen'); renderPlannedPeriods(); break;
     case 'count': showScreen('counter-screen'); window.goToCountMode?.(); break;
     case 'analyze':
+    case 'charts': {
       showScreen('ix-analysis-screen');
-      renderIxAnalysis(0, 'data');
+      const isIxCount = projectType === 'intersection';
+      const backBtn = document.getElementById('btn-ix-analysis-back');
+      const openBtn = document.getElementById('btn-ix-open-counter');
+      if (backBtn) backBtn.style.display = isIxCount ? 'none' : '';
+      if (openBtn) openBtn.style.display = isIxCount ? 'none' : '';
+      if (isIxCount) {
+        const titleEl = document.getElementById('ix-analysis-title');
+        const subEl = document.getElementById('ix-analysis-sub');
+        if (titleEl) titleEl.textContent = [intersection.street1, intersection.street2].filter(Boolean).join(' & ') || projectInfo?.projectName || 'Intersection';
+        if (subEl) subEl.textContent = projectInfo?.location || '';
+      }
+      renderIxAnalysis(ixAnalysisPeriodIdx, tab === 'charts' ? 'charts' : 'data');
       break;
-    case 'charts':
-      showScreen('ix-analysis-screen');
-      renderIxAnalysis(0, 'charts');
-      break;
+    }
     case 'export': showExportScreen(); break;
     case 'area-summary':
       if (typeof showSummaryScreen === 'function') showSummaryScreen();
@@ -416,11 +447,13 @@ function renderHomeResumeBanner() {
 // Wire home screen buttons
 document.getElementById('home-btn-intersection')?.addEventListener('click', () => {
   projectType = 'intersection';
+  plannedPeriods.length = 0;
   enterWorkspace();
   setSidebarMeta('New intersection count', '');
   _sidebarActiveItem = 'setup';
   renderAppSidebar();
   showScreen('setup-screen');
+  renderPlannedPeriods();
 });
 
 document.getElementById('home-btn-area')?.addEventListener('click', () => {
@@ -452,6 +485,7 @@ document.getElementById('home-load-input')?.addEventListener('change', async (e)
   try {
     const text = await file.text();
     const proj = JSON.parse(text);
+    addToRecents(proj);
     loadProject(proj);
     if (errEl) errEl.textContent = '';
   } catch (err) {
@@ -463,6 +497,9 @@ document.getElementById('sidebar-back-btn')?.addEventListener('click', showHome)
 
 showScreen('home-screen');
 renderHomeResumeBanner();
+renderHomeRecents();
+
+window.openWorkspaceTab = openWorkspaceTab;
 
 window.goToCountMode = function () {
   document.getElementById('btn-count-mode')?.classList.add('active');
@@ -480,6 +517,60 @@ window.goToAnalyzeMode = async function () {
   document.getElementById('analyze-sub').textContent = '— live intersection count';
   await renderIntersectionAnalysis();
 };
+// ─── Period planner (setup screen → study parameters tab) ───────────────
+const plannedPeriods = []; // [{name, start, end}]
+
+function applyPlannedTiming(p) {
+  if (!p.start || !p.end) return;
+  const toMin = s => { const [h, m] = s.split(':').map(Number); return h * 60 + (m || 0); };
+  const startMin = toMin(p.start);
+  const endMin = toMin(p.end);
+  if (endMin > startMin) {
+    cfg.startMinutes = startMin;
+    cfg.durationMin = Math.max(cfg.intervalMin || 15, endMin - startMin);
+  }
+}
+
+function renderPlannedPeriods() {
+  const list = document.getElementById('pp-list');
+  if (!list) return;
+  const note = document.getElementById('timing-planner-note');
+  if (!plannedPeriods.length) {
+    list.innerHTML = '<div class="pp-empty-note">No periods planned — counting will start with one period.</div>';
+    if (note) note.style.display = 'none';
+    return;
+  }
+  list.innerHTML = plannedPeriods.map((p, i) => `
+    <div class="pp-period-row">
+      <span class="pp-period-name">${p.name}</span>
+      <span class="pp-period-times">${p.start || '—'}–${p.end || '—'}</span>
+      <button class="pp-del-btn" onclick="removePlannedPeriod(${i})" title="Remove">×</button>
+    </div>`).join('');
+  if (note) note.style.display = '';
+}
+
+window.addPlannedPeriod = function (name, start, end) {
+  if (plannedPeriods.some(p => p.name === name)) return;
+  plannedPeriods.push({ name, start: start || '', end: end || '' });
+  renderPlannedPeriods();
+};
+window.removePlannedPeriod = function (idx) {
+  plannedPeriods.splice(idx, 1);
+  renderPlannedPeriods();
+};
+window.commitCustomPlannedPeriod = function () {
+  const name = (document.getElementById('pp-name')?.value || '').trim();
+  const start = document.getElementById('pp-start')?.value || '';
+  const end = document.getElementById('pp-end')?.value || '';
+  if (!name) { alert('Enter a period name.'); return; }
+  plannedPeriods.push({ name, start, end });
+  renderPlannedPeriods();
+  document.getElementById('pp-name').value = '';
+  document.getElementById('pp-start').value = '';
+  document.getElementById('pp-end').value = '';
+  document.getElementById('pp-custom-form').style.display = 'none';
+};
+
 document.getElementById('btn-analyze-to-count')?.addEventListener('click', () => window.goToCountMode());
 document.getElementById('btn-analyze-print')?.addEventListener('click', () => {
   populatePrintHeader();
@@ -536,6 +627,47 @@ function liveTmcParsed() {
   return { approaches, types: tmcPairs.map(p => ({ label: p.label, isBike: !!p.isBike })), intervals, legLabels: intersection.legLabels || {}, intervalMin: cfg.intervalMin };
 }
 
+// ── Period-stored-data → analysis shapes ─────────────────────────────────────
+// Like live*Parsed() but reads from a stored period's .data object, so the
+// analyze screen can inspect any period without touching live counting state.
+function parsedFromPeriod(pData) {
+  const { startMinutes, intervalMin, durationMin } = pData.cfg;
+  const slots = Math.floor(durationMin / intervalMin);
+  const fmt = (m) => `${String(Math.floor(m / 60) % 24).padStart(2,'0')}:${String(m % 60).padStart(2,'0')}`;
+  const slotLabel = (i) => { const s = startMinutes + i * intervalMin; return `${fmt(s)}–${fmt(s + intervalMin)}`; };
+  const approaches = intersection.approaches.map(a => ({
+    leg: a.leg,
+    destinations: a.destinations.map(d => ({ leg: d, turnClass: classifyTurn(a.leg, d) })),
+  }));
+  const vehParsed = {
+    types: vPairs.map(p => p.label),
+    intervals: Array.from({ length: slots }, (_, i) => ({
+      label: slotLabel(i), start: fmt(startMinutes + i * intervalMin), end: fmt(startMinutes + (i+1) * intervalMin),
+      inbound: pData.vData.in[i] || [], outbound: pData.vData.out[i] || [],
+    })),
+  };
+  const pedParsed = {
+    crosswalks: intersection.crosswalks.map(c => ({ name: c.name, dir0: c.dir0, dir1: c.dir1 })),
+    intervals: Array.from({ length: slots }, (_, i) => ({
+      label: slotLabel(i), start: fmt(startMinutes + i * intervalMin), end: fmt(startMinutes + (i+1) * intervalMin),
+      counts: pData.pedData.map(xw => xw[i] || [0,0]),
+    })),
+  };
+  const tmcParsed = {
+    approaches, types: tmcPairs.map(p => ({ label: p.label, isBike: !!p.isBike })),
+    legLabels: intersection.legLabels || {}, intervalMin,
+    intervals: Array.from({ length: slots }, (_, i) => {
+      const counts = {};
+      approaches.forEach(a => {
+        counts[a.leg] = {};
+        a.destinations.forEach(d => { counts[a.leg][d.leg] = pData.tmcData[a.leg]?.[d.leg]?.[i] || vPairs.map(() => 0); });
+      });
+      return { label: slotLabel(i), start: fmt(startMinutes + i * intervalMin), end: fmt(startMinutes + (i+1) * intervalMin), counts };
+    }),
+  };
+  return { vehParsed, pedParsed, tmcParsed };
+}
+
 function filterTmcParsedByIndices(parsed, indices) {
   if (!indices || indices.length === parsed.types.length) return parsed;
   const idxSet = new Set(indices);
@@ -559,13 +691,9 @@ function filterTmcParsedByIndices(parsed, indices) {
   };
 }
 
-async function renderIntersectionAnalysis() {
-  const root = document.getElementById('analyze-root');
-  const vehParsed = liveVehicleParsed();
-  const pedParsed = livePedParsed();
-  const tmcParsed = liveTmcParsed();
+// ── Analyze: single-period content ───────────────────────────────────────────
+async function renderAnalyzePeriodContent(root, vehParsed, pedParsed, tmcParsed) {
   const hasTmc = intersection.approaches.some((a) => a.destinations.length);
-
   const bikeIdx = tmcPairs.map((p, i) => p.isBike ? i : -1).filter(i => i >= 0);
   const motorIdx = tmcPairs.map((p, i) => !p.isBike ? i : -1).filter(i => i >= 0);
   const hasBikes = hasTmc && bikeIdx.length > 0;
@@ -646,7 +774,6 @@ async function renderIntersectionAnalysis() {
   const compareRoot = document.getElementById('analyze-compare-root');
   if (compareRoot) {
     let referenceSnap = null;
-
     function paintComparison() {
       if (!referenceSnap) {
         compareRoot.innerHTML = `
@@ -658,11 +785,10 @@ async function renderIntersectionAnalysis() {
       } else {
         const info = projectInfo || {};
         const currentLabel = [info.location, info.intersection].filter(Boolean).join(' — ') || 'Current session';
-        const currentDate  = info.date || '';
-        const currentSnap  = parseCurrentSnapshot(
+        const currentSnap = parseCurrentSnapshot(
           hasBikes ? filterTmcParsedByIndices(tmcParsed, motorIdx) : tmcParsed,
           vehParsed, pedParsed, motorIdx,
-          intersection.legLabels || {}, currentLabel, currentDate
+          intersection.legLabels || {}, currentLabel, info.date || ''
         );
         const cmpRoot = document.createElement('div');
         cmpRoot.innerHTML = `<button id="btn-change-reference" style="font-size:11px;margin-bottom:14px">← Change reference study</button>`;
@@ -671,13 +797,9 @@ async function renderIntersectionAnalysis() {
         compareRoot.innerHTML = '';
         compareRoot.appendChild(cmpRoot);
         renderComparisonSection(tableRoot, referenceSnap, currentSnap);
-        compareRoot.querySelector('#btn-change-reference').addEventListener('click', () => {
-          referenceSnap = null;
-          paintComparison();
-        });
+        compareRoot.querySelector('#btn-change-reference').addEventListener('click', () => { referenceSnap = null; paintComparison(); });
       }
     }
-
     function loadReference() {
       pickComparisonFile((proj) => {
         const snap = parseProjectSnapshot(proj);
@@ -686,18 +808,175 @@ async function renderIntersectionAnalysis() {
         paintComparison();
       });
     }
-
     paintComparison();
   }
 
   document.getElementById('btn-share-report')?.addEventListener('click', () => {
-    exportShareablePage(
-      projectInfo,
-      intersection,
-      vehParsed, pedParsed, tmcParsed,
-      motorIdx, bikeIdx, hasBikes
-    );
+    exportShareablePage(projectInfo, intersection, vehParsed, pedParsed, tmcParsed, motorIdx, bikeIdx, hasBikes);
   });
+}
+
+// ── Analyze: all-periods comparison view ─────────────────────────────────────
+function renderAllPeriodsView(root) {
+  const motorIdx = tmcPairs.map((p, i) => !p.isBike ? i : -1).filter(i => i >= 0);
+  const fmt2 = (m) => `${String(Math.floor(m/60)%24).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
+
+  const cols = periods.map((p, i) => {
+    const pd = i === activePeriodIdx ? captureActivePeriod() : p.data;
+    const { startMinutes, intervalMin, durationMin } = pd.cfg;
+    const slots = Math.floor(durationMin / intervalMin);
+    const timeRange = `${fmt2(startMinutes)}–${fmt2(startMinutes + durationMin)}`;
+
+    // Vehicle totals
+    let vehIn = 0, vehOut = 0;
+    for (let s = 0; s < slots; s++) {
+      vehIn  += (pd.vData.in  || []).reduce((sum, arr) => sum + (arr[s] || 0), 0);
+      vehOut += (pd.vData.out || []).reduce((sum, arr) => sum + (arr[s] || 0), 0);
+    }
+
+    // Peak vehicle hour
+    let peakHour = '—', peakVol = 0;
+    for (let s = 0; s + 4 <= slots; s++) {
+      let hv = 0;
+      for (let k = 0; k < 4; k++) {
+        hv += (pd.vData.in  || []).reduce((sum, arr) => sum + (arr[s+k] || 0), 0);
+        hv += (pd.vData.out || []).reduce((sum, arr) => sum + (arr[s+k] || 0), 0);
+      }
+      if (hv > peakVol) { peakVol = hv; peakHour = fmt2(startMinutes + s * intervalMin); }
+    }
+
+    // TMC totals (motor only)
+    let tmcTotal = 0;
+    for (const a of intersection.approaches) {
+      for (const d of (a.destinations || [])) {
+        for (let s = 0; s < slots; s++) {
+          const arr = pd.tmcData[a.leg]?.[d]?.[s] || [];
+          tmcTotal += motorIdx.reduce((sum, mi) => sum + (arr[mi] || 0), 0);
+        }
+      }
+    }
+
+    // Ped totals
+    const pedTotal = (pd.pedData || []).reduce((sum, xw) =>
+      sum + xw.reduce((s2, slot) => s2 + (slot[0]||0) + (slot[1]||0), 0), 0);
+
+    // Meta
+    const meta = pd.meta || {};
+    return { name: p.name, timeRange, vehIn, vehOut, vehTotal: vehIn+vehOut, peakHour, peakVol, tmcTotal, pedTotal, date: meta.date || '', weather: meta.weather || '' };
+  });
+
+  const th = (txt) => `<th>${txt}</th>`;
+  const td = (val) => `<td>${val != null ? String(val) : '—'}</td>`;
+
+  const header = `<tr><th></th>${cols.map(c => `<th><div class="ap-period-name">${c.name}</div><div class="ap-period-range">${c.timeRange}</div></th>`).join('')}</tr>`;
+
+  const rows = [
+    ['Date',           cols.map(c => c.date || '—')],
+    ['Weather',        cols.map(c => c.weather || '—')],
+    ['Vehicle in',     cols.map(c => c.vehIn.toLocaleString())],
+    ['Vehicle out',    cols.map(c => c.vehOut.toLocaleString())],
+    ['Vehicle total',  cols.map(c => c.vehTotal.toLocaleString())],
+    ['Peak hour start',cols.map(c => c.peakHour)],
+    ['Peak hour vol.', cols.map(c => c.peakVol ? c.peakVol.toLocaleString() : '—')],
+    ['TMC total (motor)', cols.map(c => c.tmcTotal ? c.tmcTotal.toLocaleString() : '—')],
+    ['Pedestrian total',  cols.map(c => c.pedTotal ? c.pedTotal.toLocaleString() : '—')],
+  ].map(([label, vals]) =>
+    `<tr><td class="ap-row-label">${label}</td>${vals.map(v => `<td>${v}</td>`).join('')}</tr>`
+  ).join('');
+
+  root.innerHTML = `
+    <div class="section">
+      <div class="section-head"><h2>All periods — summary</h2></div>
+      <div style="overflow-x:auto">
+        <table class="ap-table">${header}${rows}</table>
+      </div>
+    </div>`;
+}
+
+// ── Analyze: main entry point ─────────────────────────────────────────────────
+async function renderIntersectionAnalysis() {
+  // Flush live state into active period before any reads
+  if (periods.length > 0) periods[activePeriodIdx].data = captureActivePeriod();
+
+  const analyzeScreen = document.getElementById('analyze-screen');
+  if (!analyzeScreen) return;
+
+  // Period picker bar (rendered once at the screen level, above #analyze-root)
+  let periodBar = document.getElementById('analyze-period-bar');
+  if (!periodBar) {
+    periodBar = document.createElement('div');
+    periodBar.id = 'analyze-period-bar';
+    periodBar.className = 'analyze-period-bar no-print';
+    analyzeScreen.insertBefore(periodBar, analyzeScreen.firstChild);
+  }
+
+  // Track which period/view is selected in the analyze screen (independent of active counting period)
+  if (analyzeScreen._viewPeriodIdx == null) analyzeScreen._viewPeriodIdx = activePeriodIdx;
+  const isAll = analyzeScreen._viewPeriodIdx === 'all';
+
+  function buildPeriodBar() {
+    const vpi = analyzeScreen._viewPeriodIdx;
+    periodBar.innerHTML = '';
+    if (periods.length <= 1) { periodBar.style.display = 'none'; return; }
+    periodBar.style.display = 'flex';
+    periods.forEach((p, i) => {
+      const btn = document.createElement('button');
+      btn.className = 'apb-tab' + (vpi === i ? ' active' : '');
+      const pCfg = p.data.cfg;
+      const fmt2 = m => `${String(Math.floor(m/60)%24).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
+      const timeRange = pCfg?.startMinutes != null
+        ? `${fmt2(pCfg.startMinutes)}–${fmt2(pCfg.startMinutes + pCfg.durationMin)}`
+        : '';
+      btn.innerHTML = `<span class="apb-tab-name">${p.name}</span>${timeRange ? `<span class="apb-tab-time">${timeRange}</span>` : ''}`;
+      btn.title = timeRange;
+      if (i === activePeriodIdx) {
+        const dot = document.createElement('span');
+        dot.className = 'apb-active-dot';
+        dot.title = 'Currently counting in this period';
+        btn.appendChild(dot);
+      }
+      btn.addEventListener('click', () => {
+        analyzeScreen._viewPeriodIdx = i;
+        buildPeriodBar();
+        repaintContent();
+      });
+      periodBar.appendChild(btn);
+    });
+    if (periods.length >= 2) {
+      const allBtn = document.createElement('button');
+      allBtn.className = 'apb-tab apb-all' + (vpi === 'all' ? ' active' : '');
+      allBtn.textContent = 'All periods';
+      allBtn.addEventListener('click', () => {
+        analyzeScreen._viewPeriodIdx = 'all';
+        buildPeriodBar();
+        repaintContent();
+      });
+      periodBar.appendChild(allBtn);
+    }
+  }
+
+  const root = document.getElementById('analyze-root');
+
+  async function repaintContent() {
+    const vpi = analyzeScreen._viewPeriodIdx;
+    if (vpi === 'all') {
+      renderAllPeriodsView(root);
+      return;
+    }
+    const pData = periods[vpi]?.data;
+    let vehParsed, pedParsed, tmcParsed;
+    if (pData) {
+      ({ vehParsed, pedParsed, tmcParsed } = parsedFromPeriod(pData));
+    } else {
+      vehParsed = liveVehicleParsed();
+      pedParsed = livePedParsed();
+      tmcParsed = liveTmcParsed();
+    }
+    await renderAnalyzePeriodContent(root, vehParsed, pedParsed, tmcParsed);
+  }
+
+  buildPeriodBar();
+  await repaintContent();
 }
 
 // ═══════════════════════════════════════════
@@ -1440,12 +1719,50 @@ function arraysToSets(arr) {
 window.saveProject = function () {
   const proj = serializeCurrentProject();
   if (!proj) return;
+  addToRecents(proj);
   downloadJSON(proj, `${fnames.vehicle || 'traffic'}.tcproject`);
 };
 
 // ═══════════════════════════════════════════
 // MULTI-PERIOD UI
 // ═══════════════════════════════════════════
+function startInlinePeriodRename(bar, tabEl, periodIdx) {
+  const p = periods[periodIdx];
+  const inp = document.createElement('input');
+  inp.type = 'text';
+  inp.value = p.name;
+  inp.className = 'period-tab-rename-input';
+  inp.style.cssText = 'font-size:11px;font-family:var(--mono);font-weight:500;padding:2px 8px;border-radius:20px;border:.5px solid var(--amber,#ffb400);outline:none;background:var(--surface2);color:var(--text);width:100px;';
+  tabEl.replaceWith(inp);
+  inp.select();
+  const commit = () => {
+    const name = inp.value.trim() || p.name;
+    periods[periodIdx].name = name;
+    window.scheduleAutosave();
+    buildPeriodTabs();
+  };
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); commit(); } if (e.key === 'Escape') { buildPeriodTabs(); } });
+  inp.addEventListener('blur', commit);
+}
+
+function showInlineAddPeriod(bar, addBtn) {
+  const defaultName = `Period ${periods.length + 1}`;
+  const inp = document.createElement('input');
+  inp.type = 'text';
+  inp.placeholder = defaultName;
+  inp.className = 'period-tab-rename-input';
+  inp.style.cssText = 'font-size:11px;font-family:var(--mono);font-weight:500;padding:2px 8px;border-radius:20px;border:.5px solid var(--amber,#ffb400);outline:none;background:var(--surface2);color:var(--text);width:100px;';
+  addBtn.replaceWith(inp);
+  inp.focus();
+  const commit = () => {
+    const name = inp.value.trim() || defaultName;
+    addPeriod(name);
+  };
+  const cancel = () => buildPeriodTabs();
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); commit(); } if (e.key === 'Escape') cancel(); });
+  inp.addEventListener('blur', () => { if (inp.value.trim()) commit(); else cancel(); });
+}
+
 function buildPeriodTabs() {
   const bar = document.getElementById('period-tabs-bar');
   if (!bar) return;
@@ -1454,24 +1771,23 @@ function buildPeriodTabs() {
     const tab = document.createElement('button');
     tab.className = 'period-tab' + (i === activePeriodIdx ? ' active' : '');
     tab.textContent = p.name;
-    tab.title = 'Switch to ' + p.name + ' (double-click to rename)';
+    const pCfg = p.data?.cfg;
+    const fmtM = m => `${String(Math.floor(m/60)%24).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
+    const timeRange = pCfg?.startMinutes != null
+      ? `${fmtM(pCfg.startMinutes)}–${fmtM(pCfg.startMinutes + pCfg.durationMin)}`
+      : '';
+    tab.title = timeRange
+      ? `${p.name}: ${timeRange} · double-click to rename`
+      : `Switch to ${p.name} · double-click to rename`;
     tab.addEventListener('click', () => switchPeriod(i));
-    tab.addEventListener('dblclick', e => {
-      e.stopPropagation();
-      const name = prompt('Rename period:', p.name);
-      if (name && name.trim()) { periods[i].name = name.trim(); buildPeriodTabs(); window.scheduleAutosave(); }
-    });
+    tab.addEventListener('dblclick', e => { e.stopPropagation(); startInlinePeriodRename(bar, tab, i); });
     bar.appendChild(tab);
   });
   const addBtn = document.createElement('button');
   addBtn.className = 'period-tab period-tab-add';
   addBtn.textContent = '+ period';
   addBtn.title = 'Add a new time period';
-  addBtn.addEventListener('click', () => {
-    const name = prompt('New period name:', `Period ${periods.length + 1}`);
-    if (name === null) return;
-    addPeriod(name.trim() || `Period ${periods.length + 1}`);
-  });
+  addBtn.addEventListener('click', () => showInlineAddPeriod(bar, addBtn));
   bar.appendChild(addBtn);
 
   // Start/end time fields
@@ -1978,7 +2294,7 @@ function renderCorridorView(allRows, corridors) {
     </div>
     <div id="corr-chart-root" style="margin-top:16px;overflow-x:auto"></div>`;
 
-    renderCorridorChart(document.getElementById('corr-chart-root'), ixRows, selPeriod);
+    renderCorridorChart(document.getElementById('corr-chart-root'), ixRows, selPeriod, idx => showIntersectionAnalysis(idx));
 
     document.getElementById('corr-back-summary')?.addEventListener('click', () => { sumState.view = 'summary'; renderSummaryContent(); });
     document.getElementById('corr-back-alldata')?.addEventListener('click', () => { sumState.view = 'alldata'; renderSummaryContent(); });
@@ -2958,7 +3274,8 @@ function renderIxAnalysis(periodIdx, view) {
   ixAnalysisPeriodIdx = periodIdx;
   const container = document.getElementById('ix-analysis-content');
   if (!container) return;
-  const snap = areaIntersections[activeIntersectionIdx]?.snapshot;
+  const snap = areaIntersections[activeIntersectionIdx]?.snapshot
+    || (projectType === 'intersection' ? serializeIntersectionSnapshot() : null);
   if (!snap?.periods?.length) {
     container.innerHTML = `<div style="color:var(--text2);font-size:13px;padding:20px 0">No period data available.</div>`;
     return;
@@ -3018,9 +3335,13 @@ function renderIxAnalysis(periodIdx, view) {
 
   // Period tabs
   const tabsHtml = snPeriods.length > 1
-    ? `<div class="ix-period-tabs">${snPeriods.map((p, pi) =>
-        `<button class="ix-period-tab${pi === periodIdx ? ' active' : ''}" data-pi="${pi}">${p.name}</button>`
-      ).join('')}</div>`
+    ? `<div class="ix-period-tabs">${snPeriods.map((p, pi) => {
+        const pCfg = p.cfg;
+        const tr = pCfg?.startMinutes != null
+          ? `<span class="ixt-time">${toHHMM(pCfg.startMinutes)}–${toHHMM(pCfg.startMinutes + (pCfg.durationMin || 0))}</span>`
+          : '';
+        return `<button class="ix-period-tab${pi === periodIdx ? ' active' : ''}" data-pi="${pi}">${p.name}${tr}</button>`;
+      }).join('')}</div>`
     : `<div class="ix-period-label">${period.name}</div>`;
 
   // View toggle (Data | Charts)
@@ -3363,6 +3684,9 @@ function loadProject(proj) {
     const idx = Math.min(proj.activePeriodIdx ?? 0, periods.length - 1);
     setActivePeriodIdx(idx);
     restoreActivePeriod(periods[idx].data);
+    // Restore planned periods (informational after counting has started)
+    plannedPeriods.length = 0;
+    if (Array.isArray(proj.plannedPeriods)) plannedPeriods.push(...proj.plannedPeriods);
   } else {
     // v1 format — load flat data and wrap in a single period
     Object.assign(cfg, proj.cfg);
@@ -3426,6 +3750,7 @@ function serializeCurrentProject() {
       intersection: JSON.parse(JSON.stringify(intersection)),
       fnames: { ...fnames },
       activePeriodIdx,
+      plannedPeriods: plannedPeriods.map(p => ({ ...p })),
       periods: periods.map(p => ({
         name: p.name,
         cfg: p.data.cfg,
@@ -3460,12 +3785,71 @@ window.scheduleAutosave = function () {
   _autosaveTimer = setTimeout(() => {
     try {
       const proj = serializeCurrentProject();
-      if (proj) localStorage.setItem(LS_KEY, JSON.stringify(proj));
+      if (proj) {
+        localStorage.setItem(LS_KEY, JSON.stringify(proj));
+        addToRecents(proj);
+      }
     } catch (_) {}
   }, 2000);
 };
 
 function clearAutosave() { localStorage.removeItem(LS_KEY); }
+
+function addToRecents(proj) {
+  if (!proj?.projectType) return;
+  try {
+    const name = proj.projectType === 'tripgen'
+      ? (proj.siteInfo?.location || proj.projectInfo?.projectName || 'Trip generation project')
+      : proj.projectType === 'area'
+        ? (proj.projectInfo?.projectName || 'Area study')
+        : (proj.projectInfo?.projectName || 'Intersection count');
+    const entry = { name, type: proj.projectType, savedAt: proj.savedAt || new Date().toISOString(), data: proj };
+    let list = [];
+    try { list = JSON.parse(localStorage.getItem(LS_RECENTS_KEY) || '[]'); } catch (_) {}
+    list = list.filter(r => !(r.name === name && r.type === proj.projectType));
+    list.unshift(entry);
+    list = list.slice(0, 8);
+    localStorage.setItem(LS_RECENTS_KEY, JSON.stringify(list));
+  } catch (_) {}
+}
+
+function renderHomeRecents() {
+  const el = document.getElementById('home-recents');
+  if (!el) return;
+  let list = [];
+  try { list = JSON.parse(localStorage.getItem(LS_RECENTS_KEY) || '[]'); } catch (_) {}
+  if (!list.length) { el.style.display = 'none'; return; }
+  el.style.display = '';
+  const typeLabel = t => t === 'tripgen' ? 'Trip Gen' : t === 'area' ? 'Area Study' : 'Intersection';
+  el.innerHTML = `
+    <div class="home-section-label" style="margin-bottom:10px">Recent projects</div>
+    <div class="home-cards" style="grid-template-columns:1fr;gap:6px">
+      ${list.map((r, i) => `
+        <div class="home-card home-recent-card" data-recent-idx="${i}" style="flex-direction:row;align-items:center;gap:12px;cursor:pointer">
+          <div style="flex:1;min-width:0;overflow:hidden">
+            <div class="home-card-title" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</div>
+            <div class="home-card-desc">${typeLabel(r.type)} · ${formatTimeAgo(new Date(r.savedAt))}</div>
+          </div>
+          <button class="home-recent-remove" data-recent-idx="${i}" title="Remove from recents" style="flex-shrink:0;width:22px;height:22px;border-radius:50%;border:.5px solid var(--border);background:var(--surface2);color:var(--text3);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1">×</button>
+        </div>
+      `).join('')}
+    </div>`;
+  el.querySelectorAll('.home-recent-card').forEach(card => {
+    card.addEventListener('click', e => {
+      if (e.target.closest('.home-recent-remove')) return;
+      const r = list[+card.dataset.recentIdx];
+      if (r?.data) loadProject(r.data);
+    });
+  });
+  el.querySelectorAll('.home-recent-remove').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      list.splice(+btn.dataset.recentIdx, 1);
+      try { localStorage.setItem(LS_RECENTS_KEY, JSON.stringify(list)); } catch (_) {}
+      renderHomeRecents();
+    });
+  });
+}
 window.__loadProject = loadProject;
 
 window.addEventListener('beforeunload', () => {
@@ -3527,6 +3911,7 @@ function checkAutosave() {
 const projectInfo = {
   companyName: '', companyAddress: '',
   projectName: '', projectNumber: '', studyPurpose: '',
+  location: '', countDate: '',
   projectManagerName: '', projectManagerTitle: '',
   counterName: '', counterTitle: '',
   qaCounterName: '', qaCounterTitle: '',
@@ -3557,8 +3942,9 @@ function populatePrintHeader() {
         : intersection.street1 || 'Intersection Count'));
   document.getElementById('prh-title').textContent = title;
 
-  // Sub-line: project number + study purpose
+  // Sub-line: location, project number, study purpose
   const subParts = [];
+  if (projectInfo.location) subParts.push(projectInfo.location);
   if (projectInfo.projectNumber) subParts.push(`Project #${projectInfo.projectNumber}`);
   if (projectInfo.studyPurpose) subParts.push(projectInfo.studyPurpose);
   document.getElementById('prh-sub').textContent = subParts.join(' · ');
@@ -3577,6 +3963,11 @@ function populatePrintHeader() {
       ? `${projectInfo.counterName}, ${projectInfo.counterTitle}`
       : projectInfo.counterName;
     meta.push(`<span>Counter: ${cLine}</span>`);
+  }
+  if (projectInfo.countDate) {
+    const [y, m, d] = projectInfo.countDate.split('-').map(Number);
+    const formatted = new Date(y, m - 1, d).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+    meta.push(`<span>Count date: ${formatted}</span>`);
   }
   if (!isTripgen && cfg.startMinutes != null) {
     const slots = Math.floor(cfg.durationMin / cfg.intervalMin);
@@ -3599,7 +3990,8 @@ function wireProjectInfoFields() {
   // Sync all [data-pi="fieldName"] inputs — there are two instances of each field
   // (one in the intersection setup, one in the trip-gen setup) so editing one updates the other.
   const fields = ['companyName', 'companyAddress', 'projectName', 'projectNumber',
-                  'studyPurpose', 'projectManagerName', 'projectManagerTitle',
+                  'studyPurpose', 'location', 'countDate',
+                  'projectManagerName', 'projectManagerTitle',
                   'counterName', 'counterTitle', 'qaCounterName', 'qaCounterTitle'];
   fields.forEach((field) => {
     document.querySelectorAll(`[data-pi="${field}"]`).forEach((el) => {

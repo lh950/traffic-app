@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Traffic App v3.5.0</title>
+<title>Traffic App v3.10.0</title>
 </head>
 <body>
 
@@ -37,7 +37,7 @@
   <div class="home-inner">
     <div class="home-wordmark">
       <h1>Traffic App</h1>
-      <div class="home-version">v3.5.0</div>
+      <div class="home-version">v3.10.0</div>
     </div>
     <div id="home-resume-banner" style="display:none" class="home-resume-banner"></div>
     <div class="home-section-label" style="margin-bottom:10px">Start a new study</div>
@@ -58,6 +58,7 @@
         <span style="font-size:18px;color:var(--text3);margin-left:16px">→</span>
       </button>
     </div>
+    <div id="home-recents" style="display:none;margin-bottom:4px"></div>
     <div class="home-section-label">Open existing</div>
     <div class="home-cards" style="grid-template-columns:1fr">
       <button class="home-card" id="home-btn-load" style="flex-direction:row;align-items:center;gap:12px">
@@ -77,7 +78,7 @@
     <!-- wordmark -->
     <div style="margin-bottom:2rem">
       <h1 style="font-size:22px;font-weight:500;letter-spacing:-.01em">Traffic App</h1>
-      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v3.5.0</span>
+      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v3.10.0</span>
     </div>
 
     <!-- autosave / resume banner -->
@@ -439,6 +440,8 @@
       <div class="setup-grid" style="margin-bottom:14px">
         <div class="setup-field"><label>Project name</label><input type="text" data-pi="projectName" placeholder="e.g. 2026 Traffic Study — Site A"></div>
         <div class="setup-field"><label>Project number / ID</label><input type="text" data-pi="projectNumber" placeholder="e.g. P-2026-042"></div>
+        <div class="setup-field"><label>Intersection / site address</label><input type="text" data-pi="location" placeholder="e.g. Main St &amp; Oak Ave, Springfield"></div>
+        <div class="setup-field"><label>Count date</label><input type="date" data-pi="countDate"></div>
       </div>
       <div class="setup-field" style="margin-bottom:18px">
         <label>Study purpose / notes</label>
@@ -492,6 +495,9 @@
       <div class="derived-preview" id="derived-preview" style="margin-top:12px">
         <strong>96 intervals</strong> · 00:00 to 24:00 · 15-min intervals
       </div>
+      <div id="timing-planner-note" style="display:none;margin-top:10px;font-size:12px;color:var(--text2);padding:8px 10px;background:var(--surface);border:.5px solid var(--border);border-radius:6px">
+        Start time and duration are set per-period by the <strong>period planner</strong> below. Interval length still applies to all periods.
+      </div>
     </div>
     <div class="setup-card">
       <h2>count types</h2>
@@ -519,6 +525,26 @@
           </div>
         </label>
       </div>
+    </div>
+    <div class="setup-card" id="sp-period-planner">
+      <h2>count periods <span style="font-size:11px;font-weight:400;color:var(--text2);margin-left:6px">optional</span></h2>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:14px">Plan your count schedule up front. Periods defined here will be set up automatically when counting starts. You can still add or rename periods during counting.</div>
+      <div class="pp-presets">
+        <button class="ppq-btn" onclick="addPlannedPeriod('AM Peak','07:00','09:00')">AM Peak 7–9am</button>
+        <button class="ppq-btn" onclick="addPlannedPeriod('Midday','11:00','13:00')">Midday 11am–1pm</button>
+        <button class="ppq-btn" onclick="addPlannedPeriod('PM Peak','16:00','18:00')">PM Peak 4–6pm</button>
+        <button class="ppq-btn" onclick="addPlannedPeriod('Evening','18:00','20:00')">Evening 6–8pm</button>
+        <button class="ppq-btn" onclick="addPlannedPeriod('Night','20:00','22:00')">Night 8–10pm</button>
+      </div>
+      <div class="pp-period-list" id="pp-list"></div>
+      <div class="pp-custom-form" id="pp-custom-form" style="display:none">
+        <label>name<input type="text" id="pp-name" placeholder="e.g. AM Peak" style="display:block;margin-top:3px"></label>
+        <label>start<input type="time" id="pp-start" style="display:block;margin-top:3px"></label>
+        <label>end<input type="time" id="pp-end" style="display:block;margin-top:3px"></label>
+        <button class="btn btn-primary" style="align-self:flex-end;padding:5px 14px;font-size:12px" onclick="commitCustomPlannedPeriod()">Add</button>
+        <button class="btn" style="align-self:flex-end;padding:5px 10px;font-size:12px" onclick="document.getElementById('pp-custom-form').style.display='none'">Cancel</button>
+      </div>
+      <button class="pp-add-custom-toggle" onclick="document.getElementById('pp-custom-form').style.display='flex'">+ custom period</button>
     </div>
   </div>
 
@@ -658,8 +684,9 @@
           <label>pedestrian counts filename</label>
           <input type="text" id="fname-ped" value="ped_counts" placeholder="ped_counts">
           <span class="hint" id="fname-ped-preview">→ ped_counts.csv</span>
-        </div><div class="cfg-field">
-          <label class="cfg-label">turning movements</label>
+        </div>
+        <div class="setup-field">
+          <label>turning movements</label>
           <input type="text" id="fname-tmc" value="tmc_counts" placeholder="tmc_counts">
           <span class="hint" id="fname-tmc-preview">→ tmc_counts.csv</span>
         </div>
@@ -677,7 +704,7 @@
 
   <header class="counter-header">
     <button id="btn-back-to-project" style="font-size:12px;padding:4px 10px;margin-right:8px">← Project</button>
-    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v3.5.0</span></h1>
+    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v3.10.0</span></h1>
     <div class="hcontrols">
       <div class="mode-toggle" style="display:none">
         <button class="mode-btn active" id="btn-count-mode" onclick="goToCountMode()">count</button>
@@ -704,7 +731,7 @@
       <button class="btn-focus" id="btn-focus" onclick="toggleFocusMode()" title="Focus mode (\\)">⊕ focus</button>
       <button class="btn-icon" onclick="openSettings()" title="Settings">⚙</button>
       <button class="btn-icon" onclick="openHelp()" title="Help">?</button>
-      <button class="btn-icon" onclick="goSetup()" title="Back to setup" style="font-size:12px">setup</button>
+      <button class="btn-icon" id="btn-counter-go-setup" onclick="goSetup()" title="Back to setup" style="font-size:12px">setup</button>
     </div>
   </header>
 

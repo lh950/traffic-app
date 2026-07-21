@@ -1,6 +1,111 @@
 // Shareable study page — a self-contained HTML file the user can email or host.
 // Screen-optimised (not print-optimised), dark/light aware.
 
+// ── TMC peak-hour computation ─────────────────────────────────────────────────
+
+function computePeakHour(tmcParsed) {
+  const ivs = tmcParsed?.intervals;
+  if (!ivs?.length) return null;
+  const n = ivs.length;
+  const W = Math.min(4, n);
+  const totals = ivs.map(iv => {
+    let t = 0;
+    for (const leg in iv.counts) for (const dest in iv.counts[leg]) t += (iv.counts[leg][dest] || []).reduce((a,b)=>a+b,0);
+    return t;
+  });
+  let bestStart = 0, bestSum = -1;
+  for (let i = 0; i <= n - W; i++) {
+    const s = totals.slice(i, i + W).reduce((a,b)=>a+b,0);
+    if (s > bestSum) { bestSum = s; bestStart = i; }
+  }
+  const dirs = ['N','E','S','W'];
+  const ph = { NBL:0, NBT:0, NBR:0, SBL:0, SBT:0, SBR:0, EBL:0, EBT:0, EBR:0, WBL:0, WBT:0, WBR:0 };
+  const turnType = (from, to) => {
+    const fi = dirs.indexOf(from), ti = dirs.indexOf(to);
+    if (fi<0||ti<0) return null;
+    const d = ((ti-fi)+4)%4;
+    return d===1?'R':d===2?'T':d===3?'L':null;
+  };
+  for (let i = bestStart; i < bestStart + W; i++) {
+    const iv = ivs[i];
+    for (const from in iv.counts) {
+      for (const to in iv.counts[from]) {
+        const type = turnType(from, to);
+        if (!type) continue;
+        const prefix = from==='N'?'NB':from==='S'?'SB':from==='E'?'EB':'WB';
+        const key = `${prefix}${type}`;
+        if (key in ph) ph[key] += (iv.counts[from][to]||[]).reduce((a,b)=>a+b,0);
+      }
+    }
+  }
+  return Object.values(ph).some(v=>v>0) ? ph : null;
+}
+
+// ── TMD SVG for self-contained pages (uses CSS vars defined in PAGE_CSS) ──────
+
+function buildTmdSvgString(d) {
+  const W = 520, H = 520, cx = 260, cy = 260;
+  const BH = 52, ARM = 108, ARMW = 58, LO = 9;
+  const NY = cy-BH, SY = cy+BH, EX = cx+BH, WX = cx-BH;
+  const NT = NY-ARM, ST = SY+ARM, ET = EX+ARM, WT = WX-ARM;
+  const nEnt=[cx+LO,NY], nExt=[cx-LO,NY];
+  const sEnt=[cx-LO,SY], sExt=[cx+LO,SY];
+  const eEnt=[EX,cy-LO],  eExt=[EX,cy+LO];
+  const wEnt=[WX,cy+LO],  wExt=[WX,cy-LO];
+  const maxV = Math.max(1,...Object.values(d).map(v=>v||0));
+  function sw(v){ return Math.max(1.5,Math.min(11,1.5+((v||0)/maxV)*9.5)); }
+  function bez(ax,ay,bx,by,pull=0.48){
+    const c1x=+(ax+(cx-ax)*pull).toFixed(1), c1y=+(ay+(cy-ay)*pull).toFixed(1);
+    const c2x=+(bx+(cx-bx)*pull).toFixed(1), c2y=+(by+(cy-by)*pull).toFixed(1);
+    return {path:`M ${ax} ${ay} C ${c1x} ${c1y} ${c2x} ${c2y} ${bx} ${by}`,c1x,c1y,c2x,c2y};
+  }
+  function bezMid(ax,ay,c1x,c1y,c2x,c2y,bx,by){
+    return [0.125*ax+0.375*c1x+0.375*c2x+0.125*bx, 0.125*ay+0.375*c1y+0.375*c2y+0.125*by];
+  }
+  function mov(ax,ay,bx,by,col,vol){
+    if(!vol) return '';
+    const {path,c1x,c1y,c2x,c2y}=bez(ax,ay,bx,by);
+    const [mx,my]=bezMid(ax,ay,c1x,c1y,c2x,c2y,bx,by);
+    return `<path d="${path}" fill="none" stroke="${col}" stroke-width="${sw(vol).toFixed(1)}" stroke-linecap="round" marker-end="url(#tmd-sa)" opacity="0.82"/>
+<text x="${mx.toFixed(1)}" y="${my.toFixed(1)}" text-anchor="middle" dominant-baseline="middle" font-size="10" font-weight="700" fill="${col}" stroke="var(--bg2)" stroke-width="2.5" paint-order="stroke">${vol}</text>`;
+  }
+  const CL='var(--tmd-l)', CT='var(--tmd-t)', CR='var(--tmd-r)';
+  const roads=[
+    `<rect x="${cx-ARMW/2}" y="${NT}" width="${ARMW}" height="${NY-NT}" fill="var(--tmd-road)" stroke="var(--border)" stroke-width=".5"/>`,
+    `<rect x="${cx-ARMW/2}" y="${SY}" width="${ARMW}" height="${ST-SY}" fill="var(--tmd-road)" stroke="var(--border)" stroke-width=".5"/>`,
+    `<rect x="${EX}" y="${cy-ARMW/2}" width="${ET-EX}" height="${ARMW}" fill="var(--tmd-road)" stroke="var(--border)" stroke-width=".5"/>`,
+    `<rect x="${WT}" y="${cy-ARMW/2}" width="${WX-WT}" height="${ARMW}" fill="var(--tmd-road)" stroke="var(--border)" stroke-width=".5"/>`,
+  ].join('');
+  const box=`<rect x="${WX}" y="${NY}" width="${BH*2}" height="${BH*2}" fill="var(--bg2)" stroke="var(--border)" stroke-width="1.5"/>`;
+  const nbTotal=(d.NBL||0)+(d.NBT||0)+(d.NBR||0);
+  const sbTotal=(d.SBL||0)+(d.SBT||0)+(d.SBR||0);
+  const ebTotal=(d.EBL||0)+(d.EBT||0)+(d.EBR||0);
+  const wbTotal=(d.WBL||0)+(d.WBT||0)+(d.WBR||0);
+  const grandTotal=nbTotal+sbTotal+ebTotal+wbTotal;
+  const moves=[
+    mov(...nEnt,...eExt,CL,d.NBL||0),mov(...nEnt,...sExt,CT,d.NBT||0),mov(...nEnt,...wExt,CR,d.NBR||0),
+    mov(...sEnt,...wExt,CL,d.SBL||0),mov(...sEnt,...nExt,CT,d.SBT||0),mov(...sEnt,...eExt,CR,d.SBR||0),
+    mov(...eEnt,...sExt,CL,d.EBL||0),mov(...eEnt,...wExt,CT,d.EBT||0),mov(...eEnt,...nExt,CR,d.EBR||0),
+    mov(...wEnt,...nExt,CL,d.WBL||0),mov(...wEnt,...eExt,CT,d.WBT||0),mov(...wEnt,...sExt,CR,d.WBR||0),
+  ].join('');
+  const totals=[
+    `<text x="${cx}" y="${NT-14}" text-anchor="middle" font-size="12" font-weight="700" fill="var(--text2)">${nbTotal}</text>`,
+    `<text x="${cx}" y="${ST+20}" text-anchor="middle" font-size="12" font-weight="700" fill="var(--text2)">${sbTotal}</text>`,
+    `<text x="${ET+18}" y="${cy+4}" text-anchor="start" font-size="12" font-weight="700" fill="var(--text2)">${ebTotal}</text>`,
+    `<text x="${WT-18}" y="${cy+4}" text-anchor="end" font-size="12" font-weight="700" fill="var(--text2)">${wbTotal}</text>`,
+  ].join('');
+  const dirLabels=[
+    `<text x="${cx}" y="${NT-30}" text-anchor="middle" font-size="14" font-weight="800" fill="var(--text)" font-family="monospace">N</text>`,
+    `<text x="${cx}" y="${ST+37}" text-anchor="middle" font-size="14" font-weight="800" fill="var(--text)" font-family="monospace">S</text>`,
+    `<text x="${ET+36}" y="${cy+5}" text-anchor="start" font-size="14" font-weight="800" fill="var(--text)" font-family="monospace">E</text>`,
+    `<text x="${WT-36}" y="${cy+5}" text-anchor="end" font-size="14" font-weight="800" fill="var(--text)" font-family="monospace">W</text>`,
+  ].join('');
+  const centerLabel=grandTotal>0?`<text x="${cx}" y="${cy-8}" text-anchor="middle" font-size="17" font-weight="800" fill="var(--tmd-t)">${grandTotal}</text><text x="${cx}" y="${cy+9}" text-anchor="middle" font-size="9" fill="var(--text3)">peak hr total</text>`:'';
+  const defs=`<defs><marker id="tmd-sa" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="5" markerHeight="5" orient="auto"><path d="M0 0 L8 3 L0 6 Z" fill="context-stroke"/></marker></defs>`;
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:460px;display:block;margin:0 auto" xmlns="http://www.w3.org/2000/svg">
+  ${defs}${roads}${box}${moves}${totals}${dirLabels}${centerLabel}</svg>`;
+}
+
 // ── Data helpers ──────────────────────────────────────────────────────────────
 
 function classifyTurn(from, to) {
@@ -129,8 +234,8 @@ function buildPedHtml(pedParsed) {
 
 const PAGE_CSS = `
 *{box-sizing:border-box;margin:0;padding:0}
-:root{--bg:#f8f8f8;--bg2:#fff;--text:#111;--text2:#444;--text3:#888;--border:#ddd;--accent:#2563eb;--accent-bg:#eff6ff}
-@media(prefers-color-scheme:dark){:root{--bg:#14141a;--bg2:#1e1e28;--text:#e8e8ee;--text2:#aaa;--text3:#666;--border:#2e2e3a;--accent:#6a8fc8;--accent-bg:#1e2a38}}
+:root{--bg:#f8f8f8;--bg2:#fff;--text:#111;--text2:#444;--text3:#888;--border:#ddd;--accent:#2563eb;--accent-bg:#eff6ff;--tmd-l:#2563eb;--tmd-t:#7c3aed;--tmd-r:#059669;--tmd-road:#e8e8e8}
+@media(prefers-color-scheme:dark){:root{--bg:#14141a;--bg2:#1e1e28;--text:#e8e8ee;--text2:#aaa;--text3:#666;--border:#2e2e3a;--accent:#6a8fc8;--accent-bg:#1e2a38;--tmd-l:#6a8fc8;--tmd-t:#a78bfa;--tmd-r:#34d399;--tmd-road:#252530}}
 body{font-family:-apple-system,'Helvetica Neue',Arial,sans-serif;font-size:13px;color:var(--text);background:var(--bg);padding:0;min-height:100vh}
 a{color:var(--accent)}
 
@@ -162,6 +267,10 @@ a{color:var(--accent)}
 
 /* Chart */
 .chart-wrap{background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:12px}
+
+/* TMD legend */
+.tmd-legend{display:flex;gap:16px;justify-content:center;margin-top:10px;font-size:11px;color:var(--text2)}
+.tmd-sw{display:inline-block;width:24px;height:3px;border-radius:2px;margin-right:5px;vertical-align:middle}
 
 /* Footer */
 .page-footer{margin-top:40px;padding-top:14px;border-top:1px solid var(--border);font-size:11px;color:var(--text3);display:flex;justify-content:space-between;align-items:center}
@@ -195,6 +304,19 @@ export function exportShareablePage(projectInfo, intersection, vehParsed, pedPar
     projectInfo.companyName,
     projectInfo.companyAddress,
   ].filter(Boolean).join('<br>');
+
+  // Turning movement diagram
+  const phData = computePeakHour(tmcParsed);
+  const tmdSection = phData ? `
+  <div class="section">
+    <div class="section-title">Turning movement diagram — peak hour</div>
+    ${buildTmdSvgString(phData)}
+    <div class="tmd-legend">
+      <span><span class="tmd-sw" style="background:var(--tmd-l)"></span>Left</span>
+      <span><span class="tmd-sw" style="background:var(--tmd-t)"></span>Through</span>
+      <span><span class="tmd-sw" style="background:var(--tmd-r)"></span>Right</span>
+    </div>
+  </div>` : '';
 
   // Vehicle bar chart
   const slotTotals = vehSlotTotals(vehParsed);
@@ -255,6 +377,7 @@ export function exportShareablePage(projectInfo, intersection, vehParsed, pedPar
 
   ${metaHtml ? `<div class="meta-row">${metaHtml}</div>` : ''}
 
+  ${tmdSection}
   ${vehSection}
   ${motorSection}
   ${bikeSection}

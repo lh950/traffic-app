@@ -33,17 +33,22 @@ export function startCounting(){
   updateUndoUI();
   buildCounterUI();
   updateFocusUI();
-  document.getElementById('setup-screen').style.display='none';
-  // The screen router (main.js) sets every non-active screen's inline display:none at load —
-  // inline style outranks the .active{display:flex} CSS rule, so it must be cleared here too,
-  // not just have the class toggled, or the counter screen stays invisible after "start counting".
-  document.getElementById('counter-screen').style.display='';
-  document.getElementById('counter-screen').classList.add('active');
+  if (!document.body.classList.contains('workspace-mode')) {
+    // Non-workspace path: manipulate display directly.
+    // In workspace mode the window.startCounting wrapper in main.js calls openWorkspaceTab('count').
+    document.getElementById('setup-screen').style.display='none';
+    document.getElementById('counter-screen').style.display='';
+    document.getElementById('counter-screen').classList.add('active');
+  }
   setMode('vehicle');
 }
 
 export function goSetup(){
   if(undoStack.length>0&&!confirm('Return to setup? Count data will be preserved but structural changes will reset it.'))return;
+  if (document.body.classList.contains('workspace-mode')) {
+    window.openWorkspaceTab?.('setup');
+    return;
+  }
   document.getElementById('counter-screen').classList.remove('active');
   document.getElementById('setup-screen').style.display='';
 }

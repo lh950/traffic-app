@@ -59,7 +59,7 @@ const LABEL_W = 160;
 const AXIS_H  = 28;
 const PAD     = 8;
 
-export function renderCorridorChart(container, rows, periodName) {
+export function renderCorridorChart(container, rows, periodName, onRowClick) {
   if (!rows.length) {
     container.innerHTML = '<p class="corr-empty">No intersections in this corridor.</p>';
     return;
@@ -117,7 +117,8 @@ export function renderCorridorChart(container, rows, periodName) {
     const total = rowVols.reduce((a, b) => a + b, 0);
     const name = rows[ri].ix.name || `Intersection ${ri + 1}`;
     const truncName = name.length > 22 ? name.slice(0, 21) + '…' : name;
-    rowLabels += `<text class="corr-row-label" x="${LABEL_W - 8}" y="${iy + CELL_H / 2 + 4}">${truncName}</text>`;
+    const ixIdx = rows[ri].i ?? ri;
+    rowLabels += `<text class="corr-row-label${onRowClick ? ' corr-row-clickable' : ''}" data-ix-idx="${ixIdx}" x="${LABEL_W - 8}" y="${iy + CELL_H / 2 + 4}">${truncName}</text>`;
     rowLabels += `<text class="corr-row-total" x="${PAD}" y="${iy + CELL_H / 2 + 4}">${total > 0 ? total.toLocaleString() : '—'}</text>`;
     // Row separator
     if (ri > 0) {
@@ -149,4 +150,10 @@ export function renderCorridorChart(container, rows, periodName) {
     </svg>
   </div>
   <div class="corr-legend">${legendSvg}</div>`;
+
+  if (onRowClick) {
+    container.querySelectorAll('.corr-row-clickable').forEach(el => {
+      el.addEventListener('click', () => onRowClick(+el.dataset.ixIdx));
+    });
+  }
 }
