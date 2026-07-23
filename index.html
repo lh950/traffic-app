@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Traffic App v3.18.0</title>
+<title>Traffic App v3.19.0</title>
 <link rel="manifest" href="./manifest.json">
 <meta name="theme-color" content="#131b23">
 <script>
@@ -32,6 +32,64 @@
 <!-- = IN-APP BACK BUTTON = -->
 <button id="app-back-btn" style="display:none">← Back</button>
 
+<!-- = HELP SCREEN = -->
+<div id="help-screen" style="display:none;max-width:680px;margin:0 auto;padding:32px 24px 48px">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:28px">
+    <h1 style="font-size:20px;font-weight:600;margin:0">How to use Traffic App</h1>
+    <button onclick="goBack()" style="font-size:12px;color:var(--text3);background:none;border:.5px solid var(--border);border-radius:var(--r);padding:5px 12px;cursor:pointer">← Back</button>
+  </div>
+
+  <div class="help-section">
+    <h2 class="help-h2">Counting modes</h2>
+    <p class="help-p">Traffic App has two counting modes. Choose based on what data you're collecting:</p>
+    <div class="help-cards">
+      <div class="help-card">
+        <div class="help-card-title">Directional vehicle count</div>
+        <div class="help-card-body">Counts vehicles entering and leaving an area — each vehicle type has an IN key and an OUT key. Use this for approach volumes, cordon counts, or any study where direction matters. Set up under <strong>vehicle types</strong> in intersection setup.</div>
+      </div>
+      <div class="help-card">
+        <div class="help-card-title">Turning movement count (TMC)</div>
+        <div class="help-card-body">Records which direction each vehicle turns at an intersection — each type has one key, and you click the cell in the turning grid for the movement you observed. Use this for signal timing, capacity analysis, or any study requiring turn-by-turn volumes. Set up under <strong>turning movement</strong> in intersection setup.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="help-section">
+    <h2 class="help-h2">Setup tabs explained</h2>
+    <div class="help-table">
+      <div class="help-row"><span class="help-tab-name">project info</span><span>Name, date, location, and notes for the study.</span></div>
+      <div class="help-row"><span class="help-tab-name">study parameters</span><span>Start time, duration, and interval length (default 15 min).</span></div>
+      <div class="help-row"><span class="help-tab-name">vehicle types</span><span>Define types for directional in/out counting. Each type needs an IN key and OUT key. Up to 12 types across keybinding groups of 4.</span></div>
+      <div class="help-row"><span class="help-tab-name">turning movement</span><span>Define types for TMC mode. Each type uses a single key. Add a bicycle class with the "+ bicycle class" button — the label is locked to "Bicycle" to keep data consistent.</span></div>
+      <div class="help-row"><span class="help-tab-name">intersection</span><span>Choose the intersection template (T, 4-leg, 5-leg), then click each leg to configure its crosswalk, approach directions, and one-way status.</span></div>
+      <div class="help-row"><span class="help-tab-name">export</span><span>Set filenames for CSV exports before counting. You can also export from here after counting.</span></div>
+    </div>
+  </div>
+
+  <div class="help-section">
+    <h2 class="help-h2">Keybindings during counting</h2>
+    <div class="help-table">
+      <div class="help-row"><span class="help-tab-name">A S D F</span><span>IN counts for vehicle types 1–4 (or the active group).</span></div>
+      <div class="help-row"><span class="help-tab-name">J K L ;</span><span>OUT counts for vehicle types 1–4 (or the active group).</span></div>
+      <div class="help-row"><span class="help-tab-name">‹ › buttons</span><span>Switch the active keybinding group when you have more than 4 vehicle types.</span></div>
+      <div class="help-row"><span class="help-tab-name">Z</span><span>Undo the last count entry.</span></div>
+      <div class="help-row"><span class="help-tab-name">Arrow keys</span><span>Navigate between cells in the TMC grid.</span></div>
+    </div>
+  </div>
+
+  <div class="help-section">
+    <h2 class="help-h2">Importing count data</h2>
+    <p class="help-p">Use <strong>Import XLSX</strong> on the home screen or inside an area study to load standard TMC or pedestrian count spreadsheets. The app auto-detects the format — if the file contains "Turning movement" in the header rows it's parsed as a TMC; otherwise it tries the pedestrian count format.</p>
+    <p class="help-p">After import the app opens the intersection directly so you can review data, run analysis, and export.</p>
+  </div>
+
+  <div class="help-section">
+    <h2 class="help-h2">Saving and syncing</h2>
+    <p class="help-p">Projects auto-save to this browser. To move data to another device, use <strong>Cross-device sync</strong> on the home screen — export all projects to a <code>.tcsync</code> file, then import it on the other device. Projects are merged by ID; existing ones are not overwritten.</p>
+    <p class="help-p">To share or back up a single project, use <strong>Export → Project package (.zip)</strong> from the workspace export tab.</p>
+  </div>
+</div>
+
 <!-- = PERSISTENT SIDEBAR = -->
 <aside class="app-sidebar" id="app-sidebar">
   <div class="sidebar-header">
@@ -48,7 +106,8 @@
   <div class="home-inner">
     <div class="home-wordmark">
       <h1>Traffic App</h1>
-      <div class="home-version">v3.18.0</div>
+      <div class="home-version">v3.19.0</div>
+      <button id="home-btn-help" title="Help / instructions" style="margin-left:auto;font-size:13px;font-weight:600;color:var(--text3);background:none;border:.5px solid var(--border);border-radius:50%;width:26px;height:26px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">?</button>
     </div>
     <div id="home-resume-banner" style="display:none" class="home-resume-banner"></div>
     <div class="home-section-label" style="margin-bottom:10px">Start a new study</div>
@@ -105,7 +164,7 @@
     <!-- wordmark -->
     <div style="margin-bottom:2rem">
       <h1 style="font-size:22px;font-weight:500;letter-spacing:-.01em">Traffic App</h1>
-      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v3.18.0</span>
+      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v3.19.0</span>
     </div>
 
     <!-- autosave / resume banner -->
@@ -584,6 +643,7 @@
   <div class="setup-panel" id="sp-vehicle">
     <div class="setup-card">
       <h2>vehicle types</h2>
+      <div class="stat-detail" style="margin-bottom:14px">Used for <strong>directional vehicle counting</strong> (in/out mode). Each type needs an IN key and an OUT key. Keys are grouped in sets of 4 — types 1–4 share one group, types 5–8 share a second group with the same keys. During counting, use the ‹ › arrows to switch the active group.</div>
       <div class="count-ctrl">
         <label>number of types</label>
         <select id="v-count" onchange="updateVCount(+this.value)">
@@ -736,7 +796,7 @@
 
   <header class="counter-header">
     <button id="btn-back-to-project" style="font-size:12px;padding:4px 10px;margin-right:8px">← Project</button>
-    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v3.18.0</span></h1>
+    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v3.19.0</span></h1>
     <div class="hcontrols">
       <div class="mode-toggle" style="display:none">
         <button class="mode-btn active" id="btn-count-mode" onclick="goToCountMode()">count</button>

@@ -258,7 +258,7 @@ initApproaches();
 // ═══════════════════════════════════════════
 // SCREEN ROUTER
 // ═══════════════════════════════════════════
-const SCREENS = ['home-screen', 'area-setup-screen', 'area-import-screen', 'summary-screen', 'export-screen', 'ix-analysis-screen', 'setup-screen', 'counter-screen', 'tripgen-setup-screen', 'tripgen-counter-screen', 'tripgen-qaqc-screen', 'tripgen-distribution-screen', 'analyze-screen'];
+const SCREENS = ['home-screen', 'help-screen', 'area-setup-screen', 'area-import-screen', 'summary-screen', 'export-screen', 'ix-analysis-screen', 'setup-screen', 'counter-screen', 'tripgen-setup-screen', 'tripgen-counter-screen', 'tripgen-qaqc-screen', 'tripgen-distribution-screen', 'analyze-screen'];
 let projectType = null; // 'intersection' | 'area' | 'tripgen' | null
 
 // ── In-app navigation history ──
@@ -320,6 +320,10 @@ function showHome() {
   renderHomeRecents();
 }
 
+function showHelp() {
+  showScreen('help-screen');
+}
+
 function setSidebarMeta(name, sub) {
   const nameEl = document.getElementById('sidebar-project-name');
   const subEl = document.getElementById('sidebar-project-sub');
@@ -342,6 +346,10 @@ function renderSidebarIntersection() {
     <div class="sidebar-section">
       <div class="sidebar-section-label">Study</div>
       <button class="sidebar-item" data-ws="export">Export</button>
+    </div>
+    <div class="sidebar-divider"></div>
+    <div class="sidebar-section">
+      <button class="sidebar-item" data-ws="help">Help</button>
     </div>`;
   body.querySelectorAll('.sidebar-item[data-ws]').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.ws === _sidebarActiveItem);
@@ -372,6 +380,10 @@ function renderSidebarArea() {
       <div class="sidebar-section-label">Intersections</div>
       ${ixItems}
       <button class="sidebar-add-btn" id="sidebar-add-ix">+ Add intersection</button>
+    </div>
+    <div class="sidebar-divider"></div>
+    <div class="sidebar-section">
+      <button class="sidebar-item" data-ws="help">Help</button>
     </div>`;
   body.querySelectorAll('.sidebar-item[data-ws]').forEach(btn => {
     const key = btn.dataset.ws === 'area-ix' ? `area-ix-${btn.dataset.idx}` : btn.dataset.ws;
@@ -435,6 +447,7 @@ function openWorkspaceTab(tab, idx) {
       break;
     }
     case 'export': showExportScreen(); break;
+    case 'help': showHelp(); break;
     case 'area-hub': showAreaSetup(); break;
     case 'area-summary':
       if (typeof showSummaryScreen === 'function') showSummaryScreen();
@@ -623,6 +636,7 @@ function downloadBugReport() {
 }
 
 document.getElementById('home-btn-bug-report')?.addEventListener('click', downloadBugReport);
+document.getElementById('home-btn-help')?.addEventListener('click', showHelp);
 document.getElementById('app-back-btn')?.addEventListener('click', goBack);
 // ────────────────────────────────────────────────────────────────────────────
 

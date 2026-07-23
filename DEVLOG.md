@@ -4,6 +4,16 @@ Key decisions, scope constraints, and architectural choices.
 
 ---
 
+## 2026-07-23 — v3.19.0
+
+**Help screen placement:** Added as a dedicated screen in the SCREENS array rather than a modal/overlay, so the back button handles dismissal naturally and it participates in the nav history stack like any other screen. Accessible from the home "?" button and sidebar Help items in every workspace type.
+
+**Keybinding groups UX:** The counter already handled >4 vehicle types correctly (via ‹ › group switching), but the setup UI gave no indication that adding a 5th type would reuse keys from a second group. Added a notice banner and Group 1/2 separators in `renderVPairsList()` triggered by `vPairs.length > 4`. The separators are cosmetic — the actual grouping logic (`gi = index % 4`) lives in `counter.js` and is unchanged.
+
+**Bicycle label lock:** Enforced at render time in `renderTmcPairsList()` — when `p.isBike`, the label is set to "Bicycle" (overwriting whatever was there) and the input gets `readonly` + `.bike-label-locked` styling. The checkbox `onchange` also calls `renderTmcPairsList()` to immediately apply the lock when the box is checked. This prevents TMC bicycle data being filed under arbitrary labels, which would break any downstream per-class export logic.
+
+---
+
 ## 2026-07-23 — v3.18.0
 
 **In-app back navigation:** Implemented a `_navHistory` stack in `main.js` rather than wiring the browser History API (`pushState`/`popstate`). Reason: pushState in a single-page app without a router creates a confusing loop where the browser back button can undermine workspace state. The in-app button is predictable, visible, and doesn't interfere with the browser's own back/forward for page-level navigation. History is capped at 30 and clears on home.

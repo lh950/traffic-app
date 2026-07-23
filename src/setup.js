@@ -89,7 +89,18 @@ export async function copyTmcPairsFromProject(file){
 
 export function renderVPairsList(){
   const wrap=document.getElementById('v-pairs-list'); wrap.innerHTML='';
+  const multiGroup = vPairs.length > 4;
+  if(multiGroup){
+    const notice=document.createElement('div'); notice.className='group-notice';
+    notice.innerHTML=`<strong>Keybinding groups</strong> — types 1–4 use one set of keys; types 5–8 reuse the same keys as a second group (and so on). During counting, use the ‹ › arrows to switch the active group. Each group's keys must be unique within that group only.`;
+    wrap.appendChild(notice);
+  }
   vPairs.forEach((p,i)=>{
+    if(multiGroup && i%4===0){
+      const sep=document.createElement('div'); sep.className='group-sep';
+      sep.textContent=`Group ${Math.floor(i/4)+1}`;
+      wrap.appendChild(sep);
+    }
     const row=document.createElement('div'); row.className='pair-row'; row.dataset.idx=i;
     row.innerHTML=`
       <span class="pair-num">${i+1}</span>
@@ -210,15 +221,18 @@ export function renderTmcPairsList(){
     sel.value=String(tmcPairs.length);
   }
   tmcPairs.forEach((p,i)=>{
+    const locked=!!p.isBike;
+    if(locked) p.label='Bicycle';
     const row=document.createElement('div'); row.className='pair-row'; row.dataset.idx=i;
     row.innerHTML=`
       <span class="pair-num">${i+1}</span>
-      <input type="text" value="${p.label}" placeholder="label" oninput="tmcPairs[${i}].label=this.value;updateCfgFields()">
+      <input type="text" value="${p.label}" placeholder="label"
+        ${locked?'readonly class="bike-label-locked"':`oninput="tmcPairs[${i}].label=this.value;updateCfgFields()"`}>
       <input type="text" value="${p.def}" placeholder="definition" style="font-size:11px" oninput="tmcPairs[${i}].def=this.value">
       <input type="text" class="key-input" maxlength="1" value="${p.key===';'?';':p.key.toUpperCase()}" placeholder="key"
         oninput="tmcPairs[${i}].key=this.value.toLowerCase();checkTmcKeys()">
-      <input type="checkbox" title="mark as bicycle type" class="bike-check" ${p.isBike?'checked':''}
-        onchange="tmcPairs[${i}].isBike=this.checked">`;
+      <input type="checkbox" title="mark as bicycle type" class="bike-check" ${locked?'checked':''}
+        onchange="tmcPairs[${i}].isBike=this.checked;if(this.checked){tmcPairs[${i}].label='Bicycle';}renderTmcPairsList()">`;
     wrap.appendChild(row);
   });
   checkTmcKeys();

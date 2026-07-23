@@ -1,5 +1,15 @@
 # Changelog
 
+## v3.19.0 — 2026-07-23
+
+### Added
+- **Help / instructions page** — accessible via the "?" button on the home screen and a "Help" item in every workspace sidebar. Covers counting modes, setup tab explanations, keyboard reference, XLSX import, and sync.
+- **Keybinding group indicators** — when more than 4 vehicle types are configured, `renderVPairsList()` inserts a notice explaining the grouping and shows "Group 1 / Group 2" separators between rows in the vehicle types list.
+- **Vehicle types tab description** — setup panel now shows a subtitle explaining this tab is for directional in/out counting and how key groups work.
+- **Bicycle label lock** — checking "mark as bicycle type" in the TMC types list now forces the label to "Bicycle" and makes the input read-only to prevent data inconsistency.
+
+---
+
 ## v3.18.0 — 2026-07-23
 
 ### Added
