@@ -33,8 +33,8 @@ import { wireContextMenu } from './record.js';
 import {
   toggleFocusMode, cycleFocus, setFocusTarget, undo, redo, wireKeydown,
 } from './focus.js';
-import { exportCSV, confirmReset } from './export.js';
-import { exportXLSX, exportTripgenXLSX } from './exportXlsx.js';
+import { exportCSV, getCSVText, confirmReset } from './export.js';
+import { exportXLSX, getXLSXBlob, exportTripgenXLSX } from './exportXlsx.js';
 import {
   openHelp, closeHelp, switchHelpTab, openSettings, closeSettings,
   applyMidSettings, checkMsKeys, wireHelpKeydown,
@@ -53,7 +53,8 @@ import { runTmcQA, runVehicleQA, renderQASection } from './qa.js';
 import { renderWarrantSection } from './warrant.js';
 import { parseProjectSnapshot, parseCurrentSnapshot, renderComparisonSection, pickComparisonFile } from './compare.js';
 import { renderCorridorChart } from './corridorChart.js';
-import { exportShareablePage } from './shareReport.js';
+import { exportShareablePage, buildShareableHTML } from './shareReport.js';
+import JSZip from 'jszip';
 import { printSummaryReport, printIntersectionReport } from './printPedReport.js';
 import { buildVolumeProfileSVG, buildCrosswalkBarSVG, buildChartLegend, dirSplitBar, CW_COLORS } from './chartUtils.js';
 import { renderTripGenSection, DEFAULT_PEAK_WINDOWS, computePeakVolumes } from './analysis/ui/tripgenSection.js';
@@ -2520,6 +2521,49 @@ const exportState = {
   },
 };
 
+async function exportProjectPackage() {
+  const btn = document.getElementById('btn-ix-export-package');
+  if (btn) { btn.disabled = true; btn.textContent = 'Building…'; }
+  try {
+    const zip = new JSZip();
+    const safeBase = (projectInfo.projectName || 'project').replace(/[^a-z0-9]/gi, '-').toLowerCase();
+
+    // Project JSON
+    zip.file(`${safeBase}.tcproject.json`, JSON.stringify(serializeCurrentProject(), null, 2));
+
+    // CSV
+    const csvFiles = getCSVText();
+    for (const { text, filename } of csvFiles) zip.file(filename, text);
+
+    // XLSX
+    const xlsx = getXLSXBlob();
+    if (xlsx) {
+      const buf = await xlsx.blob.arrayBuffer();
+      zip.file(xlsx.filename, buf);
+    }
+
+    // Shareable HTML — build from active period data
+    const pData = captureActivePeriod();
+    const { vehParsed, pedParsed, tmcParsed } = parsedFromPeriod(pData);
+    const bikeIdx = tmcPairs.map((p, i) => p.isBike ? i : -1).filter(i => i >= 0);
+    const motorIdx = tmcPairs.map((p, i) => !p.isBike ? i : -1).filter(i => i >= 0);
+    const hasBikes = intersection.approaches.some(a => a.destinations.length) && bikeIdx.length > 0;
+    const { html, filename: htmlFilename } = buildShareableHTML(
+      { ...projectInfo, date: periodMeta.date || projectInfo.date, weather: periodMeta.weather || projectInfo.weather, counterName: periodMeta.observer || projectInfo.counterName, studyPurpose: periodMeta.notes || projectInfo.studyPurpose, equipment: periodMeta.equipment },
+      intersection, vehParsed, pedParsed, tmcParsed, motorIdx, bikeIdx, hasBikes, pData.cfg?.intervalMin || 15
+    );
+    zip.file(htmlFilename, html);
+
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `${safeBase}-package.zip`; a.click();
+    URL.revokeObjectURL(url);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '⬇ Export project package (.zip)'; }
+  }
+}
+
 function showExportScreen() {
   const sub = document.getElementById('export-subtitle');
   if (sub) sub.textContent = projectInfo.projectName || '';
@@ -2530,6 +2574,38 @@ function showExportScreen() {
 function renderExportBuilder() {
   const container = document.getElementById('export-builder-content');
   if (!container) return;
+
+  if (projectType === 'intersection') {
+    container.innerHTML = `
+      <div class="setup-card" style="max-width:540px">
+        <h3 style="margin:0 0 1.2rem;font-size:15px;font-weight:600">Download files</h3>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <button class="btn-primary" id="btn-ix-export-csv" style="text-align:left">.csv ↓ &nbsp; Count data (active period)</button>
+          <button class="btn-primary" id="btn-ix-export-xlsx" style="text-align:left">.xlsx ↓ &nbsp; Count data (active period)</button>
+          <button class="btn-primary" id="btn-ix-export-page" style="text-align:left">↓ HTML &nbsp; Shareable report page</button>
+          <div style="border-top:1px solid var(--border);margin:4px 0"></div>
+          <button class="btn-primary" id="btn-ix-export-package" style="text-align:left">⬇ Export project package (.zip)</button>
+          <p style="margin:0;font-size:12px;color:var(--text3)">ZIP contains the CSV, Excel workbook, shareable HTML page, and a project JSON for re-import.</p>
+        </div>
+      </div>`;
+    document.getElementById('btn-ix-export-csv')?.addEventListener('click', () => exportCSV());
+    document.getElementById('btn-ix-export-xlsx')?.addEventListener('click', () => exportXLSX());
+    document.getElementById('btn-ix-export-page')?.addEventListener('click', () => {
+      exportShareablePage(
+        { ...projectInfo, date: periodMeta.date || projectInfo.date, weather: periodMeta.weather || projectInfo.weather, counterName: periodMeta.observer || projectInfo.counterName, studyPurpose: periodMeta.notes || projectInfo.studyPurpose, equipment: periodMeta.equipment },
+        intersection, ...(() => {
+          const pData = captureActivePeriod();
+          const { vehParsed, pedParsed, tmcParsed } = parsedFromPeriod(pData);
+          const bikeIdx = tmcPairs.map((p, i) => p.isBike ? i : -1).filter(i => i >= 0);
+          const motorIdx = tmcPairs.map((p, i) => !p.isBike ? i : -1).filter(i => i >= 0);
+          const hasBikes = intersection.approaches.some(a => a.destinations.length) && bikeIdx.length > 0;
+          return [vehParsed, pedParsed, tmcParsed, motorIdx, bikeIdx, hasBikes, pData.cfg?.intervalMin || 15];
+        })()
+      );
+    });
+    document.getElementById('btn-ix-export-package')?.addEventListener('click', exportProjectPackage);
+    return;
+  }
 
   // Collect metadata about the data
   const allPeriodNames = [];
@@ -3825,9 +3901,13 @@ function loadProject(proj) {
         },
       });
     });
-    const idx = Math.min(proj.activePeriodIdx ?? 0, periods.length - 1);
-    setActivePeriodIdx(idx);
-    restoreActivePeriod(periods[idx].data);
+    const idx = periods.length > 0 ? Math.min(proj.activePeriodIdx ?? 0, periods.length - 1) : -1;
+    if (idx >= 0) {
+      setActivePeriodIdx(idx);
+      restoreActivePeriod(periods[idx].data);
+    } else {
+      setActivePeriodIdx(0);
+    }
     // Restore planned periods (informational after counting has started)
     plannedPeriods.length = 0;
     if (Array.isArray(proj.plannedPeriods)) plannedPeriods.push(...proj.plannedPeriods);

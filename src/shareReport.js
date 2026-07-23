@@ -327,7 +327,7 @@ a{color:var(--accent)}
 
 // ── Main export ───────────────────────────────────────────────────────────────
 
-export function exportShareablePage(projectInfo, intersection, vehParsed, pedParsed, tmcParsed, motorIdx, bikeIdx, hasBikes, intervalMin = 15) {
+export function buildShareableHTML(projectInfo, intersection, vehParsed, pedParsed, tmcParsed, motorIdx, bikeIdx, hasBikes, intervalMin = 15) {
   const legLabels = intersection.legLabels || {};
 
   // Meta
@@ -463,11 +463,16 @@ export function exportShareablePage(projectInfo, intersection, vehParsed, pedPar
 </body>
 </html>`;
 
+  return { html, filename: (title.replace(/[^a-z0-9]/gi, '-').toLowerCase() || 'traffic-report') + '.html' };
+}
+
+export function exportShareablePage(...args) {
+  const { html, filename } = buildShareableHTML(...args);
   const blob = new Blob([html], { type: 'text/html' });
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href     = url;
-  a.download = (title.replace(/[^a-z0-9]/gi, '-').toLowerCase() || 'traffic-report') + '.html';
+  a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
 }

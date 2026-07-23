@@ -94,6 +94,31 @@ export function exportXLSX() {
   XLSX.writeFile(wb, base.replace(/\.(csv|xlsx)$/i, '') + '.xlsx');
 }
 
+export function getXLSXBlob() {
+  const XLSX = window.XLSX;
+  if (!XLSX) return null;
+  const wb = XLSX.utils.book_new();
+  const hasVehicle = hasData(vData.in) || hasData(vData.out);
+  const hasPed     = hasData(pedData);
+  const hasTMC     = intersection.approaches.some(a => a.destinations.some(d => hasData(tmcData[a.leg]?.[d])));
+  const bikeIdx  = tmcPairs.map((p, i) => p.isBike ? i : -1).filter(i => i >= 0);
+  const motorIdx = tmcPairs.map((p, i) => !p.isBike ? i : -1).filter(i => i >= 0);
+  const hasBikePairs = bikeIdx.length > 0;
+  if (!hasVehicle && !hasPed && !hasTMC) {
+    if (mode === 'vehicle') buildVehicleSheet(wb);
+    else if (mode === 'ped') buildPedSheet(wb);
+    else { if (hasBikePairs && motorIdx.length > 0) { buildTMCSheet(wb, motorIdx, 'TMC'); buildTMCSheet(wb, bikeIdx, 'TMC-Bikes'); } else buildTMCSheet(wb); }
+  } else {
+    if (hasVehicle) buildVehicleSheet(wb);
+    if (hasPed)     buildPedSheet(wb);
+    if (hasTMC)     { if (hasBikePairs && motorIdx.length > 0) { buildTMCSheet(wb, motorIdx, 'TMC'); buildTMCSheet(wb, bikeIdx, 'TMC-Bikes'); } else buildTMCSheet(wb); }
+  }
+  const base = fnames.vehicle || fnames.tmc || fnames.ped || 'traffic_counts';
+  const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+  return { blob: new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+           filename: base.replace(/\.(csv|xlsx)$/i, '') + '.xlsx' };
+}
+
 // ─── TMC sheet ──────────────────────────────────────────────────────────────
 // Layout matches 24-Hour Count Template TMC sheet:
 //   Rows 1-3: metadata (Start Date, Start Time, Location)

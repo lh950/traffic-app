@@ -1,6 +1,6 @@
 {
   "name": "traffic-app-v3",
-  "version": "3.14.0",
+  "version": "3.15.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -14,6 +14,7 @@
     "vite": "^8.1.0"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.110.0"
+    "@anthropic-ai/sdk": "^0.110.0",
+    "jszip": "^3.10.1"
   }
 }

@@ -131,6 +131,94 @@ export function exportCSV(){
   a.download=getCSVFilename(mode); a.click();
 }
 
+export function getCSVText(){
+  const prefix='﻿'+csvMeta();
+  if(mode==='vehicle'){
+    const hdr=['time',...vPairs.map(p=>p.label),'total'].join(',');
+    const rows=dir=>vData[dir].map((counts,i)=>[slotLabel(i),...counts,counts.reduce((a,b)=>a+b,0)].join(','));
+    const tots=dir=>{const t=vPairs.map((_,pi)=>vData[dir].reduce((s,r)=>s+r[pi],0));return['total',...t,t.reduce((a,b)=>a+b,0)].join(',');};
+    const csv=['INBOUND',hdr,...rows('in'),tots('in'),'','OUTBOUND',hdr,...rows('out'),tots('out')].join('\n');
+    return [{text:prefix+csv,filename:getCSVFilename(mode)}];
+  } else if(mode==='ped'){
+    const xwalkHdrs=window.pedPairs.flatMap((p)=>[`${p.name} ${p.dir0}`,`${p.name} ${p.dir1}`]);
+    const hdr=['time',...xwalkHdrs,'total'].join(',');
+    const rows=pedData[0].map((_,ri)=>{
+      const vals=window.pedPairs.flatMap((p,xi)=>pedData[xi][ri]);
+      return[slotLabel(ri),...vals,vals.reduce((a,b)=>a+b,0)].join(',');
+    });
+    const tots=window.pedPairs.flatMap((p,xi)=>[0,1].map(d=>pedData[xi].reduce((s,r)=>s+r[d],0)));
+    const csv=[hdr,...rows,['total',...tots,tots.reduce((a,b)=>a+b,0)].join(',')].join('\n');
+    return [{text:prefix+csv,filename:getCSVFilename(mode)}];
+  } else {
+    const apps=intersection.approaches;
+    let nT=tmcPairs.length;
+    for(const app of apps){
+      for(const dest of app.destinations){
+        const slot0=tmcData[app.leg]?.[dest]?.[0];
+        if(Array.isArray(slot0)){nT=slot0.length;break;}
+      }
+      if(nT!==tmcPairs.length)break;
+    }
+    const bikeOrigIdx=tmcPairs.map((p,i)=>p.isBike?i:-1).filter(i=>i>=0&&i<nT);
+    const motorOrigIdx=tmcPairs.map((p,i)=>!p.isBike?i:-1).filter(i=>i>=0&&i<nT);
+    const hasBikePairs=bikeOrigIdx.length>0&&motorOrigIdx.length>0;
+    function buildTmcCsvG(origIndices){
+      const labels=origIndices.map(i=>tmcPairs[i]?.label||`type ${i+1}`);
+      const hdrCols=['time'];
+      apps.forEach(app=>{
+        const aLbl=legLabel(app.leg);
+        app.destinations.forEach(dest=>{
+          const cls=classifyTurn(app.leg,dest);
+          const dLbl=legLabel(dest);
+          const mvmt=`${aLbl} → ${TURN_CLS_LABEL[cls]} (${dLbl})`;
+          labels.forEach(lbl=>{hdrCols.push(`${mvmt} ${lbl}`);});
+          hdrCols.push(`${mvmt} total`);
+        });
+        hdrCols.push(`${aLbl} approach total`);
+      });
+      hdrCols.push('grand total');
+      const rows=Array.from({length:cfg.slots},(_,ri)=>{
+        const row=[slotLabel(ri)];
+        let grandTot=0;
+        apps.forEach(app=>{
+          let appTot=0;
+          app.destinations.forEach(dest=>{
+            const allCounts=(tmcData[app.leg]&&tmcData[app.leg][dest]&&tmcData[app.leg][dest][ri])||Array(nT).fill(0);
+            const counts=origIndices.map(i=>allCounts[i]||0);
+            const sub=counts.reduce((a,b)=>a+b,0);
+            counts.forEach(v=>row.push(v));
+            row.push(sub); appTot+=sub;
+          });
+          row.push(appTot); grandTot+=appTot;
+        });
+        row.push(grandTot);
+        return row.join(',');
+      });
+      const totRow=['total'];
+      let gTot=0;
+      apps.forEach(app=>{
+        let appTot=0;
+        app.destinations.forEach(dest=>{
+          const typeTots=origIndices.map(ti=>Array.from({length:cfg.slots},(_,ri)=>(tmcData[app.leg]&&tmcData[app.leg][dest]&&tmcData[app.leg][dest][ri]&&tmcData[app.leg][dest][ri][ti])||0).reduce((a,b)=>a+b,0));
+          const sub=typeTots.reduce((a,b)=>a+b,0);
+          typeTots.forEach(v=>totRow.push(v));
+          totRow.push(sub); appTot+=sub;
+        });
+        totRow.push(appTot); gTot+=appTot;
+      });
+      totRow.push(gTot);
+      return [hdrCols.join(','),...rows,totRow.join(',')].join('\n');
+    }
+    if(hasBikePairs){
+      return [
+        {text:prefix+buildTmcCsvG(motorOrigIdx),filename:getCSVFilename(mode)},
+        {text:prefix+buildTmcCsvG(bikeOrigIdx),filename:getCSVFilename(mode).replace(/\.csv$/i,'')+'_bike.csv'},
+      ];
+    }
+    return [{text:prefix+buildTmcCsvG(Array.from({length:nT},(_,i)=>i)),filename:getCSVFilename(mode)}];
+  }
+}
+
 export function confirmReset(){
   if(!confirm(`Reset all counts for ${mode} mode? This cannot be undone.`))return;
   filterUndoStack(a=>a.mode!==mode);

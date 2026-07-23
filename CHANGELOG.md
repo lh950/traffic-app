@@ -1,5 +1,15 @@
 # Changelog
 
+## v3.15.0 — 2026-07-23
+
+### Added
+- **Project export package** — Study → Export sidebar item on intersection projects now shows a dedicated export panel with four buttons: CSV, XLSX, shareable HTML page, and "Export project package (.zip)". The ZIP contains all three export files plus a `.tcproject.json` for re-import. Built using JSZip; no server needed. The shareable HTML in the package is built from the active period's data at export time.
+
+### Fixed
+- **Resume crash on empty-periods autosave** — `loadProject` now handles the case where `proj.periods` is an empty array (which occurs when a project is autosaved during setup before the first count starts). Previously crashed with `Cannot read properties of undefined (reading 'data')`; now falls back gracefully and opens the counter screen.
+
+---
+
 ## v3.14.0 — 2026-07-23
 
 ### Added
