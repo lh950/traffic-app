@@ -804,6 +804,8 @@ tfoot td:first-child{text-align:left;color:var(--text2)}
   width:100%;text-align:left;transition:background .1s,color .1s}
 .sidebar-item:hover{background:rgba(255,255,255,.07);color:var(--sidebar-text)}
 .sidebar-item.active{background:var(--sidebar-active-bg);color:var(--sidebar-active-text);font-weight:500}
+.sidebar-item.sidebar-item-muted{font-size:12px;opacity:.6}
+.sidebar-item.sidebar-item-muted:hover{opacity:1}
 .sidebar-item.sidebar-item-ix{padding-left:12px;font-size:12px}
 .sidebar-item.sidebar-item-ix .sidebar-ix-dot{width:6px;height:6px;border-radius:50%;
   background:rgba(255,255,255,.15);flex-shrink:0;margin-left:4px}

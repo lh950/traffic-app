@@ -435,6 +435,13 @@ function exportParkingCSV() {
   a.click(); URL.revokeObjectURL(a.href);
 }
 
+const SIDEBAR_FOOTER = `
+    <div class="sidebar-divider"></div>
+    <div class="sidebar-section">
+      <button class="sidebar-item" data-ws="help">Help</button>
+      <button class="sidebar-item sidebar-item-muted" data-action="bug-report">Report a bug</button>
+    </div>`;
+
 function renderSidebarParking() {
   const body = document.getElementById('sidebar-body');
   if (!body) return;
@@ -445,14 +452,12 @@ function renderSidebarParking() {
       <button class="sidebar-item" data-ws="pk-count">Count</button>
       <button class="sidebar-item" data-ws="pk-export">Export CSV</button>
     </div>
-    <div class="sidebar-divider"></div>
-    <div class="sidebar-section">
-      <button class="sidebar-item" data-ws="help">Help</button>
-    </div>`;
+    ${SIDEBAR_FOOTER}`;
   body.querySelectorAll('.sidebar-item[data-ws]').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.ws === _sidebarActiveItem);
     btn.addEventListener('click', () => openWorkspaceTab(btn.dataset.ws));
   });
+  body.querySelector('[data-action="bug-report"]')?.addEventListener('click', downloadBugReport);
 }
 
 // ── In-app navigation history ──
@@ -549,14 +554,12 @@ function renderSidebarIntersection() {
       <div class="sidebar-section-label">Study</div>
       <button class="sidebar-item" data-ws="export">Export</button>
     </div>
-    <div class="sidebar-divider"></div>
-    <div class="sidebar-section">
-      <button class="sidebar-item" data-ws="help">Help</button>
-    </div>`;
+    ${SIDEBAR_FOOTER}`;
   body.querySelectorAll('.sidebar-item[data-ws]').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.ws === _sidebarActiveItem);
     btn.addEventListener('click', () => openWorkspaceTab(btn.dataset.ws));
   });
+  body.querySelector('[data-action="bug-report"]')?.addEventListener('click', downloadBugReport);
 }
 
 function renderSidebarArea() {
@@ -583,10 +586,7 @@ function renderSidebarArea() {
       ${ixItems}
       <button class="sidebar-add-btn" id="sidebar-add-ix">+ Add intersection</button>
     </div>
-    <div class="sidebar-divider"></div>
-    <div class="sidebar-section">
-      <button class="sidebar-item" data-ws="help">Help</button>
-    </div>`;
+    ${SIDEBAR_FOOTER}`;
   body.querySelectorAll('.sidebar-item[data-ws]').forEach(btn => {
     const key = btn.dataset.ws === 'area-ix' ? `area-ix-${btn.dataset.idx}` : btn.dataset.ws;
     btn.classList.toggle('active', key === _sidebarActiveItem);
@@ -600,6 +600,7 @@ function renderSidebarArea() {
     renderSidebarArea();
     showScreen('area-setup-screen');
   });
+  body.querySelector('[data-action="bug-report"]')?.addEventListener('click', downloadBugReport);
 }
 
 function renderSidebarTripgen() {
@@ -612,11 +613,13 @@ function renderSidebarTripgen() {
       <button class="sidebar-item" data-ws="tg-analyze">Analysis</button>
       <button class="sidebar-item" data-ws="tg-qaqc">QA/QC</button>
       <button class="sidebar-item" data-ws="tg-distribution">Distribution</button>
-    </div>`;
+    </div>
+    ${SIDEBAR_FOOTER}`;
   body.querySelectorAll('.sidebar-item[data-ws]').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.ws === _sidebarActiveItem);
     btn.addEventListener('click', () => openWorkspaceTab(btn.dataset.ws));
   });
+  body.querySelector('[data-action="bug-report"]')?.addEventListener('click', downloadBugReport);
 }
 
 function renderAppSidebar() {
