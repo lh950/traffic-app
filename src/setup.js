@@ -104,7 +104,7 @@ export function renderVPairsList(){
     const row=document.createElement('div'); row.className='pair-row'; row.dataset.idx=i;
     row.innerHTML=`
       <span class="pair-num">${i+1}</span>
-      <input type="text" value="${p.label}" placeholder="label" oninput="vPairs[${i}].label=this.value;updateCfgFields()">
+      <input type="text" value="${p.label}" placeholder="label" oninput="vPairs[${i}].label=this.value;updateCfgFields();_syncTmcAddSelect()">
       <input type="text" value="${p.def}" placeholder="definition" style="font-size:11px" oninput="vPairs[${i}].def=this.value">
       <input type="text" class="key-input" maxlength="1" value="${p.inKey===';'?';':p.inKey.toUpperCase()}" placeholder="in"
         oninput="vPairs[${i}].inKey=this.value.toLowerCase();checkVKeys()">
@@ -113,6 +113,7 @@ export function renderVPairsList(){
     wrap.appendChild(row);
   });
   checkVKeys();
+  _syncTmcAddSelect();
 }
 
 export function checkVKeys(){
@@ -135,104 +136,74 @@ export function checkVKeys(){
 
 // ═══════════════════════════════════════════
 // TMC-SPECIFIC VEHICLE TYPES
+// TMC labels are drawn from the vPairs list configured above.
 // ═══════════════════════════════════════════
-// Presets with single keys — no in/out split
-const TMC_PRESETS = {
-  basic: [
-    {label:'passenger / light',  def:'Cars, vans, pickups',             key:'a'},
-    {label:'single unit truck',  def:'2-axle, 6-tire trucks',           key:'s'},
-    {label:'combination truck',  def:'3-axle+ tractor-trailers',        key:'d'},
-    {label:'bus',                def:'Transit, charter, school bus',    key:'f'},
-  ],
-  pcbusmt: [
-    {label:'PC',   def:'Passenger cars, vans, pickups',         key:'a'},
-    {label:'Bus',  def:'Transit, charter, school bus',          key:'s'},
-    {label:'MT',   def:'Medium truck (2-axle, 6-tire SU)',      key:'d'},
-    {label:'HT',   def:'Heavy truck (3-axle+ SU & combination)',key:'f'},
-  ],
-  fhwa13: [
-    {label:'motorcycles',        def:'Class 1',   key:'q'},
-    {label:'passenger cars',     def:'Class 2',   key:'a'},
-    {label:'other 2-axle 4-tire',def:'Class 3',   key:'z'},
-    {label:'buses',              def:'Class 4',   key:'w'},
-    {label:'2-axle 6-tire SU',   def:'Class 5',   key:'s'},
-    {label:'3-axle SU',          def:'Class 6',   key:'x'},
-    {label:'4+ axle SU',         def:'Class 7',   key:'e'},
-    {label:'4-axle MU',          def:'Class 8',   key:'d'},
-    {label:'5-axle double',      def:'Class 9',   key:'c'},
-    {label:'6-axle double',      def:'Class 10',  key:'r'},
-    {label:'5-axle multi',       def:'Class 11',  key:'f'},
-    {label:'6-axle multi',       def:'Class 12',  key:'v'},
-    {label:'7+ axle multi',      def:'Class 13',  key:'t'},
-  ],
-};
 
-export function updateTmcCount(n){
-  const alphabet='abcdefghijklmnopqrstuvwxyz';
-  const usedKeys=new Set(tmcPairs.map(p=>p.key));
-  while(tmcPairs.length<n){
-    const k=alphabet.split('').find(c=>!usedKeys.has(c))||'?';
-    usedKeys.add(k);
-    tmcPairs.push({label:`type ${tmcPairs.length+1}`,def:'',key:k});
-  }
-  setTmcPairs(tmcPairs.slice(0,n));
+function _nextFreeKey(){
+  const used=new Set(tmcPairs.map(p=>p.key));
+  return 'abcdefghijklmnopqrstuvwxyz'.split('').find(c=>!used.has(c))||'?';
+}
+
+export function addTmcType(label){
+  if(!label) return;
+  if(tmcPairs.some(p=>p.label===label&&!p.isBike)) return; // already included
+  tmcPairs.push({label,key:_nextFreeKey(),isBike:false});
+  renderTmcPairsList();
+  const sel=document.getElementById('tmc-add-select');
+  if(sel) sel.value='';
+}
+
+export function addAllVPairsToTmc(){
+  const used=new Set(tmcPairs.filter(p=>!p.isBike).map(p=>p.label));
+  vPairs.forEach(vp=>{
+    if(used.has(vp.label)) return;
+    tmcPairs.push({label:vp.label,key:_nextFreeKey(),isBike:false});
+  });
   renderTmcPairsList();
 }
 
 export function addBikeClass(){
-  const alphabet='abcdefghijklmnopqrstuvwxyz';
-  const usedKeys=new Set(tmcPairs.map(p=>p.key));
-  const k=alphabet.split('').find(c=>!usedKeys.has(c))||'?';
-  tmcPairs.push({label:'bicycle',def:'Cyclists',key:k,isBike:true});
-  const sel=document.getElementById('tmc-count');
-  if(sel){
-    while(sel.options.length<tmcPairs.length){
-      const o=document.createElement('option');
-      o.value=String(sel.options.length+1);
-      o.textContent=String(sel.options.length+1);
-      sel.appendChild(o);
-    }
-    sel.value=String(tmcPairs.length);
-  }
+  if(tmcPairs.some(p=>p.isBike)) return; // already added
+  tmcPairs.push({label:'Bicycle',key:_nextFreeKey(),isBike:true});
   renderTmcPairsList();
 }
 
-export function applyTmcPreset(name){
-  const preset=TMC_PRESETS[name]; if(!preset)return;
-  setTmcPairs(preset.map(p=>({...p})));
-  const sel=document.getElementById('tmc-count');
-  if(sel)sel.value=String(tmcPairs.length);
-  renderTmcPairsList();
+// kept for project-file backward compat (loadProject calls renderTmcPairsList directly)
+export function applyTmcPreset(){}
+export function updateTmcCount(){}
+
+export function _syncTmcAddSelect(){
+  const sel=document.getElementById('tmc-add-select'); if(!sel) return;
+  const used=new Set(tmcPairs.filter(p=>!p.isBike).map(p=>p.label));
+  sel.innerHTML='<option value="">add a type…</option>'+
+    vPairs.map(vp=>`<option value="${vp.label}"${used.has(vp.label)?' disabled':''}>${vp.label}</option>`).join('');
 }
 
 export function renderTmcPairsList(){
-  const wrap=document.getElementById('tmc-pairs-list'); if(!wrap)return;
+  const wrap=document.getElementById('tmc-pairs-list'); if(!wrap) return;
   wrap.innerHTML='';
-  // Update count selector
-  const sel=document.getElementById('tmc-count');
-  if(sel&&Number(sel.value)!==tmcPairs.length){
-    // add options up to 20 if needed
-    while(sel.options.length<tmcPairs.length){
-      const o=document.createElement('option');
-      o.value=String(sel.options.length+1);
-      o.textContent=String(sel.options.length+1);
-      sel.appendChild(o);
-    }
-    sel.value=String(tmcPairs.length);
+  _syncTmcAddSelect();
+  // show/hide "add all" button depending on whether all vPairs are already included
+  const addAllBtn=document.getElementById('btn-tmc-add-all');
+  if(addAllBtn){
+    const used=new Set(tmcPairs.filter(p=>!p.isBike).map(p=>p.label));
+    addAllBtn.style.display=vPairs.length>0&&vPairs.every(vp=>used.has(vp.label))?'none':'';
   }
+  // show/hide bicycle button
+  const bikeBtn=document.getElementById('btn-tmc-add-bike');
+  if(bikeBtn) bikeBtn.style.display=tmcPairs.some(p=>p.isBike)?'none':'';
+
   tmcPairs.forEach((p,i)=>{
-    const locked=!!p.isBike;
-    if(locked) p.label='Bicycle';
+    if(p.isBike) p.label='Bicycle';
+    const def=p.isBike?'Cyclists':(vPairs.find(v=>v.label===p.label)?.def||'');
     const row=document.createElement('div'); row.className='pair-row'; row.dataset.idx=i;
     row.innerHTML=`
       <span class="pair-num">${i+1}</span>
-      <input type="text" value="${p.label}" placeholder="label"
-        ${locked?'readonly class="bike-label-locked"':`oninput="tmcPairs[${i}].label=this.value;updateCfgFields()"`}>
-      <input type="text" value="${p.def}" placeholder="definition" style="font-size:11px" oninput="tmcPairs[${i}].def=this.value">
-      <input type="text" class="key-input" maxlength="1" value="${p.key===';'?';':p.key.toUpperCase()}" placeholder="key"
+      <span class="tmc-label-ro${p.isBike?' bike-label-locked':''}">${p.label}</span>
+      <span class="tmc-def-ro">${def}</span>
+      <input type="text" class="key-input" maxlength="1" value="${(p.key||'').toUpperCase()}" placeholder="key"
         oninput="tmcPairs[${i}].key=this.value.toLowerCase();checkTmcKeys()">
-      <input type="checkbox" title="mark as bicycle type" class="bike-check" ${locked?'checked':''}
-        onchange="tmcPairs[${i}].isBike=this.checked;if(this.checked){tmcPairs[${i}].label='Bicycle';}renderTmcPairsList()">`;
+      <button class="tmc-remove-btn" onclick="tmcPairs.splice(${i},1);renderTmcPairsList()" title="Remove">×</button>`;
     wrap.appendChild(row);
   });
   checkTmcKeys();

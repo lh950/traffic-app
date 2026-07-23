@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Traffic App v3.21.0</title>
+<title>Traffic App v3.22.0</title>
 <link rel="manifest" href="./manifest.json">
 <meta name="theme-color" content="#131b23">
 <script>
@@ -117,7 +117,7 @@
   <div class="home-inner">
     <div class="home-wordmark">
       <h1>Traffic App</h1>
-      <div class="home-version">v3.21.0</div>
+      <div class="home-version">v3.22.0</div>
       <button id="home-btn-help" title="Help / instructions" style="margin-left:auto;font-size:13px;font-weight:600;color:var(--text3);background:none;border:.5px solid var(--border);border-radius:50%;width:26px;height:26px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">?</button>
     </div>
     <div id="home-resume-banner" style="display:none" class="home-resume-banner"></div>
@@ -184,7 +184,7 @@
     <!-- wordmark -->
     <div style="margin-bottom:2rem">
       <h1 style="font-size:22px;font-weight:500;letter-spacing:-.01em">Traffic App</h1>
-      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v3.21.0</span>
+      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v3.22.0</span>
     </div>
 
     <!-- autosave / resume banner -->
@@ -776,34 +776,20 @@
 
     <div class="setup-card" style="margin-top:16px">
       <h2>turning movement types</h2>
-      <div class="stat-detail" style="margin-bottom:14px">Used in <strong>TMC</strong> mode. One key per type — no in/out split. Supports up to 20 types.</div>
-      <div class="count-ctrl">
-        <label>number of types</label>
-        <select id="tmc-count" onchange="updateTmcCount(+this.value)">
-          <option>1</option><option>2</option><option>3</option><option value="4" selected>4</option>
-          <option>5</option><option>6</option><option>7</option><option>8</option>
-          <option>9</option><option>10</option><option>11</option><option>12</option>
-          <option>13</option><option>14</option><option>15</option><option>16</option>
-          <option>17</option><option>18</option><option>19</option><option>20</option>
+      <div class="stat-detail" style="margin-bottom:14px">Used in <strong>TMC</strong> mode. Select types from your vehicle list above — one key per type, no in/out split.</div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
+        <select id="tmc-add-select" onchange="addTmcType(this.value)" style="font-size:12px;padding:5px 8px;border:.5px solid var(--border2);border-radius:var(--r);background:var(--surface2);color:var(--text);min-width:160px">
+          <option value="">add a type…</option>
         </select>
-      </div>
-      <div class="preset-btns">
-        <span style="font-size:12px;color:var(--text2);align-self:center">presets:</span>
-        <button class="preset-btn" onclick="applyTmcPreset('basic')">basic (4-class)</button>
-        <button class="preset-btn" onclick="applyTmcPreset('pcbusmt')">PC/Bus/MT/HT</button>
-        <button class="preset-btn" onclick="applyTmcPreset('fhwa13')">FHWA 13-class</button>
-        <button class="preset-btn" id="btn-copy-tmcpairs" title="Load TMC vehicle types from a saved project (.json)">copy from project…</button>
-        <input type="file" id="copy-tmcpairs-input" accept=".json" style="display:none">
+        <button id="btn-tmc-add-all" class="preset-btn" onclick="addAllVPairsToTmc()">add all vehicle types</button>
+        <button id="btn-tmc-add-bike" class="preset-btn" onclick="addBikeClass()">+ include bicycle</button>
       </div>
       <div class="pair-header">
-        <span></span><span>label</span><span>definition</span><span>key</span><span title="mark as bicycle type" style="font-size:12px">🚲</span>
+        <span></span><span>label</span><span>definition</span><span>key</span><span></span>
       </div>
       <div id="tmc-pairs-list"></div>
-      <div style="margin-top:6px">
-        <button class="preset-btn" onclick="addBikeClass()" title="Add a bicycle class — reported separately from motor vehicles">+ bicycle class</button>
-      </div>
       <div class="conflict-msg" id="tmc-conflict">⚠ duplicate keys — each key must be unique</div>
-      <div class="warn-banner" id="warn-tmc">⚠ counts recorded — renaming changes labels only</div>
+      <div class="warn-banner" id="warn-tmc">⚠ counts recorded — changes apply to labels only</div>
     </div>
   </div>
 
@@ -900,7 +886,7 @@
 
   <header class="counter-header">
     <button id="btn-back-to-project" style="font-size:12px;padding:4px 10px;margin-right:8px">← Project</button>
-    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v3.21.0</span></h1>
+    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v3.22.0</span></h1>
     <div class="hcontrols">
       <div class="mode-toggle" style="display:none">
         <button class="mode-btn active" id="btn-count-mode" onclick="goToCountMode()">count</button>

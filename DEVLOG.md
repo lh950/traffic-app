@@ -4,6 +4,16 @@ Key decisions, scope constraints, and architectural choices.
 
 ---
 
+## 2026-07-23 — v3.22.0
+
+**TMC / vehicle types coupling:** Previously the directional vehicle types (vPairs) and the TMC types (tmcPairs) were two independent lists — users had to configure classification labels twice, once for each mode, which was redundant and error-prone. The redesign makes tmcPairs labels derived from vPairs: the add dropdown is populated from the current vPairs list and syncs whenever a vPairs label changes (`_syncTmcAddSelect` called from the vPairs oninput handler). TMC rows show label and definition as read-only spans, pulled from the matching vPairs entry, so they stay in sync without user action.
+
+**Bicycle row as a first-class action:** The old per-row "isBike" checkbox was confusing because it implied any TMC entry could be "the bicycle row" — you had to check the box on an existing row rather than adding a distinct row. The replacement is a `+ include bicycle` button that appends a dedicated bicycle row with a locked label ("Bicycle") and definition ("Cyclists"). The label lock is enforced in `renderTmcPairsList` at render time (if `p.isBike`, label is forced to "Bicycle"). The button hides after use and reappears if the bicycle row is removed.
+
+**`_syncTmcAddSelect` window exposure bug:** The inline oninput handler on vPairs label inputs called `_syncTmcAddSelect()` which was not in the `Object.assign(window, {...})` block. In native ESM the function isn't globally accessible without that explicit assignment, so the handler would throw silently and the dropdown would show stale labels after a rename. Fixed by adding to both the import and the window assignment.
+
+---
+
 ## 2026-07-23 — v3.21.0
 
 **Back button strategy:** The fixed `#app-back-btn` was covering the setup tab bar in workspace mode (`left:240px; top:10px` landed right on top of the tab bar). The sidebar already has "← All Projects" which is the canonical navigation for workspace mode, so hiding `#app-back-btn` there entirely is the right call. For non-workspace screens, moved it to `bottom:24px; left:16px` — out of the way of all screen headers. The help screen has its own inline back button and doesn't need the fixed one.

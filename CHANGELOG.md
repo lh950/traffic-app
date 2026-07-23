@@ -1,5 +1,16 @@
 # Changelog
 
+## v3.22.0 — 2026-07-23
+
+### Changed
+- **TMC types now selected from vehicle list** — the turning movement types section no longer has its own independent label inputs. Instead, types are added via a dropdown populated from the directional vehicle types (vPairs), so the same classification list is shared between both modes. The dropdown disables types already in the TMC list to prevent duplicates.
+- **"+ include bicycle" button replaces per-row checkbox** — the previous per-row "bicycle" checkbox on each TMC entry is replaced by a single "+ include bicycle" button at the top of the TMC section. Clicking it appends a dedicated Bicycle / Cyclists row with a locked label. The button hides itself once bicycle is added.
+- **"add all vehicle types" shortcut** — a button that adds all vPairs types to the TMC list in one click, skipping any already present. Hides once all types are covered.
+- **TMC label and definition are read-only display** — since TMC type labels come from the vehicle list, they are shown as plain text (not editable inputs) to avoid divergence. The definition is pulled automatically from the vehicle type definition.
+- **`_syncTmcAddSelect` exposed to window** — the function that syncs the TMC add-dropdown with current vPairs was not on `window`, so the inline `oninput` handler on vPairs label fields would silently fail to update the dropdown when a label changed. Fixed.
+
+---
+
 ## v3.21.0 — 2026-07-23
 
 ### Changed
