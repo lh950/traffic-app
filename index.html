@@ -1,9 +1,9 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Traffic App v3.19.0</title>
+<title>Traffic App v3.20.0</title>
 <link rel="manifest" href="./manifest.json">
 <meta name="theme-color" content="#131b23">
 <script>
@@ -117,7 +117,7 @@
   <div class="home-inner">
     <div class="home-wordmark">
       <h1>Traffic App</h1>
-      <div class="home-version">v3.19.0</div>
+      <div class="home-version">v3.20.0</div>
       <button id="home-btn-help" title="Help / instructions" style="margin-left:auto;font-size:13px;font-weight:600;color:var(--text3);background:none;border:.5px solid var(--border);border-radius:50%;width:26px;height:26px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">?</button>
     </div>
     <div id="home-resume-banner" style="display:none" class="home-resume-banner"></div>
@@ -182,7 +182,7 @@
     <!-- wordmark -->
     <div style="margin-bottom:2rem">
       <h1 style="font-size:22px;font-weight:500;letter-spacing:-.01em">Traffic App</h1>
-      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v3.19.0</span>
+      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v3.20.0</span>
     </div>
 
     <!-- autosave / resume banner -->
@@ -333,7 +333,7 @@
       <div class="setup-field"><label>Square footage (GSF)</label><input type="number" id="tg-site-gsf" placeholder="e.g. 120000"></div>
       <div class="setup-field"><label>Parking spaces</label><input type="text" id="tg-site-parking"></div>
       <div class="setup-field"><label>Units / employees</label><input type="text" id="tg-site-units"></div>
-      <div class="setup-field"><label>Study date range</label><input type="text" id="tg-site-studydates" placeholder="e.g. Apr 22 “ May 9, 2026"></div>
+      <div class="setup-field"><label>Study date range</label><input type="text" id="tg-site-studydates" placeholder="e.g. Apr 22 " May 9, 2026"></div>
     </div>
     <div class="setup-field" style="margin-top:10px">
       <label>Notes</label>
@@ -507,7 +507,7 @@
   <header class="counter-header">
     <h1>trip generation <span id="tg-counter-sub"></span></h1>
     <div class="hcontrols">
-      <div class="interval-badge" id="tg-cur-interval">“</div>
+      <div class="interval-badge" id="tg-cur-interval">"</div>
       <div class="undo-redo">
         <button title="undo (Z)" id="tg-btn-undo" disabled>↩</button>
         <span class="stack-count" id="tg-undo-count">0</span>
@@ -600,8 +600,7 @@
   <div class="setup-tabs">
     <button class="setup-tab" onclick="switchSetupTab('project',this)">project info</button>
     <button class="setup-tab active" onclick="switchSetupTab('study',this)">study parameters</button>
-    <button class="setup-tab" onclick="switchSetupTab('vehicle',this)">vehicle types</button>
-    <button class="setup-tab" onclick="switchSetupTab('tmc',this)">turning movement</button>
+    <button class="setup-tab" onclick="switchSetupTab('vehicle',this)">counting types</button>
     <button class="setup-tab" onclick="switchSetupTab('intersection',this)">intersection</button>
     <button class="setup-tab" onclick="switchSetupTab('export',this)">export</button>
   </div>
@@ -732,11 +731,11 @@
     </div>
   </div>
 
-  <!-- VEHICLE TYPES -->
+  <!-- COUNTING TYPES (vehicle in/out + TMC merged) -->
   <div class="setup-panel" id="sp-vehicle">
     <div class="setup-card">
-      <h2>vehicle types</h2>
-      <div class="stat-detail" style="margin-bottom:14px">Used for <strong>directional vehicle counting</strong> (in/out mode). Each type needs an IN key and an OUT key. Keys are grouped in sets of 4 — types 1–4 share one group, types 5–8 share a second group with the same keys. During counting, use the ‹ › arrows to switch the active group.</div>
+      <h2>directional counting types</h2>
+      <div class="stat-detail" style="margin-bottom:14px">Used in <strong>vehicle (in/out)</strong> mode. Each type needs an IN key and an OUT key. Keys are grouped in sets of 4 — types 1–4 share one group, types 5–8 share a second group. Use ‹ › during counting to switch groups.</div>
       <div class="count-ctrl">
         <label>number of types</label>
         <select id="v-count" onchange="updateVCount(+this.value)">
@@ -748,7 +747,7 @@
       <div class="preset-btns">
         <span style="font-size:12px;color:var(--text2);align-self:center">presets:</span>
         <button class="preset-btn" onclick="applyVPreset('precise')">FHWA precise (cl. 2,5,8,9)</button>
-        <button class="preset-btn" onclick="applyVPreset('combined')">FHWA combined (1“3, 5, 4“6, 7“13)</button>
+        <button class="preset-btn" onclick="applyVPreset('combined')">FHWA combined (1"3, 5, 4"6, 7"13)</button>
         <button class="preset-btn" id="btn-copy-vpairs" title="Load vehicle types from a saved project (.json)">copy from project…</button>
         <input type="file" id="copy-vpairs-input" accept=".json" style="display:none">
       </div>
@@ -759,13 +758,10 @@
       <div class="conflict-msg" id="v-conflict">⚠ duplicate keys — each key must be unique</div>
       <div class="warn-banner" id="warn-vehicle">⚠ counts recorded — renaming changes labels only</div>
     </div>
-  </div>
 
-  <!-- TURNING MOVEMENT TYPES -->
-  <div class="setup-panel" id="sp-tmc">
-    <div class="setup-card">
-      <h2>turning movement vehicle types</h2>
-      <div class="stat-detail" style="margin-bottom:14px">These types are used only in <strong>turning movement (TMC)</strong> counting mode. Each type needs one key only — no in/out split. You can have more types than in the vehicle in/out setup, since TMC uses one key per type rather than two.</div>
+    <div class="setup-card" style="margin-top:16px">
+      <h2>turning movement types</h2>
+      <div class="stat-detail" style="margin-bottom:14px">Used in <strong>TMC</strong> mode. One key per type — no in/out split. Supports up to 20 types.</div>
       <div class="count-ctrl">
         <label>number of types</label>
         <select id="tmc-count" onchange="updateTmcCount(+this.value)">
@@ -810,12 +806,12 @@
         <div style="font-size:12px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text2);margin-bottom:10px">street names</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
           <div class="setup-field">
-            <label>N“S street</label>
+            <label>N"S street</label>
             <input id="street1-inp" type="text" placeholder="e.g. Seminole Ave"
               oninput="intersection.street1=this.value;updateDefaultFilenames();renderLegConfig()">
           </div>
           <div class="setup-field">
-            <label>E“W street</label>
+            <label>E"W street</label>
             <input id="street2-inp" type="text" placeholder="e.g. Morris Park Ave"
               oninput="intersection.street2=this.value;updateDefaultFilenames();renderLegConfig()">
           </div>
@@ -889,7 +885,7 @@
 
   <header class="counter-header">
     <button id="btn-back-to-project" style="font-size:12px;padding:4px 10px;margin-right:8px">← Project</button>
-    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v3.19.0</span></h1>
+    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v3.20.0</span></h1>
     <div class="hcontrols">
       <div class="mode-toggle" style="display:none">
         <button class="mode-btn active" id="btn-count-mode" onclick="goToCountMode()">count</button>
@@ -902,7 +898,7 @@
       </div>
       <button class="btn-icon" onclick="saveProject()" title="Save project" style="font-size:12px">save</button>
       <button class="btn-icon" id="btn-counter-import-raw" title="Import raw count XLSX into this session" style="font-size:12px">import…</button>
-      <div class="interval-badge" id="cur-interval">“</div>
+      <div class="interval-badge" id="cur-interval">"</div>
       <div class="undo-redo">
         <button title="undo (Z)" onclick="undo()" id="btn-undo" disabled style="width:auto;padding:4px 8px;font-size:12px">↩ Undo</button>
         <span class="stack-count" id="undo-count">0</span>
@@ -1067,7 +1063,7 @@
         <div class="modal-divider"></div>
         <div class="modal-section">
           <h3>vehicle types</h3>
-          <p>Configure 1“8+ types. Types are counted in groups of 4 — if you add more than 4, they split into groups and you cycle between them with <kbd>[</kbd> / <kbd>]</kbd>. Two FHWA presets are available. Keys must be unique within each group (different groups may reuse the same keys).</p>
+          <p>Configure 1"8+ types. Types are counted in groups of 4 — if you add more than 4, they split into groups and you cycle between them with <kbd>[</kbd> / <kbd>]</kbd>. Two FHWA presets are available. Keys must be unique within each group (different groups may reuse the same keys).</p>
         </div>
         <div class="modal-divider"></div>
         <div class="modal-section">
@@ -1176,7 +1172,7 @@
         <div class="modal-divider"></div>
         <div class="modal-section">
           <h3>Excel compatibility</h3>
-          <p>Files include a UTF-8 byte-order mark so special characters like the en-dash in time ranges (e.g. 06:00 “ 06:15) display correctly in Excel without any manual import steps.</p>
+          <p>Files include a UTF-8 byte-order mark so special characters like the en-dash in time ranges (e.g. 06:00 " 06:15) display correctly in Excel without any manual import steps.</p>
         </div>
         <div class="modal-divider"></div>
         <div class="modal-section">

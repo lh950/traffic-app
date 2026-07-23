@@ -1,5 +1,12 @@
 # Changelog
 
+## v3.20.0 — 2026-07-23
+
+### Changed
+- **Merged vehicle types and turning movement setup tabs** — the two separate "vehicle types" and "turning movement" setup tabs are now a single "counting types" tab. Both configuration sections (directional in/out types and TMC types) appear in one scrollable panel, eliminating the redundancy of navigating between two tabs that configure the same concept for different counting modes.
+
+---
+
 ## v3.19.0 — 2026-07-23
 
 ### Added
