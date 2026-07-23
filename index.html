@@ -84,6 +84,17 @@
   </div>
 
   <div class="help-section">
+    <h2 class="help-h2">Data privacy and multi-user safety</h2>
+    <p class="help-p">Each device that opens Traffic App has its own completely isolated storage. Sharing the URL does not share data — another user opening the same link sees a blank app with their own empty storage.</p>
+    <div class="help-table">
+      <div class="help-row"><span class="help-tab-name">Cross-contamination</span><span>Not possible. Two field workers on different devices are completely independent. Worker A's data cannot overwrite or be seen by Worker B.</span></div>
+      <div class="help-row"><span class="help-tab-name">Same device, two users</span><span>Projects are identified by name and UUID. If two people share the same device and browser, they share the same storage. Use clear project names to tell them apart, and export each project to a file when done.</span></div>
+      <div class="help-row"><span class="help-tab-name">Sensitive data</span><span>Traffic App stores count data, street names, and project metadata — no personal information or credentials. Data lives only in the local browser storage on your device.</span></div>
+      <div class="help-row"><span class="help-tab-name">Moving data</span><span>The only way data crosses devices is via an explicit sync export (.tcsync file) that you create and share yourself. There is no automatic or background sync.</span></div>
+    </div>
+  </div>
+
+  <div class="help-section">
     <h2 class="help-h2">Saving and syncing</h2>
     <p class="help-p">Projects auto-save to this browser. To move data to another device, use <strong>Cross-device sync</strong> on the home screen — export all projects to a <code>.tcsync</code> file, then import it on the other device. Projects are merged by ID; existing ones are not overwritten.</p>
     <p class="help-p">To share or back up a single project, use <strong>Export → Project package (.zip)</strong> from the workspace export tab.</p>
@@ -120,6 +131,10 @@
         <span class="home-card-title">Trip generation count</span>
         <span class="home-card-desc">Per-location classification counts for a site</span>
       </button>
+      <button class="home-card" id="home-btn-parking">
+        <span class="home-card-title">Parking study</span>
+        <span class="home-card-desc">Zone occupancy sweeps and turnover counts</span>
+      </button>
       <button class="home-card home-card-full" id="home-btn-area">
         <div>
           <span class="home-card-title">Area-wide study</span>
@@ -151,7 +166,10 @@
     </div>
     <input type="file" id="home-sync-input" accept=".tcsync,.json" style="display:none" />
     <div style="margin-top:8px"><span id="home-sync-status" style="font-size:12px"></span></div>
-    <div style="margin-top:28px;padding-top:16px;border-top:.5px solid var(--border);display:flex;justify-content:flex-end">
+    <div style="margin-top:20px;padding:12px 14px;background:var(--surface2);border:.5px solid var(--border);border-radius:var(--r);font-size:11px;color:var(--text2);line-height:1.6">
+      <strong style="color:var(--text)">Data is device-local.</strong> Each device that opens this app has its own completely separate storage — sharing the URL does not share data. The only way data moves between devices is via an explicit sync export. No account, no server.
+    </div>
+    <div style="margin-top:12px;padding-top:12px;border-top:.5px solid var(--border);display:flex;justify-content:flex-end">
       <button id="home-btn-bug-report" style="font-size:11px;color:var(--text3);background:none;border:none;cursor:pointer;padding:4px 0">Report a bug / export app state</button>
     </div>
   </div>
@@ -404,6 +422,81 @@
     <div class="tg-action-bar-label">when you're ready:</div>
     <button id="btn-tripgen-qaqc" class="tg-action-btn" disabled title="Add at least one location first">QA / QC →</button>
     <button id="btn-tripgen-analyze" class="tg-action-btn btn-primary" disabled title="Add at least one location first">View analysis →</button>
+  </div>
+</div>
+
+<!-- = PARKING SETUP = -->
+<div id="parking-setup-screen" class="workspace-screen" style="display:none;min-height:100vh;padding:2rem">
+  <div style="max-width:680px;margin:0 auto">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:24px">
+      <h1 style="font-size:18px;font-weight:600;margin:0">Parking study setup</h1>
+      <span id="pk-save-state" style="font-size:11px;color:var(--text3);margin-left:auto"></span>
+    </div>
+
+    <div class="setup-card" style="margin-bottom:16px">
+      <h2>project info</h2>
+      <div class="setup-field"><label>Study name</label><input type="text" id="pk-name" placeholder="e.g. Main Street Garage — 2026 Occupancy Study"></div>
+      <div class="setup-field"><label>Location</label><input type="text" id="pk-location" placeholder="e.g. 100 Main St, Springfield"></div>
+      <div class="setup-field"><label>Date</label><input type="date" id="pk-date"></div>
+      <div class="setup-field"><label>Notes</label><input type="text" id="pk-notes" placeholder="optional"></div>
+    </div>
+
+    <div class="setup-card" style="margin-bottom:16px">
+      <h2>parking zones</h2>
+      <div class="stat-detail" style="margin-bottom:14px">Define each zone you'll count — a level, block, or area. Enter its total number of spaces so occupancy % can be calculated automatically.</div>
+      <div id="pk-zones-list"></div>
+      <button class="preset-btn" id="pk-btn-add-zone" style="margin-top:8px">+ Add zone</button>
+    </div>
+
+    <div class="setup-card" style="margin-bottom:24px">
+      <h2>study timing</h2>
+      <div class="count-ctrl">
+        <label>Start time</label>
+        <input type="time" id="pk-start" value="07:00" style="width:120px">
+      </div>
+      <div class="count-ctrl" style="margin-top:10px">
+        <label>Interval length</label>
+        <select id="pk-interval">
+          <option value="15">15 min</option>
+          <option value="30">30 min</option>
+          <option value="60">60 min</option>
+          <option value="5">5 min</option>
+          <option value="10">10 min</option>
+        </select>
+      </div>
+      <div class="count-ctrl" style="margin-top:10px">
+        <label>Duration</label>
+        <input type="number" id="pk-dur-h" value="4" min="0" max="24" style="width:56px"> h
+        <input type="number" id="pk-dur-m" value="0" min="0" max="59" style="width:56px"> min
+      </div>
+      <div id="pk-timing-preview" style="font-size:12px;color:var(--text2);margin-top:8px"></div>
+    </div>
+
+    <button class="btn-primary" id="pk-btn-start" style="width:100%;padding:12px;font-size:14px">Start counting →</button>
+  </div>
+</div>
+
+<!-- = PARKING COUNTER = -->
+<div id="parking-counter-screen" class="workspace-screen" style="display:none;min-height:100vh;padding:1.5rem">
+  <div style="max-width:560px;margin:0 auto">
+    <div class="pk-slot-nav" id="pk-slot-nav">
+      <button id="pk-prev" class="pk-nav-btn">‹</button>
+      <div class="pk-slot-label" id="pk-slot-label">—</div>
+      <button id="pk-next" class="pk-nav-btn">›</button>
+    </div>
+
+    <div id="pk-zone-cards" style="margin-top:16px"></div>
+
+    <div style="margin-top:20px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <button id="pk-btn-undo" class="preset-btn" style="font-size:11px">↺ Undo</button>
+      <button id="pk-btn-summary" class="preset-btn" style="font-size:11px;margin-left:auto">View summary ▾</button>
+      <button id="pk-btn-export" class="preset-btn" style="font-size:11px">Export CSV ↓</button>
+    </div>
+
+    <div id="pk-summary" style="display:none;margin-top:20px">
+      <div style="font-size:12px;font-weight:600;margin-bottom:8px">Occupancy summary</div>
+      <div id="pk-summary-table" style="overflow-x:auto"></div>
+    </div>
   </div>
 </div>
 

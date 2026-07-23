@@ -139,6 +139,8 @@ Object.assign(window, {
   openHelp, closeHelp, switchHelpTab, openSettings, closeSettings,
   applyMidSettings, checkMsKeys,
   goSetup,
+  // Parking study — called from inline oninput handlers in parking-setup-screen HTML
+  parkingZones, renderParkingSetupZones, pkSetOcc, renderParkingOccBadge,
   openPrintReport: () => openPrintReport({
     ...projectInfo,
     date: periodMeta.date,
@@ -258,8 +260,198 @@ initApproaches();
 // ═══════════════════════════════════════════
 // SCREEN ROUTER
 // ═══════════════════════════════════════════
-const SCREENS = ['home-screen', 'help-screen', 'area-setup-screen', 'area-import-screen', 'summary-screen', 'export-screen', 'ix-analysis-screen', 'setup-screen', 'counter-screen', 'tripgen-setup-screen', 'tripgen-counter-screen', 'tripgen-qaqc-screen', 'tripgen-distribution-screen', 'analyze-screen'];
-let projectType = null; // 'intersection' | 'area' | 'tripgen' | null
+const SCREENS = ['home-screen', 'help-screen', 'area-setup-screen', 'area-import-screen', 'summary-screen', 'export-screen', 'ix-analysis-screen', 'setup-screen', 'counter-screen', 'tripgen-setup-screen', 'tripgen-counter-screen', 'tripgen-qaqc-screen', 'tripgen-distribution-screen', 'analyze-screen', 'parking-setup-screen', 'parking-counter-screen'];
+let projectType = null; // 'intersection' | 'area' | 'tripgen' | 'parking' | null
+
+// ── Parking study state ──
+let parkingProjectInfo = { projectName: '', location: '', date: '', notes: '' };
+let parkingZones = []; // [{id, name, capacity}]
+let parkingCfg = { startMin: 420, intervalMin: 15, durationMin: 240 };
+let parkingGrid = {}; // {slotIdx: {zoneId: count}}
+let parkingActiveSlot = 0;
+let _parkingUndoStack = []; // [{slotIdx, zoneId, prev}]
+let _pkZoneNextId = 1;
+
+function parkingTotalSlots() { return Math.max(1, Math.round(parkingCfg.durationMin / parkingCfg.intervalMin)); }
+
+function pkSlotLabel(slotIdx) {
+  const m = parkingCfg.startMin + slotIdx * parkingCfg.intervalMin;
+  const fmt = v => String(Math.floor(v / 60) % 24).padStart(2, '0') + ':' + String(v % 60).padStart(2, '0');
+  return fmt(m) + ' – ' + fmt(m + parkingCfg.intervalMin);
+}
+
+function pkSetOcc(slotIdx, zoneId, val) {
+  const prev = parkingGrid[slotIdx]?.[zoneId] ?? '';
+  if (!parkingGrid[slotIdx]) parkingGrid[slotIdx] = {};
+  parkingGrid[slotIdx][zoneId] = val;
+  _parkingUndoStack.push({ slotIdx, zoneId, prev });
+  if (_parkingUndoStack.length > 200) _parkingUndoStack.shift();
+  window.scheduleAutosave?.();
+}
+
+function pkUndo() {
+  if (!_parkingUndoStack.length) return;
+  const { slotIdx, zoneId, prev } = _parkingUndoStack.pop();
+  if (!parkingGrid[slotIdx]) parkingGrid[slotIdx] = {};
+  if (prev === '') delete parkingGrid[slotIdx][zoneId];
+  else parkingGrid[slotIdx][zoneId] = prev;
+  renderParkingCounter();
+}
+
+function pkPctClass(pct) {
+  if (isNaN(pct)) return '';
+  if (pct >= 90) return 'pk-pct-crit';
+  if (pct >= 70) return 'pk-pct-warn';
+  return 'pk-pct-ok';
+}
+
+function renderParkingSetupZones() {
+  const wrap = document.getElementById('pk-zones-list');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  parkingZones.forEach((z, i) => {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:grid;grid-template-columns:1fr 100px 28px;gap:8px;align-items:center;margin-bottom:8px';
+    row.innerHTML = `
+      <input type="text" value="${z.name}" placeholder="Zone name (e.g. Level 1)"
+        style="padding:6px 10px;border:.5px solid var(--border);border-radius:var(--r);background:var(--surface);color:var(--text);font-size:13px"
+        oninput="parkingZones[${i}].name=this.value">
+      <input type="number" value="${z.capacity}" min="1" placeholder="Spaces"
+        style="padding:6px 10px;border:.5px solid var(--border);border-radius:var(--r);background:var(--surface);color:var(--text);font-size:13px;text-align:right"
+        oninput="parkingZones[${i}].capacity=parseInt(this.value)||0">
+      <button onclick="parkingZones.splice(${i},1);renderParkingSetupZones()"
+        style="width:28px;height:28px;border:.5px solid var(--border);border-radius:var(--r);background:none;color:var(--text3);cursor:pointer;font-size:14px">×</button>`;
+    wrap.appendChild(row);
+  });
+  if (!parkingZones.length) {
+    wrap.innerHTML = '<div style="font-size:12px;color:var(--text3);padding:8px 0">No zones yet — add one below.</div>';
+  }
+}
+
+function pkUpdateTimingPreview() {
+  const el = document.getElementById('pk-timing-preview');
+  if (!el) return;
+  const slots = parkingTotalSlots();
+  const fmt = v => String(Math.floor(v / 60) % 24).padStart(2, '0') + ':' + String(v % 60).padStart(2, '0');
+  el.textContent = `${slots} interval${slots !== 1 ? 's' : ''} · ${fmt(parkingCfg.startMin)} to ${fmt(parkingCfg.startMin + parkingCfg.durationMin)} · ${parkingCfg.intervalMin}-min intervals`;
+}
+
+function renderParkingCounter() {
+  const labelEl = document.getElementById('pk-slot-label');
+  const cardsEl = document.getElementById('pk-zone-cards');
+  if (!labelEl || !cardsEl) return;
+
+  const total = parkingTotalSlots();
+  if (parkingActiveSlot >= total) parkingActiveSlot = total - 1;
+  if (parkingActiveSlot < 0) parkingActiveSlot = 0;
+
+  labelEl.textContent = pkSlotLabel(parkingActiveSlot);
+  document.getElementById('pk-prev').disabled = parkingActiveSlot <= 0;
+  document.getElementById('pk-next').disabled = parkingActiveSlot >= total - 1;
+
+  cardsEl.innerHTML = '';
+  const slotData = parkingGrid[parkingActiveSlot] || {};
+
+  if (!parkingZones.length) {
+    cardsEl.innerHTML = '<div style="font-size:13px;color:var(--text3);padding:16px 0">No zones defined. Return to setup to add zones.</div>';
+    return;
+  }
+
+  parkingZones.forEach(z => {
+    const occ = slotData[z.id] ?? '';
+    const pct = (occ !== '' && z.capacity > 0) ? Math.round((occ / z.capacity) * 100) : NaN;
+    const pctText = isNaN(pct) ? '—' : `${pct}%`;
+    const pctClass = pkPctClass(pct);
+    const card = document.createElement('div');
+    card.className = 'pk-zone-card';
+    card.innerHTML = `
+      <div class="pk-zone-head">
+        <span class="pk-zone-name">${z.name}</span>
+        <span class="pk-zone-cap">Capacity: ${z.capacity}</span>
+      </div>
+      <div class="pk-zone-entry">
+        <input type="number" class="pk-occ-input" value="${occ}" min="0" max="${z.capacity}"
+          placeholder="0" data-zone="${z.id}"
+          oninput="pkSetOcc(${parkingActiveSlot},'${z.id}',this.value===''?'':parseInt(this.value)||0);renderParkingOccBadge(this,'${z.id}')">
+        <span class="pk-occ-sep">/ ${z.capacity}</span>
+        <span class="pk-pct ${pctClass}" id="pk-pct-${z.id}">${pctText}</span>
+      </div>`;
+    cardsEl.appendChild(card);
+  });
+}
+
+function renderParkingOccBadge(input, zoneId) {
+  const z = parkingZones.find(z => z.id === zoneId);
+  const pctEl = document.getElementById(`pk-pct-${zoneId}`);
+  if (!pctEl || !z) return;
+  const occ = input.value === '' ? NaN : parseInt(input.value);
+  const pct = (!isNaN(occ) && z.capacity > 0) ? Math.round((occ / z.capacity) * 100) : NaN;
+  pctEl.textContent = isNaN(pct) ? '—' : `${pct}%`;
+  pctEl.className = `pk-pct ${pkPctClass(pct)}`;
+}
+
+function renderParkingSummary() {
+  const wrap = document.getElementById('pk-summary-table');
+  if (!wrap) return;
+  const total = parkingTotalSlots();
+  const cols = parkingZones.map(z => z.name);
+  let html = `<table class="pk-summary-tbl"><thead><tr><th>Interval</th>${cols.map(n => `<th>${n}</th>`).join('')}</tr></thead><tbody>`;
+  for (let s = 0; s < total; s++) {
+    const slotData = parkingGrid[s] || {};
+    html += `<tr><td>${pkSlotLabel(s)}</td>`;
+    parkingZones.forEach(z => {
+      const occ = slotData[z.id];
+      const pct = (occ != null && z.capacity > 0) ? Math.round((occ / z.capacity) * 100) : null;
+      const cls = pct != null ? pkPctClass(pct).replace('pk-pct-', 'pk-cell-') : '';
+      const txt = pct != null ? `${occ} (${pct}%)` : '—';
+      html += `<td class="${cls}">${txt}</td>`;
+    });
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+}
+
+function exportParkingCSV() {
+  const total = parkingTotalSlots();
+  const header = ['Interval', ...parkingZones.map(z => `${z.name} (occ)`), ...parkingZones.map(z => `${z.name} (pct%)`)];
+  const rows = [header];
+  for (let s = 0; s < total; s++) {
+    const sd = parkingGrid[s] || {};
+    const row = [pkSlotLabel(s)];
+    parkingZones.forEach(z => row.push(sd[z.id] ?? ''));
+    parkingZones.forEach(z => {
+      const occ = sd[z.id]; const pct = (occ != null && z.capacity > 0) ? Math.round((occ / z.capacity) * 100) : '';
+      row.push(pct);
+    });
+    rows.push(row);
+  }
+  const csv = rows.map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\r\n');
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = `${(parkingProjectInfo.projectName || 'parking_study').replace(/[^a-z0-9_-]/gi, '_')}.csv`;
+  a.click(); URL.revokeObjectURL(a.href);
+}
+
+function renderSidebarParking() {
+  const body = document.getElementById('sidebar-body');
+  if (!body) return;
+  body.innerHTML = `
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Study</div>
+      <button class="sidebar-item" data-ws="pk-setup">Setup</button>
+      <button class="sidebar-item" data-ws="pk-count">Count</button>
+      <button class="sidebar-item" data-ws="pk-export">Export CSV</button>
+    </div>
+    <div class="sidebar-divider"></div>
+    <div class="sidebar-section">
+      <button class="sidebar-item" data-ws="help">Help</button>
+    </div>`;
+  body.querySelectorAll('.sidebar-item[data-ws]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.ws === _sidebarActiveItem);
+    btn.addEventListener('click', () => openWorkspaceTab(btn.dataset.ws));
+  });
+}
 
 // ── In-app navigation history ──
 const _navHistory = [];
@@ -421,6 +613,7 @@ function renderAppSidebar() {
   if (projectType === 'intersection') renderSidebarIntersection();
   else if (projectType === 'area') renderSidebarArea();
   else if (projectType === 'tripgen') renderSidebarTripgen();
+  else if (projectType === 'parking') renderSidebarParking();
 }
 
 function openWorkspaceTab(tab, idx) {
@@ -461,6 +654,9 @@ function openWorkspaceTab(tab, idx) {
     case 'tg-analyze': showScreen('analyze-screen'); break;
     case 'tg-qaqc': showScreen('tripgen-qaqc-screen'); break;
     case 'tg-distribution': showScreen('tripgen-distribution-screen'); renderDistributionScreen(); break;
+    case 'pk-setup': showScreen('parking-setup-screen'); renderParkingSetupZones(); pkUpdateTimingPreview(); break;
+    case 'pk-count': showScreen('parking-counter-screen'); renderParkingCounter(); break;
+    case 'pk-export': exportParkingCSV(); break;
     default: break;
   }
 }
@@ -525,6 +721,79 @@ document.getElementById('home-btn-tripgen')?.addEventListener('click', () => {
   _sidebarActiveItem = 'tg-setup';
   renderAppSidebar();
   showScreen('tripgen-setup-screen');
+});
+
+document.getElementById('home-btn-parking')?.addEventListener('click', () => {
+  projectUUID = crypto.randomUUID();
+  Object.assign(parkingProjectInfo, { projectName: '', location: '', date: '', notes: '' });
+  parkingZones.length = 0;
+  Object.keys(parkingGrid).forEach(k => delete parkingGrid[k]);
+  parkingCfg.startMin = 420; parkingCfg.intervalMin = 15; parkingCfg.durationMin = 240;
+  parkingActiveSlot = 0; _parkingUndoStack.length = 0; _pkZoneNextId = 1;
+  projectType = 'parking';
+  enterWorkspace();
+  setSidebarMeta('New parking study', '');
+  _sidebarActiveItem = 'pk-setup';
+  renderAppSidebar();
+  showScreen('parking-setup-screen');
+  renderParkingSetupZones();
+  pkUpdateTimingPreview();
+});
+
+// Parking setup field wiring
+['pk-name','pk-location','pk-date','pk-notes'].forEach(id => {
+  document.getElementById(id)?.addEventListener('input', function() {
+    const key = { 'pk-name': 'projectName', 'pk-location': 'location', 'pk-date': 'date', 'pk-notes': 'notes' }[id];
+    parkingProjectInfo[key] = this.value;
+    setSidebarMeta(parkingProjectInfo.projectName || 'Parking study', parkingProjectInfo.location || '');
+    window.scheduleAutosave?.();
+  });
+});
+
+document.getElementById('pk-btn-add-zone')?.addEventListener('click', () => {
+  parkingZones.push({ id: String(_pkZoneNextId++), name: `Zone ${parkingZones.length + 1}`, capacity: 100 });
+  renderParkingSetupZones();
+});
+
+['pk-start','pk-interval','pk-dur-h','pk-dur-m'].forEach(id => {
+  document.getElementById(id)?.addEventListener('change', () => {
+    const startVal = document.getElementById('pk-start')?.value || '07:00';
+    const [sh, sm] = startVal.split(':').map(Number);
+    parkingCfg.startMin = sh * 60 + (sm || 0);
+    parkingCfg.intervalMin = parseInt(document.getElementById('pk-interval')?.value) || 15;
+    const h = parseInt(document.getElementById('pk-dur-h')?.value) || 0;
+    const m = parseInt(document.getElementById('pk-dur-m')?.value) || 0;
+    parkingCfg.durationMin = Math.max(parkingCfg.intervalMin, h * 60 + m);
+    pkUpdateTimingPreview();
+    window.scheduleAutosave?.();
+  });
+});
+
+document.getElementById('pk-btn-start')?.addEventListener('click', () => {
+  if (!parkingZones.length) { alert('Add at least one zone before counting.'); return; }
+  parkingActiveSlot = 0;
+  _sidebarActiveItem = 'pk-count';
+  renderAppSidebar();
+  showScreen('parking-counter-screen');
+  renderParkingCounter();
+});
+
+// Parking counter controls
+document.getElementById('pk-prev')?.addEventListener('click', () => {
+  if (parkingActiveSlot > 0) { parkingActiveSlot--; renderParkingCounter(); }
+});
+document.getElementById('pk-next')?.addEventListener('click', () => {
+  if (parkingActiveSlot < parkingTotalSlots() - 1) { parkingActiveSlot++; renderParkingCounter(); }
+});
+document.getElementById('pk-btn-undo')?.addEventListener('click', pkUndo);
+document.getElementById('pk-btn-export')?.addEventListener('click', exportParkingCSV);
+document.getElementById('pk-btn-summary')?.addEventListener('click', () => {
+  const sumEl = document.getElementById('pk-summary');
+  if (!sumEl) return;
+  const showing = sumEl.style.display !== 'none';
+  sumEl.style.display = showing ? 'none' : '';
+  document.getElementById('pk-btn-summary').textContent = showing ? 'View summary ▾' : 'Hide summary ▴';
+  if (!showing) renderParkingSummary();
 });
 
 document.getElementById('home-btn-load')?.addEventListener('click', () => {
@@ -3991,6 +4260,25 @@ function loadProject(proj) {
     Object.assign(projectInfo, proj.projectInfo);
     wireProjectInfoFields(); // re-sync all input values from restored state
   }
+  if (proj.projectType === 'parking') {
+    Object.assign(parkingProjectInfo, proj.parkingProjectInfo || {});
+    parkingZones.length = 0;
+    parkingZones.push(...(proj.zones || []));
+    _pkZoneNextId = parkingZones.reduce((mx, z) => Math.max(mx, (parseInt(z.id) || 0) + 1), 1);
+    Object.assign(parkingCfg, proj.cfg || {});
+    Object.keys(parkingGrid).forEach(k => delete parkingGrid[k]);
+    Object.assign(parkingGrid, proj.grid || {});
+    parkingActiveSlot = 0;
+    _parkingUndoStack.length = 0;
+    projectType = 'parking';
+    enterWorkspace();
+    setSidebarMeta(parkingProjectInfo.projectName || 'Parking study', parkingProjectInfo.location || '');
+    _sidebarActiveItem = 'pk-count';
+    renderAppSidebar();
+    showScreen('parking-counter-screen');
+    renderParkingCounter();
+    return;
+  }
   if (proj.projectType === 'tripgen') {
     Object.assign(tripgenSiteInfo, proj.siteInfo || {});
     Object.assign(tripgenCategoryMap, proj.categoryMap || {});
@@ -4136,6 +4424,15 @@ function serializeCurrentProject() {
       })),
     };
   }
+  if (projectType === 'parking') {
+    return {
+      version: 1, projectType: 'parking', savedAt: new Date().toISOString(), uuid: projectUUID,
+      parkingProjectInfo: { ...parkingProjectInfo },
+      zones: JSON.parse(JSON.stringify(parkingZones)),
+      cfg: { ...parkingCfg },
+      grid: JSON.parse(JSON.stringify(parkingGrid)),
+    };
+  }
   if (projectType === 'tripgen') {
     return {
       version: 1, projectType: 'tripgen', savedAt: new Date().toISOString(), uuid: projectUUID,
@@ -4182,11 +4479,10 @@ window.scheduleAutosave = function () {
 function clearAutosave() { localStorage.removeItem(LS_KEY); }
 
 function getProjectName(proj) {
-  return proj?.projectType === 'tripgen'
-    ? (proj.siteInfo?.location || proj.projectInfo?.projectName || 'Trip generation project')
-    : proj?.projectType === 'area'
-      ? (proj.projectInfo?.projectName || 'Area study')
-      : (proj?.projectInfo?.projectName || 'Intersection count');
+  if (proj?.projectType === 'tripgen') return proj.siteInfo?.location || proj.projectInfo?.projectName || 'Trip generation project';
+  if (proj?.projectType === 'area') return proj.projectInfo?.projectName || 'Area study';
+  if (proj?.projectType === 'parking') return proj.parkingProjectInfo?.projectName || 'Parking study';
+  return proj?.projectInfo?.projectName || 'Intersection count';
 }
 
 function loadProjectsIndex() {

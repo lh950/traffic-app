@@ -3,7 +3,9 @@
 ## v3.19.0 — 2026-07-23
 
 ### Added
-- **Help / instructions page** — accessible via the "?" button on the home screen and a "Help" item in every workspace sidebar. Covers counting modes, setup tab explanations, keyboard reference, XLSX import, and sync.
+- **Parking occupancy study** — new project type on the home screen. Setup screen lets you define named zones with capacities and configure a sweep schedule (start time, interval, duration). Counter screen works through one time slot at a time with per-zone occupancy inputs and live % badges color-coded by occupancy level. Summary tab shows a full occupancy matrix (zones × time slots) with the same color coding. Export CSV downloads the complete grid with count and % columns. Projects save/load via the standard `.tcproject` format.
+- **Help / instructions page** — accessible via the "?" button on the home screen and a "Help" item in every workspace sidebar. Covers counting modes, setup tab explanations, keyboard reference, XLSX import, sync, and a new data privacy section.
+- **Data privacy / multi-user safety explanation** — home screen info blurb and help page section explaining that all data is stored in the local browser's localStorage (per-device, per-browser isolation). Includes guidance on multi-user workflows: export `.tcproject` / `.tcsync` files to move data between devices rather than sharing a login.
 - **Keybinding group indicators** — when more than 4 vehicle types are configured, `renderVPairsList()` inserts a notice explaining the grouping and shows "Group 1 / Group 2" separators between rows in the vehicle types list.
 - **Vehicle types tab description** — setup panel now shows a subtitle explaining this tab is for directional in/out counting and how key groups work.
 - **Bicycle label lock** — checking "mark as bicycle type" in the TMC types list now forces the label to "Bicycle" and makes the input read-only to prevent data inconsistency.

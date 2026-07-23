@@ -6,6 +6,12 @@ Key decisions, scope constraints, and architectural choices.
 
 ## 2026-07-23 — v3.19.0
 
+**Parking study architecture:** Chose an occupancy-sweep model (enter total occupancy per zone per time slot) rather than a turnover key-press model. Rationale: field workers conducting parking surveys walk through lots and record totals per zone per interval — they don't press a key per vehicle. Data structure is a sparse grid `{slotIdx: {zoneId: count}}`. One-slot-at-a-time UI is deliberate — reduces screen complexity and works well on tablets in the field. Undo is per-action on the grid (not undo-all), giving field workers a safety net against fat-finger entries.
+
+**Parking inline handler exposure:** ES module scope doesn't auto-expose functions to `window`, but the parking setup HTML uses inline `oninput` handlers that reference `parkingZones[i]`, `renderParkingSetupZones()`, `pkSetOcc()`, and `renderParkingOccBadge()`. These are added to the `Object.assign(window, {...})` block alongside other function exports.
+
+**Data privacy / security explanation:** localStorage is scoped per-origin per-browser per-device — no cross-user contamination without explicit data transfer. Added this as a note on the home screen and as a full section in the help page, including guidance that the `.tcproject` / `.tcsync` export format is the correct mechanism for moving data between users or devices.
+
 **Help screen placement:** Added as a dedicated screen in the SCREENS array rather than a modal/overlay, so the back button handles dismissal naturally and it participates in the nav history stack like any other screen. Accessible from the home "?" button and sidebar Help items in every workspace type.
 
 **Keybinding groups UX:** The counter already handled >4 vehicle types correctly (via ‹ › group switching), but the setup UI gave no indication that adding a 5th type would reuse keys from a second group. Added a notice banner and Group 1/2 separators in `renderVPairsList()` triggered by `vPairs.length > 4`. The separators are cosmetic — the actual grouping logic (`gi = index % 4`) lives in `counter.js` and is unchanged.
