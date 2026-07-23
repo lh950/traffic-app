@@ -4,6 +4,20 @@ Key decisions, scope constraints, and architectural choices.
 
 ---
 
+## 2026-07-23 — v3.21.0
+
+**Back button strategy:** The fixed `#app-back-btn` was covering the setup tab bar in workspace mode (`left:240px; top:10px` landed right on top of the tab bar). The sidebar already has "← All Projects" which is the canonical navigation for workspace mode, so hiding `#app-back-btn` there entirely is the right call. For non-workspace screens, moved it to `bottom:24px; left:16px` — out of the way of all screen headers. The help screen has its own inline back button and doesn't need the fixed one.
+
+**Trip gen setup tabs:** Restructured the single-scroll tripgen-setup-screen into two panels (project info / locations) using `.tg-tabs` / `.tg-tab` / `.tg-panel` classes with a scoped `switchTgTab()` function. Couldn't reuse `switchSetupTab()` from setup.js because it queries all `.setup-tab` / `.setup-panel` globally — that would conflict with the intersection setup tabs. The scoped approach keeps them independent.
+
+**`parkingZones` TDZ:** `let parkingZones` was declared at line 269 of main.js but referenced in `Object.assign(window, {...})` at line 144. In native ESM (Vite dev server), this is a temporal dead zone error that kills the entire module. In the production bundle, Vite transforms `let`→`var` which is hoisted and avoids TDZ, so the deployed app was fine. Fixed by assigning `window.parkingZones = parkingZones` immediately after the declaration instead of including it in the early Object.assign block.
+
+**Parking study hidden:** The parking study feature (setup screen, counter, summary, export) is fully implemented but the UX isn't fully thought through. Hidden from the home screen via HTML comment while the design is revisited. Code stays in place.
+
+**Next design task (v3.22.0):** Vehicle types and TMC types should share the same type list. Currently they're two independently configured lists in the merged "counting types" tab. The planned change: TMC type labels become dropdowns populated from the vehicle types (vPairs) list, so the user selects which vehicle types to include in TMC rather than re-typing labels. The per-row "mark as bicycle" checkbox is replaced by a single "+ include bicycle" button that appends a dedicated bicycle row. This eliminates the confusion of configuring the same classification list twice in different modes.
+
+---
+
 ## 2026-07-23 — v3.19.0
 
 **Parking study architecture:** Chose an occupancy-sweep model (enter total occupancy per zone per time slot) rather than a turnover key-press model. Rationale: field workers conducting parking surveys walk through lots and record totals per zone per interval — they don't press a key per vehicle. Data structure is a sparse grid `{slotIdx: {zoneId: count}}`. One-slot-at-a-time UI is deliberate — reduces screen complexity and works well on tablets in the field. Undo is per-action on the grid (not undo-all), giving field workers a safety net against fat-finger entries.

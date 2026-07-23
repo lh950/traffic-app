@@ -1,5 +1,17 @@
 # Changelog
 
+## v3.21.0 — 2026-07-23
+
+### Changed
+- **Back button repositioned** — the fixed "← Back" button is now hidden in workspace mode (the sidebar's "← All Projects" already handles navigation) and repositioned to the bottom-left corner in non-workspace mode so it no longer overlaps screen headers or the setup tab bar.
+- **Trip generation setup reorganized into tabs** — the single scrolling setup screen is now split into two tabs: "project info" (company details and site information) and "locations" (adding locations, classification setup, xlsx upload, and paste input). Reduces visual clutter and matches the tab pattern used elsewhere.
+- **Parking study hidden from home screen** — the parking study card is commented out pending a fuller design pass. The underlying screens and logic remain in the codebase.
+
+### Fixed
+- **`parkingZones` temporal dead zone in dev server** — `parkingZones` was referenced in the early `Object.assign(window, {...})` block before its `let` declaration, causing a TDZ error that prevented the entire JS module from initializing in the Vite dev server (native ESM). The production build was unaffected because Vite transforms `let`→`var` during bundling. Fixed by moving `window.parkingZones = parkingZones` to after the declaration.
+
+---
+
 ## v3.20.0 — 2026-07-23
 
 ### Changed

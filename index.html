@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Traffic App v3.20.0</title>
+<title>Traffic App v3.21.0</title>
 <link rel="manifest" href="./manifest.json">
 <meta name="theme-color" content="#131b23">
 <script>
@@ -117,7 +117,7 @@
   <div class="home-inner">
     <div class="home-wordmark">
       <h1>Traffic App</h1>
-      <div class="home-version">v3.20.0</div>
+      <div class="home-version">v3.21.0</div>
       <button id="home-btn-help" title="Help / instructions" style="margin-left:auto;font-size:13px;font-weight:600;color:var(--text3);background:none;border:.5px solid var(--border);border-radius:50%;width:26px;height:26px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">?</button>
     </div>
     <div id="home-resume-banner" style="display:none" class="home-resume-banner"></div>
@@ -131,10 +131,12 @@
         <span class="home-card-title">Trip generation count</span>
         <span class="home-card-desc">Per-location classification counts for a site</span>
       </button>
+      <!-- Parking study hidden until fully designed
       <button class="home-card" id="home-btn-parking">
         <span class="home-card-title">Parking study</span>
         <span class="home-card-desc">Zone occupancy sweeps and turnover counts</span>
       </button>
+      -->
       <button class="home-card home-card-full" id="home-btn-area">
         <div>
           <span class="home-card-title">Area-wide study</span>
@@ -182,7 +184,7 @@
     <!-- wordmark -->
     <div style="margin-bottom:2rem">
       <h1 style="font-size:22px;font-weight:500;letter-spacing:-.01em">Traffic App</h1>
-      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v3.20.0</span>
+      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v3.21.0</span>
     </div>
 
     <!-- autosave / resume banner -->
@@ -296,132 +298,145 @@
       <button id="btn-tripgen-to-landing" style="font-size:12px">← back to projects</button>
     </div>
   </div>
-  <!-- Company / project / personnel — shared with the intersection project info tab, same data-pi attributes -->
-  <div class="card" style="margin-bottom:14px">
-    <h3>Company &amp; project</h3>
-    <div class="card-grid" style="grid-template-columns:repeat(2,1fr);margin-bottom:10px">
-      <div class="setup-field"><label>Company name</label><input type="text" data-pi="companyName" placeholder="e.g. Traffic Engineering Corp"></div>
-      <div class="setup-field"><label>Company address</label><input type="text" data-pi="companyAddress" placeholder="e.g. 123 Broadway, New York, NY 10006"></div>
-      <div class="setup-field"><label>Project name</label><input type="text" data-pi="projectName" placeholder="e.g. 2026 Traffic Study — Site A"></div>
-      <div class="setup-field"><label>Project number / ID</label><input type="text" data-pi="projectNumber" placeholder="e.g. P-2026-042"></div>
-      <div class="setup-field"><label>Project Manager</label><input type="text" data-pi="projectManagerName" placeholder="e.g. Jane Smith, PE"></div>
-      <div class="setup-field"><label>PM title / role</label><input type="text" data-pi="projectManagerTitle" placeholder="e.g. Senior Traffic Engineer"></div>
-      <div class="setup-field"><label>Counter name</label><input type="text" data-pi="counterName" placeholder="person conducting the count"></div>
-      <div class="setup-field"><label>Counter title</label><input type="text" data-pi="counterTitle" placeholder="e.g. Traffic Analyst"></div>
-      <div class="setup-field"><label>QA reviewer</label><input type="text" data-pi="qaCounterName" placeholder="person reviewing / QA/QC counter"></div>
-      <div class="setup-field"><label>QA title</label><input type="text" data-pi="qaCounterTitle" placeholder="e.g. Project Engineer"></div>
+
+  <div class="tg-tabs">
+    <button class="tg-tab active" onclick="switchTgTab('info',this)">project info</button>
+    <button class="tg-tab" onclick="switchTgTab('locations',this)">locations</button>
+  </div>
+
+  <!-- TAB: project info -->
+  <div class="tg-panel active" id="tgp-info">
+    <!-- Company / project / personnel — shared with the intersection project info tab, same data-pi attributes -->
+    <div class="card">
+      <h3>Company &amp; project</h3>
+      <div class="card-grid" style="grid-template-columns:repeat(2,1fr);margin-bottom:10px">
+        <div class="setup-field"><label>Company name</label><input type="text" data-pi="companyName" placeholder="e.g. Traffic Engineering Corp"></div>
+        <div class="setup-field"><label>Company address</label><input type="text" data-pi="companyAddress" placeholder="e.g. 123 Broadway, New York, NY 10006"></div>
+        <div class="setup-field"><label>Project name</label><input type="text" data-pi="projectName" placeholder="e.g. 2026 Traffic Study — Site A"></div>
+        <div class="setup-field"><label>Project number / ID</label><input type="text" data-pi="projectNumber" placeholder="e.g. P-2026-042"></div>
+        <div class="setup-field"><label>Project Manager</label><input type="text" data-pi="projectManagerName" placeholder="e.g. Jane Smith, PE"></div>
+        <div class="setup-field"><label>PM title / role</label><input type="text" data-pi="projectManagerTitle" placeholder="e.g. Senior Traffic Engineer"></div>
+        <div class="setup-field"><label>Counter name</label><input type="text" data-pi="counterName" placeholder="person conducting the count"></div>
+        <div class="setup-field"><label>Counter title</label><input type="text" data-pi="counterTitle" placeholder="e.g. Traffic Analyst"></div>
+        <div class="setup-field"><label>QA reviewer</label><input type="text" data-pi="qaCounterName" placeholder="person reviewing / QA/QC counter"></div>
+        <div class="setup-field"><label>QA title</label><input type="text" data-pi="qaCounterTitle" placeholder="e.g. Project Engineer"></div>
+      </div>
+      <div class="setup-field" style="margin-bottom:10px">
+        <label>Study purpose / notes</label>
+        <textarea data-pi="studyPurpose" rows="2" style="width:100%;font-family:inherit;font-size:13px;padding:6px 10px;border:.5px solid var(--border2);border-radius:var(--r);background:var(--surface2);color:var(--text)"></textarea>
+      </div>
+      <div class="setup-field">
+        <label>Company logo <span style="font-weight:400;color:var(--text3)">(optional — shown on reports)</span></label>
+        <div id="logo-preview-tg" style="margin-bottom:6px"></div>
+        <input type="file" accept="image/*" id="pi-logo-input-tg" style="font-size:12px">
+        <button id="pi-logo-clear-tg" style="display:none;font-size:11px;margin-left:8px">remove logo</button>
+      </div>
     </div>
-    <div class="setup-field" style="margin-bottom:10px">
-      <label>Study purpose / notes</label>
-      <textarea data-pi="studyPurpose" rows="2" style="width:100%;font-family:inherit;font-size:13px;padding:6px 10px;border:.5px solid var(--border2);border-radius:var(--r);background:var(--surface2);color:var(--text)"></textarea>
-    </div>
-    <div class="setup-field">
-      <label>Company logo <span style="font-weight:400;color:var(--text3)">(optional — shown on reports)</span></label>
-      <div id="logo-preview-tg" style="margin-bottom:6px"></div>
-      <input type="file" accept="image/*" id="pi-logo-input-tg" style="font-size:12px">
-      <button id="pi-logo-clear-tg" style="display:none;font-size:11px;margin-left:8px">remove logo</button>
+
+    <!-- Building/site information -->
+    <div class="card">
+      <h3>Site information</h3>
+      <div class="stat-detail" style="margin-bottom:10px">Real information about the site being studied — not placeholders. Shared across every location added below.</div>
+      <div class="card-grid" style="grid-template-columns:repeat(3,1fr)">
+        <div class="setup-field"><label>Site address</label><input type="text" id="tg-site-address" placeholder="e.g. 123 Main St, Springfield"></div>
+        <div class="setup-field"><label>Land use type</label><input type="text" id="tg-site-landuse" placeholder="e.g. ITE 150 — Warehousing"></div>
+        <div class="setup-field"><label>Square footage (GSF)</label><input type="number" id="tg-site-gsf" placeholder="e.g. 120000"></div>
+        <div class="setup-field"><label>Parking spaces</label><input type="text" id="tg-site-parking"></div>
+        <div class="setup-field"><label>Units / employees</label><input type="text" id="tg-site-units"></div>
+        <div class="setup-field"><label>Study date range</label><input type="text" id="tg-site-studydates" placeholder="e.g. Apr 22 – May 9, 2026"></div>
+      </div>
+      <div class="setup-field" style="margin-top:10px">
+        <label>Notes</label>
+        <textarea id="tg-site-notes" rows="2" style="width:100%;font-family:inherit;font-size:13px;padding:6px 10px;border:.5px solid var(--border2);border-radius:var(--r);background:var(--surface2);color:var(--text)"></textarea>
+      </div>
     </div>
   </div>
 
-  <!-- Building/site information — required real context, shown at setup time, not just buried in analysis later -->
-  <div class="card" style="margin-bottom:14px">
-    <h3>Site information</h3>
-    <div class="stat-detail" style="margin-bottom:10px">Real information about the site being studied — not placeholders. Shared across every location added below.</div>
-    <div class="card-grid" style="grid-template-columns:repeat(3,1fr)">
-      <div class="setup-field"><label>Site address</label><input type="text" id="tg-site-address" placeholder="e.g. 123 Main St, Springfield"></div>
-      <div class="setup-field"><label>Land use type</label><input type="text" id="tg-site-landuse" placeholder="e.g. ITE 150 — Warehousing"></div>
-      <div class="setup-field"><label>Square footage (GSF)</label><input type="number" id="tg-site-gsf" placeholder="e.g. 120000"></div>
-      <div class="setup-field"><label>Parking spaces</label><input type="text" id="tg-site-parking"></div>
-      <div class="setup-field"><label>Units / employees</label><input type="text" id="tg-site-units"></div>
-      <div class="setup-field"><label>Study date range</label><input type="text" id="tg-site-studydates" placeholder="e.g. Apr 22 " May 9, 2026"></div>
-    </div>
-    <div class="setup-field" style="margin-top:10px">
-      <label>Notes</label>
-      <textarea id="tg-site-notes" rows="2" style="width:100%;font-family:inherit;font-size:13px;padding:6px 10px;border:.5px solid var(--border2);border-radius:var(--r);background:var(--surface2);color:var(--text)"></textarea>
-    </div>
-  </div>
-
-  <div class="card" style="margin-bottom:14px">
-    <h3>Add a location</h3>
-    <div class="stat-detail" style="margin-bottom:8px">Every location needs its real address (e.g. "Driveway — 123 Main St" or the actual access-point name used in the field) and the real calendar date(s) counted — not placeholder labels.</div>
-    <div class="setup-grid" style="margin-bottom:14px">
-      <div class="setup-field"><label>Location / access point address <span style="color:var(--danger,#c0392b)">*</span></label><input type="text" id="tg-location-address" placeholder="e.g. Driveway — 123 Main St"></div>
-      <div class="setup-field"><label>Date counted <span style="color:var(--danger,#c0392b)">*</span></label><input type="date" id="tg-location-date"></div>
-    </div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
-      <button class="btn-primary" id="btn-tripgen-start-new">Start a new count…</button>
-      <input type="file" id="tripgen-xlsx-input" accept=".xlsx" style="display:none" />
-      <button id="btn-tripgen-upload-xlsx">Upload .xlsx file…</button>
-      <button id="btn-tripgen-paste-toggle">Paste a table instead…</button>
-    </div>
-
-    <!-- start-new-count config: classifications + timing, then "begin counting" -->
-    <div id="tripgen-new-count-area" style="display:none;margin-top:10px;border-top:.5px solid var(--border);padding-top:14px">
-      <div style="font-size:12px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text2);margin-bottom:10px">timing</div>
+  <!-- TAB: locations -->
+  <div class="tg-panel" id="tgp-locations">
+    <div class="card">
+      <h3>Add a location</h3>
+      <div class="stat-detail" style="margin-bottom:8px">Every location needs its real address (e.g. "Driveway — 123 Main St" or the actual access-point name used in the field) and the real calendar date(s) counted — not placeholder labels.</div>
       <div class="setup-grid" style="margin-bottom:14px">
-        <div class="setup-field">
-          <label>start time</label>
-          <input type="time" id="tg-set-start" value="00:00">
-        </div>
-        <div class="setup-field">
-          <label>interval length</label>
-          <select id="tg-set-interval">
-            <option value="5">5 min</option><option value="10">10 min</option>
-            <option value="15" selected>15 min</option><option value="20">20 min</option>
-            <option value="30">30 min</option><option value="60">60 min</option>
-          </select>
-        </div>
-        <div class="setup-field">
-          <label>study duration</label>
-          <div class="dur-wrap">
-            <input type="number" id="tg-set-dur-h" min="0" max="72" value="24" style="width:72px">
-            <span>h</span>
-            <input type="number" id="tg-set-dur-m" min="0" max="59" value="0" style="width:72px">
-            <span>m</span>
+        <div class="setup-field"><label>Location / access point address <span style="color:var(--danger,#c0392b)">*</span></label><input type="text" id="tg-location-address" placeholder="e.g. Driveway — 123 Main St"></div>
+        <div class="setup-field"><label>Date counted <span style="color:var(--danger,#c0392b)">*</span></label><input type="date" id="tg-location-date"></div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+        <button class="btn-primary" id="btn-tripgen-start-new">Start a new count…</button>
+        <input type="file" id="tripgen-xlsx-input" accept=".xlsx" style="display:none" />
+        <button id="btn-tripgen-upload-xlsx">Upload .xlsx file…</button>
+        <button id="btn-tripgen-paste-toggle">Paste a table instead…</button>
+      </div>
+
+      <!-- start-new-count config: classifications + timing, then "begin counting" -->
+      <div id="tripgen-new-count-area" style="display:none;margin-top:10px;border-top:.5px solid var(--border);padding-top:14px">
+        <div style="font-size:12px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text2);margin-bottom:10px">timing</div>
+        <div class="setup-grid" style="margin-bottom:14px">
+          <div class="setup-field">
+            <label>start time</label>
+            <input type="time" id="tg-set-start" value="00:00">
+          </div>
+          <div class="setup-field">
+            <label>interval length</label>
+            <select id="tg-set-interval">
+              <option value="5">5 min</option><option value="10">10 min</option>
+              <option value="15" selected>15 min</option><option value="20">20 min</option>
+              <option value="30">30 min</option><option value="60">60 min</option>
+            </select>
+          </div>
+          <div class="setup-field">
+            <label>study duration</label>
+            <div class="dur-wrap">
+              <input type="number" id="tg-set-dur-h" min="0" max="72" value="24" style="width:72px">
+              <span>h</span>
+              <input type="number" id="tg-set-dur-m" min="0" max="59" value="0" style="width:72px">
+              <span>m</span>
+            </div>
           </div>
         </div>
+
+        <div style="font-size:12px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text2);margin-bottom:10px">classifications</div>
+        <div class="stat-detail" style="margin-bottom:10px">What's being counted at this location — add one row per classification, with the keyboard keys used for Entry/Exit while counting. No starting set is prescribed; add whatever this study needs.</div>
+        <div class="pair-header">
+          <span></span><span>label</span><span>entry key</span><span>exit key</span><span></span>
+        </div>
+        <div id="tg-classifications-list"></div>
+        <button id="btn-tg-add-classification" style="margin-top:8px;font-size:12px">+ add classification</button>
+        <div class="conflict-msg" id="tg-key-conflict">⚠ duplicate keys — each key must be unique</div>
+
+        <div style="display:flex;justify-content:flex-end;margin-top:1rem">
+          <button class="btn-primary" id="btn-tg-begin-counting">begin counting →</button>
+        </div>
       </div>
 
-      <div style="font-size:12px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text2);margin-bottom:10px">classifications</div>
-      <div class="stat-detail" style="margin-bottom:10px">What's being counted at this location — add one row per classification, with the keyboard keys used for Entry/Exit while counting. No starting set is prescribed; add whatever this study needs.</div>
-      <div class="pair-header">
-        <span></span><span>label</span><span>entry key</span><span>exit key</span><span></span>
+      <div id="tripgen-paste-area" style="display:none;margin-top:10px">
+        <textarea id="tripgen-paste-input" rows="6" placeholder="Copy a range from Excel or Sheets, then paste here (Ctrl+V / ⌘V)" style="width:100%;font-family:var(--mono,monospace);font-size:12px;padding:8px;border:.5px solid var(--border2,#ccc9be);border-radius:var(--r,8px);background:var(--surface2,#f0efe9);color:var(--text,#1a1a18)"></textarea>
+        <div id="tripgen-paste-preview" style="font-size:11px;min-height:16px;margin-top:4px"></div>
+        <div style="margin-top:6px">
+          <button id="btn-tripgen-paste-submit" class="btn-primary">Add location from paste</button>
+        </div>
+        <div style="font-size:11px;color:var(--text3,#9b9890);margin-top:6px">
+          Expected layout — first column: time (HH:MM); remaining columns alternate Entry/Exit per classification, with classification names in the header row. Example:<br>
+          <code style="font-size:10px">Time&nbsp;&nbsp;&nbsp;&nbsp;Autos In&nbsp;&nbsp;Autos Out&nbsp;&nbsp;Trucks In&nbsp;&nbsp;Trucks Out<br>00:00&nbsp;&nbsp;&nbsp;10&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;3&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2</code>
+        </div>
       </div>
-      <div id="tg-classifications-list"></div>
-      <button id="btn-tg-add-classification" style="margin-top:8px;font-size:12px">+ add classification</button>
-      <div class="conflict-msg" id="tg-key-conflict">⚠ duplicate keys — each key must be unique</div>
 
-      <div style="display:flex;justify-content:flex-end;margin-top:1rem">
-        <button class="btn-primary" id="btn-tg-begin-counting">begin counting →</button>
+      <!-- per-sheet date confirmation after .xlsx upload -->
+      <div id="tripgen-xlsx-dates-area" style="display:none;margin-top:10px;border-top:.5px solid var(--border);padding-top:14px">
+        <div class="stat-detail" style="margin-bottom:10px">Confirm the real date for each day-sheet found in this file.</div>
+        <div id="tripgen-xlsx-dates-list"></div>
+        <button class="btn-primary" id="btn-tripgen-xlsx-confirm" style="margin-top:10px">Add location</button>
       </div>
+
+      <div id="tripgen-upload-error" style="color:var(--danger,#c0392b);font-size:12px;margin-top:8px"></div>
     </div>
 
-    <div id="tripgen-paste-area" style="display:none;margin-top:10px">
-      <textarea id="tripgen-paste-input" rows="6" placeholder="Copy a range from Excel or Sheets, then paste here (Ctrl+V / ⌘V)" style="width:100%;font-family:var(--mono,monospace);font-size:12px;padding:8px;border:.5px solid var(--border2,#ccc9be);border-radius:var(--r,8px);background:var(--surface2,#f0efe9);color:var(--text,#1a1a18)"></textarea>
-      <div id="tripgen-paste-preview" style="font-size:11px;min-height:16px;margin-top:4px"></div>
-      <div style="margin-top:6px">
-        <button id="btn-tripgen-paste-submit" class="btn-primary">Add location from paste</button>
-      </div>
-      <div style="font-size:11px;color:var(--text3,#9b9890);margin-top:6px">
-        Expected layout — first column: time (HH:MM); remaining columns alternate Entry/Exit per classification, with classification names in the header row. Example:<br>
-        <code style="font-size:10px">Time&nbsp;&nbsp;&nbsp;&nbsp;Autos In&nbsp;&nbsp;Autos Out&nbsp;&nbsp;Trucks In&nbsp;&nbsp;Trucks Out<br>00:00&nbsp;&nbsp;&nbsp;10&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;3&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2</code>
-      </div>
+    <div id="tripgen-locations-list"></div>
+    <div class="tg-action-bar" id="tg-action-bar">
+      <div class="tg-action-bar-label">when you're ready:</div>
+      <button id="btn-tripgen-qaqc" class="tg-action-btn" disabled title="Add at least one location first">QA / QC →</button>
+      <button id="btn-tripgen-analyze" class="tg-action-btn btn-primary" disabled title="Add at least one location first">View analysis →</button>
     </div>
-
-    <!-- per-sheet date confirmation after .xlsx upload, since one file can contain several day-sheets -->
-    <div id="tripgen-xlsx-dates-area" style="display:none;margin-top:10px;border-top:.5px solid var(--border);padding-top:14px">
-      <div class="stat-detail" style="margin-bottom:10px">Confirm the real date for each day-sheet found in this file.</div>
-      <div id="tripgen-xlsx-dates-list"></div>
-      <button class="btn-primary" id="btn-tripgen-xlsx-confirm" style="margin-top:10px">Add location</button>
-    </div>
-
-    <div id="tripgen-upload-error" style="color:var(--danger,#c0392b);font-size:12px;margin-top:8px"></div>
-  </div>
-  <div id="tripgen-locations-list"></div>
-  <div class="tg-action-bar" id="tg-action-bar">
-    <div class="tg-action-bar-label">when you're ready:</div>
-    <button id="btn-tripgen-qaqc" class="tg-action-btn" disabled title="Add at least one location first">QA / QC →</button>
-    <button id="btn-tripgen-analyze" class="tg-action-btn btn-primary" disabled title="Add at least one location first">View analysis →</button>
   </div>
 </div>
 
@@ -885,7 +900,7 @@
 
   <header class="counter-header">
     <button id="btn-back-to-project" style="font-size:12px;padding:4px 10px;margin-right:8px">← Project</button>
-    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v3.20.0</span></h1>
+    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v3.21.0</span></h1>
     <div class="hcontrols">
       <div class="mode-toggle" style="display:none">
         <button class="mode-btn active" id="btn-count-mode" onclick="goToCountMode()">count</button>

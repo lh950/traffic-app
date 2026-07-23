@@ -126,7 +126,8 @@ window.vPairs = vPairs;
 window.tmcPairs = tmcPairs;
 window.intersection = intersection;
 Object.assign(window, {
-  switchSetupTab, setIntervalLen, updateDerived, updateVCount, applyVPreset,
+  switchSetupTab, switchTgTab,
+  setIntervalLen, updateDerived, updateVCount, applyVPreset,
   checkVKeys, checkPKeys, setLegLabel, toggleLegCrosswalk, toggleLegApproach, toggleLegOneWay, toggleLegOneWayIn,
   updateCrosswalkField, toggleApproachDestUnified, toggleApproachCount, renderLegConfig,
   renderTmcPairsList, updateTmcCount, checkTmcKeys, applyTmcPreset, addBikeClass,
@@ -139,8 +140,7 @@ Object.assign(window, {
   openHelp, closeHelp, switchHelpTab, openSettings, closeSettings,
   applyMidSettings, checkMsKeys,
   goSetup,
-  // Parking study — called from inline oninput handlers in parking-setup-screen HTML
-  parkingZones, renderParkingSetupZones, pkSetOcc, renderParkingOccBadge,
+  renderParkingSetupZones, pkSetOcc, renderParkingOccBadge,
   openPrintReport: () => openPrintReport({
     ...projectInfo,
     date: periodMeta.date,
@@ -266,6 +266,7 @@ let projectType = null; // 'intersection' | 'area' | 'tripgen' | 'parking' | nul
 // ── Parking study state ──
 let parkingProjectInfo = { projectName: '', location: '', date: '', notes: '' };
 let parkingZones = []; // [{id, name, capacity}]
+window.parkingZones = parkingZones; // exposed for inline oninput handlers in parking HTML
 let parkingCfg = { startMin: 420, intervalMin: 15, durationMin: 240 };
 let parkingGrid = {}; // {slotIdx: {zoneId: count}}
 let parkingActiveSlot = 0;
@@ -457,6 +458,14 @@ function renderSidebarParking() {
 const _navHistory = [];
 let _currentScreen = 'home-screen';
 let _navLock = false;
+
+function switchTgTab(name, btn) {
+  const screen = document.getElementById('tripgen-setup-screen');
+  screen.querySelectorAll('.tg-tab').forEach(b => b.classList.remove('active'));
+  screen.querySelectorAll('.tg-panel').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('tgp-' + name).classList.add('active');
+}
 
 function _updateBackBtn() {
   const btn = document.getElementById('app-back-btn');

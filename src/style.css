@@ -87,6 +87,11 @@ input.warn{border-color:var(--warn-border)!important;background:var(--warn-bg)!i
 .setup-panel{display:none;flex-direction:column;gap:1.5rem;animation:fadeIn .15s}
 .setup-panel.active{display:flex}
 @keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.tg-tabs{display:flex;gap:0;background:var(--surface2);border:.5px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:1.5rem}
+.tg-tab{flex:1;border:none;border-radius:0;background:transparent;color:var(--text2);padding:8px 16px;font-size:13px;font-weight:500;cursor:pointer;transition:background .15s,color .15s}
+.tg-tab.active{background:var(--surface);color:var(--text);box-shadow:0 0 0 .5px var(--border2);border-radius:var(--r)}
+.tg-panel{display:none;flex-direction:column;gap:14px;animation:fadeIn .15s}
+.tg-panel.active{display:flex}
 .setup-card{background:var(--surface);border:.5px solid var(--border);border-radius:var(--rl);padding:20px 24px}
 .setup-card h2{font-size:13px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text2);margin-bottom:14px}
 .setup-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
@@ -806,7 +811,7 @@ tfoot td:first-child{text-align:left;color:var(--text2)}
 
 /* In-app back button */
 #app-back-btn{
-  position:fixed;top:10px;left:16px;z-index:500;
+  position:fixed;bottom:24px;left:16px;z-index:500;
   display:none;align-items:center;gap:4px;
   padding:5px 11px;font-size:12px;font-weight:500;
   color:var(--text2);background:var(--surface);
@@ -814,7 +819,7 @@ tfoot td:first-child{text-align:left;color:var(--text2)}
   cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,.08);
   transition:background .12s,color .12s}
 #app-back-btn:hover{background:var(--surface2);color:var(--text)}
-body.workspace-mode #app-back-btn{left:240px}
+body.workspace-mode #app-back-btn{display:none!important}
 
 /* Push all workspace screens to the right when sidebar is visible */
 body.workspace-mode #home-screen,
