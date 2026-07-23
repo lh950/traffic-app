@@ -1,5 +1,12 @@
 # Changelog
 
+## v3.14.0 — 2026-07-23
+
+### Added
+- **Trip Gen distribution tab** — fourth sidebar item on Trip Gen projects. After adding locations and running analysis, the Distribution screen lets you define nearby intersections and enter % inbound / % outbound allocation per peak period. Auto-computes generated trips per intersection from peak hour volumes; shows an "Unallocated" row for any remainder. Allocation state serialized with project and restored on load. Requires at least one location to be present (guard message otherwise). `computePeakVolumes()` extracted as a named export from `tripgenSection.js`.
+
+---
+
 ## v3.13.0 — 2026-07-22
 
 ### Added

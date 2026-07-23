@@ -410,6 +410,27 @@ async function renderQaqcSection(entries, ctx) {
   `;
 }
 
+// Sums peak hour inbound + outbound volumes across all entries for every peak window.
+// Returns { [dayType__peakLabel]: { dayType, label, inbound, outbound } }.
+export async function computePeakVolumes(entries, peakWindows) {
+  const volumes = {};
+  for (const entry of entries) {
+    for (const day of entry.days) {
+      const { parsed, dayType } = day;
+      const intervalMinutes = inferIntervalMinutes(parsed.intervals);
+      for (const w of peakWindows[dayType] || []) {
+        const peak = await resolvePeak(parsed, intervalMinutes, w);
+        if (peak.startIdx < 0) continue;
+        const key = `${dayType}__${w.label}`;
+        if (!volumes[key]) volumes[key] = { dayType, label: w.label, inbound: 0, outbound: 0 };
+        volumes[key].inbound += peak.inbound;
+        volumes[key].outbound += peak.outbound;
+      }
+    }
+  }
+  return volumes;
+}
+
 export async function renderTripGenSection(container, entries, ctx) {
   if (entries.length === 0) { container.innerHTML = ''; return; }
   const { siteInfo, categoryMap, dataView } = ctx;

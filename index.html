@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Traffic App v3.13.0</title>
+<title>Traffic App v3.14.0</title>
 </head>
 <body>
 
@@ -38,7 +38,7 @@
   <div class="home-inner">
     <div class="home-wordmark">
       <h1>Traffic App</h1>
-      <div class="home-version">v3.13.0</div>
+      <div class="home-version">v3.14.0</div>
     </div>
     <div id="home-resume-banner" style="display:none" class="home-resume-banner"></div>
     <div class="home-section-label" style="margin-bottom:10px">Start a new study</div>
@@ -79,7 +79,7 @@
     <!-- wordmark -->
     <div style="margin-bottom:2rem">
       <h1 style="font-size:22px;font-weight:500;letter-spacing:-.01em">Traffic App</h1>
-      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v3.13.0</span>
+      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v3.14.0</span>
     </div>
 
     <!-- autosave / resume banner -->
@@ -379,6 +379,11 @@
   </div>
   <div class="stat-detail" style="margin-bottom:14px">Recount the same peak hours using the same classifications as the original count — this keeps the comparison apples-to-apples and avoids transcription errors. The list below groups by location and day — each location can have multiple days, each with its own AM / Midday / PM peak. Add more than one recount per peak if you want extra confidence in the comparison.</div>
   <div id="tripgen-qaqc-list"></div>
+</div>
+
+<!-- = TRIP GEN DISTRIBUTION SCREEN = -->
+<div id="tripgen-distribution-screen" class="workspace-screen" style="display:none;min-height:100vh;padding:2rem">
+  <div id="tripgen-dist-root"></div>
 </div>
 
 <!-- = ANALYZE SCREEN = -->
@@ -705,7 +710,7 @@
 
   <header class="counter-header">
     <button id="btn-back-to-project" style="font-size:12px;padding:4px 10px;margin-right:8px">← Project</button>
-    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v3.13.0</span></h1>
+    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v3.14.0</span></h1>
     <div class="hcontrols">
       <div class="mode-toggle" style="display:none">
         <button class="mode-btn active" id="btn-count-mode" onclick="goToCountMode()">count</button>

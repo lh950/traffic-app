@@ -56,7 +56,7 @@ import { renderCorridorChart } from './corridorChart.js';
 import { exportShareablePage } from './shareReport.js';
 import { printSummaryReport, printIntersectionReport } from './printPedReport.js';
 import { buildVolumeProfileSVG, buildCrosswalkBarSVG, buildChartLegend, dirSplitBar, CW_COLORS } from './chartUtils.js';
-import { renderTripGenSection, DEFAULT_PEAK_WINDOWS } from './analysis/ui/tripgenSection.js';
+import { renderTripGenSection, DEFAULT_PEAK_WINDOWS, computePeakVolumes } from './analysis/ui/tripgenSection.js';
 
 import {
   addClassification as tgAddClassification, beginCounting as tgBeginCounting,
@@ -257,7 +257,7 @@ initApproaches();
 // ═══════════════════════════════════════════
 // SCREEN ROUTER
 // ═══════════════════════════════════════════
-const SCREENS = ['home-screen', 'area-setup-screen', 'area-import-screen', 'summary-screen', 'export-screen', 'ix-analysis-screen', 'setup-screen', 'counter-screen', 'tripgen-setup-screen', 'tripgen-counter-screen', 'tripgen-qaqc-screen', 'analyze-screen'];
+const SCREENS = ['home-screen', 'area-setup-screen', 'area-import-screen', 'summary-screen', 'export-screen', 'ix-analysis-screen', 'setup-screen', 'counter-screen', 'tripgen-setup-screen', 'tripgen-counter-screen', 'tripgen-qaqc-screen', 'tripgen-distribution-screen', 'analyze-screen'];
 let projectType = null; // 'intersection' | 'area' | 'tripgen' | null
 
 function showScreen(id) {
@@ -368,6 +368,7 @@ function renderSidebarTripgen() {
       <button class="sidebar-item" data-ws="tg-setup">Setup</button>
       <button class="sidebar-item" data-ws="tg-analyze">Analysis</button>
       <button class="sidebar-item" data-ws="tg-qaqc">QA/QC</button>
+      <button class="sidebar-item" data-ws="tg-distribution">Distribution</button>
     </div>`;
   body.querySelectorAll('.sidebar-item[data-ws]').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.ws === _sidebarActiveItem);
@@ -416,6 +417,7 @@ function openWorkspaceTab(tab, idx) {
     case 'tg-setup': showScreen('tripgen-setup-screen'); break;
     case 'tg-analyze': showScreen('analyze-screen'); break;
     case 'tg-qaqc': showScreen('tripgen-qaqc-screen'); break;
+    case 'tg-distribution': showScreen('tripgen-distribution-screen'); renderDistributionScreen(); break;
     default: break;
   }
 }
@@ -1000,6 +1002,9 @@ document.getElementById('btn-new-intersection')?.addEventListener('click', () =>
 document.getElementById('btn-new-tripgen')?.addEventListener('click', () => {
   clearAutosave();
   projectType = 'tripgen';
+  tripgenEntries.length = 0;
+  tripgenDistribution = [];
+  tripgenDistNextId = 1;
   showScreen('tripgen-setup-screen');
   renderTripgenLocationsList();
 });
@@ -3769,6 +3774,8 @@ function loadProject(proj) {
     Object.assign(tripgenQaqc, proj.qaqc || {});
     tripgenEntries.length = 0;
     tripgenEntries.push(...(proj.entries || []));
+    tripgenDistribution = JSON.parse(JSON.stringify(proj.distribution || []));
+    tripgenDistNextId = tripgenDistribution.reduce((mx, ix) => Math.max(mx, ix.id + 1), 1);
     if (proj.qaqcReviewerName) { const el = document.getElementById('qaqc-reviewer-name'); if (el) el.value = proj.qaqcReviewerName; }
     if (proj.qaqcReviewDate) { const el = document.getElementById('qaqc-review-date'); if (el) el.value = proj.qaqcReviewDate; }
     projectType = 'tripgen';
@@ -3911,6 +3918,7 @@ function serializeCurrentProject() {
       qaqcReviewerName: document.getElementById('qaqc-reviewer-name')?.value || '',
       qaqcReviewDate: document.getElementById('qaqc-review-date')?.value || '',
       entries: JSON.parse(JSON.stringify(tripgenEntries)),
+      distribution: JSON.parse(JSON.stringify(tripgenDistribution)),
     };
   }
   return null;
@@ -4251,6 +4259,8 @@ const tripgenQaqc = {};
 const tripgenEntries = [];
 let tripgenDataView = 'raw';
 let tripgenNextId = 1;
+let tripgenDistribution = []; // [{id, name, allocs: {[dayType__peakLabel]: {pctIn, pctOut}}}]
+let tripgenDistNextId = 1;
 
 // dayType is derived from the real date (never asked for separately — avoids the two
 // disagreeing) — Saturday/Sunday count as weekend, everything else weekday.
@@ -4769,6 +4779,172 @@ document.getElementById('btn-tripgen-paste-submit')?.addEventListener('click', (
     errEl.textContent = err.message;
   }
 });
+
+async function renderDistributionScreen() {
+  const root = document.getElementById('tripgen-dist-root');
+  if (!root) return;
+  const hasEntries = tripgenEntries.length > 0;
+
+  if (!hasEntries) {
+    root.innerHTML = `<div class="card"><div class="stat-detail">Add at least one location on the Setup screen before using Distribution.</div></div>`;
+    return;
+  }
+
+  const volumes = await computePeakVolumes(tripgenEntries, tripgenPeakWindows);
+  const periodKeys = Object.keys(volumes);
+
+  function fmtPct(v) { return v != null ? String(Math.round(Number(v) || 0)) : '0'; }
+  function calcTrips(vol, pct) { return Math.round(vol * (Number(pct) || 0) / 100); }
+
+  // Intersection list editor
+  const listHTML = tripgenDistribution.length
+    ? tripgenDistribution.map(ix => `
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+          <input type="text" data-dist-name="${ix.id}" value="${escapeHtmlMain(ix.name)}"
+            placeholder="Intersection name" style="flex:1;font-size:13px" />
+          <button data-dist-remove="${ix.id}" style="font-size:11px;flex-shrink:0">× remove</button>
+        </div>`).join('')
+    : `<div class="stat-detail" style="margin-bottom:8px">No intersections added yet.</div>`;
+
+  // Allocation table — one row per intersection, columns per peak period
+  const periodHeads = periodKeys.map(k => `<th style="text-align:center;min-width:110px">${escapeHtmlMain(volumes[k].label)}<br><span style="font-size:10px;font-weight:400;color:var(--text3)">${volumes[k].dayType}</span></th>`).join('');
+
+  const allocRows = tripgenDistribution.map(ix => {
+    const cells = periodKeys.map(key => {
+      const a = ix.allocs?.[key] || { pctIn: 0, pctOut: 0 };
+      return `<td style="text-align:center;vertical-align:top;padding:4px 6px">
+        <div style="display:flex;flex-direction:column;gap:3px;align-items:center">
+          <label style="font-size:10px;color:var(--text3)">in %</label>
+          <input type="number" min="0" max="100" data-dist-alloc="${ix.id}__${key}__pctIn"
+            value="${fmtPct(a.pctIn)}" style="width:56px;text-align:center;font-size:12px" />
+          <label style="font-size:10px;color:var(--text3)">out %</label>
+          <input type="number" min="0" max="100" data-dist-alloc="${ix.id}__${key}__pctOut"
+            value="${fmtPct(a.pctOut)}" style="width:56px;text-align:center;font-size:12px" />
+        </div>
+      </td>`;
+    }).join('');
+    return `<tr><td style="font-weight:500;padding:6px 10px 6px 0;vertical-align:middle">${escapeHtmlMain(ix.name || '—')}</td>${cells}</tr>`;
+  }).join('');
+
+  // Totals row — sum of % per period, color-coded
+  const totalRow = periodKeys.map(key => {
+    const totalIn = tripgenDistribution.reduce((s, ix) => s + (Number(ix.allocs?.[key]?.pctIn) || 0), 0);
+    const totalOut = tripgenDistribution.reduce((s, ix) => s + (Number(ix.allocs?.[key]?.pctOut) || 0), 0);
+    const warnIn = totalIn > 100, warnOut = totalOut > 100;
+    return `<td style="text-align:center;padding:4px 6px">
+      <div style="font-size:11px;color:${warnIn ? 'var(--bad-text,#c0392b)' : 'var(--text2)'}">in: ${totalIn}%</div>
+      <div style="font-size:11px;color:${warnOut ? 'var(--bad-text,#c0392b)' : 'var(--text2)'}">out: ${totalOut}%</div>
+    </td>`;
+  }).join('');
+
+  // Results table — calculated trips
+  const hasAllocs = tripgenDistribution.length > 0 && periodKeys.length > 0;
+  let resultsHTML = '';
+  if (hasAllocs) {
+    const resultRows = tripgenDistribution.map(ix => {
+      const cells = periodKeys.map(key => {
+        const vol = volumes[key];
+        const a = ix.allocs?.[key] || { pctIn: 0, pctOut: 0 };
+        const trIn = calcTrips(vol.inbound, a.pctIn);
+        const trOut = calcTrips(vol.outbound, a.pctOut);
+        return `<td style="text-align:center;font-size:12px">+${trIn} in / +${trOut} out</td>`;
+      }).join('');
+      return `<tr><td style="font-weight:500;padding:6px 10px 6px 0">${escapeHtmlMain(ix.name || '—')}</td>${cells}</tr>`;
+    });
+    // Unallocated row
+    const unallocRow = periodKeys.map(key => {
+      const vol = volumes[key];
+      const usedIn = tripgenDistribution.reduce((s, ix) => s + (Number(ix.allocs?.[key]?.pctIn) || 0), 0);
+      const usedOut = tripgenDistribution.reduce((s, ix) => s + (Number(ix.allocs?.[key]?.pctOut) || 0), 0);
+      const remIn = Math.max(0, 100 - usedIn);
+      const remOut = Math.max(0, 100 - usedOut);
+      const trIn = calcTrips(vol.inbound, remIn);
+      const trOut = calcTrips(vol.outbound, remOut);
+      return `<td style="text-align:center;font-size:12px;color:var(--text3)">+${trIn} in / +${trOut} out</td>`;
+    }).join('');
+
+    // Source volumes row
+    const sourceRow = periodKeys.map(key => {
+      const vol = volumes[key];
+      return `<td style="text-align:center;font-size:11px;color:var(--text3)">${vol.inbound} in / ${vol.outbound} out</td>`;
+    }).join('');
+
+    resultsHTML = `
+      <div class="card" style="margin-top:20px">
+        <h3>Allocated trips by intersection</h3>
+        <div class="stat-detail" style="margin-bottom:10px">Generated trips × allocation % — rounded to nearest vehicle.</div>
+        <div style="overflow-x:auto">
+          <table class="crosswalk-table">
+            <thead>
+              <tr><th>Intersection</th>${periodHeads}</tr>
+              <tr style="background:var(--bg2)"><td style="font-size:11px;color:var(--text3)">Generated (peak hour)</td>${sourceRow}</tr>
+            </thead>
+            <tbody>
+              ${resultRows.join('')}
+              <tr style="color:var(--text3);font-style:italic"><td style="padding:6px 10px 6px 0">Unallocated</td>${unallocRow}</tr>
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+  }
+
+  root.innerHTML = `
+    <h1 style="font-size:22px;font-weight:500;margin-bottom:1.5rem">Distribution
+      <span style="font-size:14px;font-weight:400;color:var(--text2);margin-left:10px">allocate generated trips to nearby intersections</span>
+    </h1>
+    <div class="card" style="margin-bottom:14px">
+      <h3>Nearby intersections</h3>
+      <div class="stat-detail" style="margin-bottom:10px">Add the intersections that will receive generated trips from this site. Enter the % of inbound and outbound peak-hour trips allocated to each.</div>
+      <div id="dist-ix-list">${listHTML}</div>
+      <button id="btn-dist-add-ix" style="margin-top:8px;font-size:12px">+ add intersection</button>
+    </div>
+    ${tripgenDistribution.length > 0 && periodKeys.length > 0 ? `
+    <div class="card" style="margin-bottom:14px">
+      <h3>% allocation by peak period</h3>
+      <div class="stat-detail" style="margin-bottom:10px">Enter the percentage of generated inbound and outbound trips assigned to each intersection per peak period. Columns exceeding 100% are flagged.</div>
+      <div style="overflow-x:auto">
+        <table class="crosswalk-table">
+          <thead><tr><th>Intersection</th>${periodHeads}</tr></thead>
+          <tbody>${allocRows}</tbody>
+          <tfoot><tr style="font-weight:600"><td>Total allocated</td>${totalRow}</tr></tfoot>
+        </table>
+      </div>
+    </div>` : ''}
+    ${resultsHTML}`;
+
+  root.querySelector('#btn-dist-add-ix')?.addEventListener('click', () => {
+    tripgenDistribution.push({ id: tripgenDistNextId++, name: '', allocs: {} });
+    renderDistributionScreen();
+    scheduleAutosave();
+  });
+  root.querySelectorAll('[data-dist-remove]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = Number(btn.dataset.distRemove);
+      tripgenDistribution = tripgenDistribution.filter(ix => ix.id !== id);
+      renderDistributionScreen();
+      scheduleAutosave();
+    });
+  });
+  root.querySelectorAll('[data-dist-name]').forEach(inp => {
+    inp.addEventListener('change', () => {
+      const id = Number(inp.dataset.distName);
+      const ix = tripgenDistribution.find(x => x.id === id);
+      if (ix) { ix.name = inp.value; scheduleAutosave(); }
+    });
+  });
+  root.querySelectorAll('[data-dist-alloc]').forEach(inp => {
+    inp.addEventListener('change', () => {
+      const [idStr, dayType, peakLabel, field] = inp.dataset.distAlloc.split('__');
+      const key = `${dayType}__${peakLabel}`;
+      const ix = tripgenDistribution.find(x => x.id === Number(idStr));
+      if (!ix) return;
+      if (!ix.allocs[key]) ix.allocs[key] = { pctIn: 0, pctOut: 0 };
+      ix.allocs[key][field] = Math.max(0, Math.min(100, Number(inp.value) || 0));
+      renderDistributionScreen();
+      scheduleAutosave();
+    });
+  });
+}
 
 document.getElementById('btn-tripgen-analyze')?.addEventListener('click', () => goToTripgenAnalyze());
 

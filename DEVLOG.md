@@ -60,6 +60,12 @@ All built on existing data — no new collection types needed for Stage 1.
 
 ---
 
+## 2026-07-23 — v3.14.0 Trip Gen distribution tab
+
+**Distribution screen architecture:** New sidebar item "tg-distribution" → `tripgen-distribution-screen`. State lives in `tripgenDistribution[]` ({id, name, allocs: {[dayType__peakLabel]: {pctIn, pctOut}}}). `computePeakVolumes(entries, peakWindows)` was extracted as a named export from `tripgenSection.js` — it reuses the existing private `resolvePeak` / `inferIntervalMinutes` functions and sums across all entries for each day type × peak window combo. The distribution screen is fully re-rendered on every change (same pattern as QA/QC). Serialized under `distribution` key in the tripgen project payload; restored in `loadProject()`; cleared in the `btn-new-tripgen` handler.
+
+---
+
 ## 2026-07-22 — v3.13.0 implementation decisions
 
 **Per-period metadata architecture (equipment field):**
