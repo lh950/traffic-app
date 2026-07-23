@@ -754,6 +754,18 @@ tfoot td:first-child{text-align:left;color:var(--text2)}
   color:var(--sidebar-sub);cursor:pointer;width:100%;text-align:left;border:none;background:none}
 .sidebar-add-btn:hover{color:var(--sidebar-active-text);background:none}
 
+/* In-app back button */
+#app-back-btn{
+  position:fixed;top:10px;left:16px;z-index:500;
+  display:none;align-items:center;gap:4px;
+  padding:5px 11px;font-size:12px;font-weight:500;
+  color:var(--text2);background:var(--surface);
+  border:.5px solid var(--border);border-radius:var(--r);
+  cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,.08);
+  transition:background .12s,color .12s}
+#app-back-btn:hover{background:var(--surface2);color:var(--text)}
+body.workspace-mode #app-back-btn{left:240px}
+
 /* Push all workspace screens to the right when sidebar is visible */
 body.workspace-mode #home-screen,
 body.workspace-mode #landing-screen { display:none!important; }

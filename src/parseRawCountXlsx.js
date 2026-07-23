@@ -1,4 +1,4 @@
-// Parser for NYC DOT RawCountTemplate.xlsx (pedestrian count format)
+// Parser for standard pedestrian count XLSX template (RawCountTemplate format)
 // 16-movement pedestrian count: movements 1-8 = crosswalk volumes, 9-16 = corner/sidewalk
 // Requires window.XLSX (SheetJS, CDN-loaded)
 //
@@ -198,7 +198,7 @@ export function parseRawCountXlsx(arrayBuffer) {
     throw new Error(
       `No pedestrian count sheets found. Sheets: ${sheetList}. ` +
       (bColPreview ? `Column B preview: ${bColPreview}. ` : '') +
-      `This may be a vehicle/TMC count file — pedestrian import only supports NYC DOT pedestrian count template.`
+      `This may be a vehicle/TMC count file — pedestrian import only supports the standard pedestrian count template.`
     );
   }
 

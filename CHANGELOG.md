@@ -1,5 +1,21 @@
 # Changelog
 
+## v3.18.0 — 2026-07-23
+
+### Added
+- **In-app back button** — fixed-position "← Back" button appears whenever navigating away from the home screen. Tracks a history stack (capped at 30 entries) and returns to the previous screen without touching browser navigation. Clears automatically when returning home.
+- **Bug report / state export** — "Report a bug / export app state" button at the bottom of the home screen. Clicking it downloads a timestamped JSON snapshot of all localStorage data, current screen, nav history, and app version for easy debugging.
+- **"Project info" in area sidebar** — imported projects now show a "Project info" entry at the top of the Study section in the workspace sidebar, allowing users to reach the project metadata editor at any time.
+
+### Fixed
+- **TMC/raw count import auto-navigation** — after importing a TMC or pedestrian count XLSX, the app now navigates directly into the intersection counter view instead of landing on the area hub (where the imported data was not visible).
+
+### Changed
+- Removed all references to NYC city government data — TMC importer now described as "Standard TMC format"; error messages and code comments genericized accordingly.
+- "NYC Zola PDF" label in Trip Gen renamed to "Zoning reference PDF."
+
+---
+
 ## v3.17.0 — 2026-07-23
 
 ### Added
@@ -50,7 +66,7 @@
 ## v3.12.0 — 2026-07-21
 
 ### Added
-- **NYC DOT TMC XLSX import** — the XLSX import button (landing screen and area-study import) now auto-detects NYC DOT Turning Movement Count files (identified by "Turning movement" in the count-type metadata row). Detected files are parsed through a new `parseDotTmcXlsx` parser that reads 4 approaches × 3 movements = 12 direction columns, with 6 rows per interval (Car, Truck, Bus, Bike, blank, blank). Motor vehicles (Car + Truck + Bus) are summed into a single Motor type; Bike is kept separate if the file's Bike flag is Y. Multiple time blocks within a sheet become separate periods. The imported intersection loads with `mode: turning`, a standard 4-leg approach layout (N/W/S/E), and TMC data ready for analysis. Existing pedestrian XLSX import is unchanged — if TMC detection fails, the file falls through to the ped parser.
+- **Standard TMC XLSX import** — the XLSX import button (landing screen and area-study import) now auto-detects standard Turning Movement Count files (identified by "Turning movement" in the count-type metadata row). Detected files are parsed through a new `parseDotTmcXlsx` parser that reads 4 approaches × 3 movements = 12 direction columns, with 6 rows per interval (Car, Truck, Bus, Bike, blank, blank). Motor vehicles (Car + Truck + Bus) are summed into a single Motor type; Bike is kept separate if the file's Bike flag is Y. Multiple time blocks within a sheet become separate periods. The imported intersection loads with `mode: turning`, a standard 4-leg approach layout (N/W/S/E), and TMC data ready for analysis. Existing pedestrian XLSX import is unchanged — if TMC detection fails, the file falls through to the ped parser.
 
 ---
 

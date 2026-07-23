@@ -1,4 +1,4 @@
-// Parser for NYC DOT Turning Movement Count (TMC) XLSX template
+// Parser for standard Turning Movement Count (TMC) XLSX template
 // 4 approaches × 3 movements = 12 direction columns
 // 6 rows per 15-min interval: Car, Truck, Bus, Bike, (blank), (blank)
 // From/To time appears only on the Car row; Class column = "Car" / "Truck" / "Bus" / "Bike"

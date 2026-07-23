@@ -261,13 +261,39 @@ initApproaches();
 const SCREENS = ['home-screen', 'area-setup-screen', 'area-import-screen', 'summary-screen', 'export-screen', 'ix-analysis-screen', 'setup-screen', 'counter-screen', 'tripgen-setup-screen', 'tripgen-counter-screen', 'tripgen-qaqc-screen', 'tripgen-distribution-screen', 'analyze-screen'];
 let projectType = null; // 'intersection' | 'area' | 'tripgen' | null
 
+// ── In-app navigation history ──
+const _navHistory = [];
+let _currentScreen = 'home-screen';
+let _navLock = false;
+
+function _updateBackBtn() {
+  const btn = document.getElementById('app-back-btn');
+  if (!btn) return;
+  const show = _navHistory.length > 0 && _currentScreen !== 'home-screen';
+  btn.style.display = show ? 'flex' : 'none';
+}
+
+function goBack() {
+  if (!_navHistory.length) return;
+  _navLock = true;
+  const prev = _navHistory.pop();
+  showScreen(prev);
+  _navLock = false;
+}
+
 function showScreen(id) {
+  if (!_navLock && _currentScreen && _currentScreen !== id && id !== 'home-screen') {
+    _navHistory.push(_currentScreen);
+    if (_navHistory.length > 30) _navHistory.shift();
+  }
+  _currentScreen = id;
   SCREENS.forEach((s) => {
     const el = document.getElementById(s);
     if (!el) return;
     el.style.display = s === id ? '' : 'none';
     el.classList.toggle('active', s === id);
   });
+  _updateBackBtn();
 }
 
 // ── Workspace / sidebar ──
@@ -288,6 +314,7 @@ function exitWorkspace() {
 function showHome() {
   exitWorkspace();
   _sidebarActiveItem = null;
+  _navHistory.length = 0;
   showScreen('home-screen');
   renderHomeResumeBanner();
   renderHomeRecents();
@@ -328,6 +355,7 @@ function renderSidebarArea() {
   const studyItems = `
     <div class="sidebar-section">
       <div class="sidebar-section-label">Study</div>
+      <button class="sidebar-item" data-ws="area-hub">Project info</button>
       <button class="sidebar-item" data-ws="area-summary">Summary</button>
       <button class="sidebar-item" data-ws="area-import">Import CSV</button>
       <button class="sidebar-item" data-ws="area-export">Export</button>
@@ -407,6 +435,7 @@ function openWorkspaceTab(tab, idx) {
       break;
     }
     case 'export': showExportScreen(); break;
+    case 'area-hub': showAreaSetup(); break;
     case 'area-summary':
       if (typeof showSummaryScreen === 'function') showSummaryScreen();
       break;
@@ -568,6 +597,33 @@ document.getElementById('home-sync-input')?.addEventListener('change', (e) => {
   if (file) importSyncFile(file);
   e.target.value = '';
 });
+
+function downloadBugReport() {
+  const state = {};
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (!key) continue;
+    try { state[key] = JSON.parse(localStorage.getItem(key)); }
+    catch { state[key] = localStorage.getItem(key); }
+  }
+  const report = {
+    appVersion: document.title,
+    timestamp: new Date().toISOString(),
+    currentScreen: _currentScreen,
+    projectType,
+    navHistory: [..._navHistory],
+    storage: state,
+  };
+  const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `traffic-app-bug-report-${Date.now()}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+document.getElementById('home-btn-bug-report')?.addEventListener('click', downloadBugReport);
+document.getElementById('app-back-btn')?.addEventListener('click', goBack);
 // ────────────────────────────────────────────────────────────────────────────
 
 document.getElementById('sidebar-back-btn')?.addEventListener('click', showHome);
@@ -1830,7 +1886,13 @@ function loadTmcSheet(sheet) {
     areaIntersections.push({ name: locName, snapshot, street1: _streets.street1, street2: _streets.street2, corridor: '', counterName: '', lat: '', lng: '' });
     projectType = 'area';
     if (projectInfo.projectName === '') projectInfo.projectName = locName;
-    showAreaSetup();
+    // Navigate directly to data; user can reach project info via "Project info" in the sidebar
+    enterWorkspace();
+    setSidebarMeta(projectInfo.projectName, '');
+    renderAppSidebar();
+    resetUndoStacks(); updateUndoUI();
+    loadIntersectionIntoView(snapshot);
+    window.scheduleAutosave();
   }
 }
 
@@ -1898,7 +1960,12 @@ function loadRawCountSheet(sheet) {
     areaIntersections.push({ name: locName, snapshot, street1: _streets854.street1, street2: _streets854.street2, corridor: '', counterName: '', lat: '', lng: '' });
     projectType = 'area';
     if (projectInfo.projectName === '') projectInfo.projectName = locName;
-    showAreaSetup();
+    enterWorkspace();
+    setSidebarMeta(projectInfo.projectName, '');
+    renderAppSidebar();
+    resetUndoStacks(); updateUndoUI();
+    loadIntersectionIntoView(snapshot);
+    window.scheduleAutosave();
   }
 }
 
@@ -4472,7 +4539,7 @@ function renderTripgenLocationsList() {
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
         <div>
-          <div style="font-size:11px;color:var(--text3);margin-bottom:4px">NYC Zola PDF <span style="color:var(--text3)">(optional — site zoning reference)</span></div>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Zoning reference PDF <span style="color:var(--text3)">(optional — site zoning reference)</span></div>
           ${e.zolaPdfName
             ? `<div style="display:flex;align-items:center;gap:6px;font-size:12px">
                  <a href="${e.zolaPdfData}" download="${escapeHtmlMain(e.zolaPdfName)}" style="color:var(--blue-text)">${escapeHtmlMain(e.zolaPdfName)}</a>
@@ -4535,7 +4602,7 @@ function renderTripgenLocationsList() {
       editTripgenDay(Number(el.dataset.tgEditEntry), Number(el.dataset.tgEditDay));
     });
   });
-  // NYC Zola PDF upload
+  // Zoning reference PDF upload
   root.querySelectorAll('[data-tg-zola-upload]').forEach((input) => {
     input.addEventListener('change', (e) => {
       const file = e.target.files?.[0];

@@ -4,6 +4,16 @@ Key decisions, scope constraints, and architectural choices.
 
 ---
 
+## 2026-07-23 — v3.18.0
+
+**In-app back navigation:** Implemented a `_navHistory` stack in `main.js` rather than wiring the browser History API (`pushState`/`popstate`). Reason: pushState in a single-page app without a router creates a confusing loop where the browser back button can undermine workspace state. The in-app button is predictable, visible, and doesn't interfere with the browser's own back/forward for page-level navigation. History is capped at 30 and clears on home.
+
+**XLSX import auto-navigation:** Root cause of "no data visible" bug was UX, not parsing — `loadTmcSheet` and `loadRawCountSheet` were calling `showAreaSetup()` (the hub list), leaving users on a screen with no obvious next step. Fixed by calling `loadIntersectionIntoView(snapshot)` directly after setting up workspace, matching the flow for area-study intersections.
+
+**NYC branding removed:** All user-facing and code-level references to "NYC DOT" and "NYC Zola" genericized. The XLSX parsers work with any standard TMC/pedestrian template; the branding was an artifact of the initial template source.
+
+---
+
 ## 2026-07-08 — v3 strategic scope
 
 **Positioning:** Browser-based platform for collecting, organizing, validating, and communicating traffic count data. Covers the workflow before and around technical analysis engines (Synchro, HCS), not inside them.
