@@ -1,5 +1,12 @@
 # Changelog
 
+## v3.16.0 — 2026-07-23
+
+### Added
+- **Cross-device sync** — "Cross-device sync" section on the home screen with two buttons. "Export all projects…" bundles every UUID-keyed project from localStorage into a single `.tcsync` file (JSON with version tag and ISO timestamp). "Import projects…" reads a `.tcsync` file and merges projects by UUID — projects whose UUID already exists in the current device are skipped; new ones are written and added to the project index. Status line below the buttons confirms count imported or exported. Works fully offline with no server or account.
+
+---
+
 ## v3.15.0 — 2026-07-23
 
 ### Added

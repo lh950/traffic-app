@@ -503,6 +503,73 @@ document.getElementById('home-load-input')?.addEventListener('change', async (e)
   }
 });
 
+// ── Workspace sync ──────────────────────────────────────────────────────────
+function exportSyncFile() {
+  const index = loadProjectsIndex();
+  if (!index.length) {
+    const s = document.getElementById('home-sync-status');
+    if (s) { s.style.color = 'var(--text3)'; s.textContent = 'No saved projects found.'; }
+    return;
+  }
+  const projects = [];
+  for (const entry of index) {
+    try {
+      const raw = localStorage.getItem(`tc_project_${entry.uuid}`);
+      if (raw) projects.push(JSON.parse(raw));
+    } catch (_) {}
+  }
+  if (!projects.length) {
+    const s = document.getElementById('home-sync-status');
+    if (s) { s.style.color = 'var(--text3)'; s.textContent = 'No project data to export.'; }
+    return;
+  }
+  const blob = new Blob([JSON.stringify({ version: 1, exportedAt: new Date().toISOString(), projects }, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `traffic-projects-${new Date().toISOString().slice(0,10)}.tcsync`;
+  a.click();
+  URL.revokeObjectURL(url);
+  const s = document.getElementById('home-sync-status');
+  if (s) { s.style.color = 'var(--text3)'; s.textContent = `Exported ${projects.length} project${projects.length !== 1 ? 's' : ''}.`; }
+}
+
+async function importSyncFile(file) {
+  const statusEl = document.getElementById('home-sync-status');
+  const setStatus = (msg, isErr) => {
+    if (!statusEl) return;
+    statusEl.style.color = isErr ? 'var(--danger)' : 'var(--text3)';
+    statusEl.textContent = msg;
+  };
+  try {
+    const payload = JSON.parse(await file.text());
+    const list = Array.isArray(payload) ? payload : (Array.isArray(payload?.projects) ? payload.projects : null);
+    if (!list) { setStatus('Unrecognized .tcsync format.', true); return; }
+    let added = 0, skipped = 0;
+    for (const proj of list) {
+      if (!proj?.uuid || !proj?.projectType) { skipped++; continue; }
+      const existing = localStorage.getItem(`tc_project_${proj.uuid}`);
+      if (existing) { skipped++; continue; }
+      localStorage.setItem(`tc_project_${proj.uuid}`, JSON.stringify(proj));
+      upsertProjectIndex(proj);
+      added++;
+    }
+    setStatus(`Imported ${added} project${added !== 1 ? 's' : ''}${skipped ? `, ${skipped} already existed (skipped)` : ''}.`, false);
+    renderHomeRecents();
+  } catch (err) {
+    setStatus(`Import failed: ${err.message}`, true);
+  }
+}
+
+document.getElementById('home-btn-export-sync')?.addEventListener('click', exportSyncFile);
+document.getElementById('home-btn-import-sync')?.addEventListener('click', () => document.getElementById('home-sync-input')?.click());
+document.getElementById('home-sync-input')?.addEventListener('change', (e) => {
+  const file = e.target.files?.[0];
+  if (file) importSyncFile(file);
+  e.target.value = '';
+});
+// ────────────────────────────────────────────────────────────────────────────
+
 document.getElementById('sidebar-back-btn')?.addEventListener('click', showHome);
 
 showScreen('home-screen');
