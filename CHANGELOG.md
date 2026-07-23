@@ -1,5 +1,41 @@
 # Changelog
 
+## v3.13.0 — 2026-07-22
+
+### Added
+- **Per-period equipment field** — `periodMeta` now includes an `equipment` field (e.g. "manual", "TDC", "Miovision"). Shown in the counter meta bar between Observer and Notes. Flows through to print report and shareable export.
+- **Import templates** — after a successful CSV column mapping (auto-detected or AI), a "Save mapping as template" row appears on the preview step. Templates are stored in `tc_import_templates` (localStorage). On next import of the same file format (identical column headers), the saved template is applied instantly, skipping detection and AI entirely. A "Saved templates" panel with per-template delete appears at the top of the import screen when templates exist.
+- **Project UUID + per-project storage** — new projects are assigned a `crypto.randomUUID()` identifier on entry to the workspace. Autosave now writes to both the single `LS_KEY` slot (for the resume banner) and a per-project `tc_project_<uuid>` key. A lightweight `tc_projects_index` tracks metadata only (uuid, name, type, savedAt) — no embedded full JSON.
+- **Improved home screen portfolio** — "Projects" section on the home screen loads from `tc_projects_index` and per-project keys. Each entry has a real Delete button that removes the project data from localStorage. Legacy `tc_recents` entries (from before UUIDs) continue to show with a remove-from-list button.
+- **Autosave state indicator** — sidebar header shows "Saving…" while the 2-second autosave timer is pending and "Saved" briefly after it completes.
+
+### Fixed
+- **Period metadata not serialized** — `serializeCurrentProject()` for `intersection` type was silently dropping all period-level metadata (date, weather, observer, notes) on every save/export. `meta: p.data.meta || {}` is now included in each period's serialized object. This was a data-loss bug present since per-period metadata was added.
+- **`periodMeta.observer` referenced without import in `shareReport.js`** — the shareable export used `periodMeta` directly without importing it from `state.js`. Now the `exportShareablePage` call in `main.js` merges all `periodMeta` fields into `projectInfo` before passing it to `shareReport.js`, making `shareReport.js` a pure function.
+
+---
+
+## v3.12.0 — 2026-07-21
+
+### Added
+- **NYC DOT TMC XLSX import** — the XLSX import button (landing screen and area-study import) now auto-detects NYC DOT Turning Movement Count files (identified by "Turning movement" in the count-type metadata row). Detected files are parsed through a new `parseDotTmcXlsx` parser that reads 4 approaches × 3 movements = 12 direction columns, with 6 rows per interval (Car, Truck, Bus, Bike, blank, blank). Motor vehicles (Car + Truck + Bus) are summed into a single Motor type; Bike is kept separate if the file's Bike flag is Y. Multiple time blocks within a sheet become separate periods. The imported intersection loads with `mode: turning`, a standard 4-leg approach layout (N/W/S/E), and TMC data ready for analysis. Existing pedestrian XLSX import is unchanged — if TMC detection fails, the file falls through to the ped parser.
+
+---
+
+## v3.11.1 — 2026-07-21
+
+### Fixed
+- **Sidebar layout** — workspace screens no longer overlap with the sidebar. The CSS rule was using `padding-left` which inline `style="padding:..."` on every screen silently overrode; switched to `margin-left` which isn't affected by inline padding. Also added the `workspace-screen` class to `analyze-screen` and `tripgen-qaqc-screen` which were missing it.
+
+---
+
+## v3.11.0 — 2026-07-21
+
+### Added
+- **Signal warrant summary in shareable export** — the self-contained HTML export now includes a compact warrant screening section (Warrants 1–4) below the pedestrian counts. Uses the same HCM defaults as the interactive warrant tab (urban area type, 1 lane each approach, N/S as major street). Each warrant shows a MEETS / Does not meet / No data badge. Includes a disclaimer that this is screening only, not a formal engineering study.
+
+---
+
 ## v3.10.0 — 2026-07-21
 
 ### Added

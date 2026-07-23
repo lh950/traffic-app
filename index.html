@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Traffic App v3.10.0</title>
+<title>Traffic App v3.13.0</title>
 </head>
 <body>
 
@@ -28,6 +28,7 @@
     <button class="sidebar-back-btn" id="sidebar-back-btn">← All Projects</button>
     <div class="sidebar-project-name" id="sidebar-project-name"></div>
     <div class="sidebar-project-sub" id="sidebar-project-sub"></div>
+    <div id="sidebar-save-state" style="font-size:10px;color:var(--text3);min-height:14px;margin-top:2px"></div>
   </div>
   <nav class="sidebar-body" id="sidebar-body"></nav>
 </aside>
@@ -37,7 +38,7 @@
   <div class="home-inner">
     <div class="home-wordmark">
       <h1>Traffic App</h1>
-      <div class="home-version">v3.10.0</div>
+      <div class="home-version">v3.13.0</div>
     </div>
     <div id="home-resume-banner" style="display:none" class="home-resume-banner"></div>
     <div class="home-section-label" style="margin-bottom:10px">Start a new study</div>
@@ -78,7 +79,7 @@
     <!-- wordmark -->
     <div style="margin-bottom:2rem">
       <h1 style="font-size:22px;font-weight:500;letter-spacing:-.01em">Traffic App</h1>
-      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v3.10.0</span>
+      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v3.13.0</span>
     </div>
 
     <!-- autosave / resume banner -->
@@ -356,7 +357,7 @@
 
 <!-- = QA/QC SCREEN (standalone — separate from Analysis so recount entry isn't
      competing for screen space with site info / category grouping / charts) = -->
-<div id="tripgen-qaqc-screen" style="display:none;min-height:100vh;padding:2rem">
+<div id="tripgen-qaqc-screen" class="workspace-screen" style="display:none;min-height:100vh;padding:2rem">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem">
     <h1 style="font-size:22px;font-weight:500">QA/QC <span style="font-size:14px;font-weight:400;color:var(--text2,#6b6960);margin-left:10px">second-counter recounts</span></h1>
     <div style="display:flex;gap:8px">
@@ -381,7 +382,7 @@
 </div>
 
 <!-- = ANALYZE SCREEN = -->
-<div id="analyze-screen" style="display:none;min-height:100vh;padding:1.5rem 1.5rem 4rem">
+<div id="analyze-screen" class="workspace-screen" style="display:none;min-height:100vh;padding:1.5rem 1.5rem 4rem">
   <div class="app-header">
     <h1>Analysis <span id="analyze-sub"></span></h1>
     <div class="actions no-print" style="display:flex;gap:8px">
@@ -704,7 +705,7 @@
 
   <header class="counter-header">
     <button id="btn-back-to-project" style="font-size:12px;padding:4px 10px;margin-right:8px">← Project</button>
-    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v3.10.0</span></h1>
+    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v3.13.0</span></h1>
     <div class="hcontrols">
       <div class="mode-toggle" style="display:none">
         <button class="mode-btn active" id="btn-count-mode" onclick="goToCountMode()">count</button>
@@ -1128,6 +1129,14 @@
     <h1 style="font-size:22px;font-weight:500;letter-spacing:-.01em">Import CSV <span style="font-size:14px;font-weight:400;color:var(--text2);margin-left:6px">column mapping</span></h1>
   </div>
 
+  <!-- Saved templates panel (shown when templates exist) -->
+  <div id="import-templates-panel" style="display:none;max-width:620px;margin-bottom:14px">
+    <div class="ix-card ix-card-full">
+      <div class="ix-card-header">Saved templates</div>
+      <div id="import-templates-list"></div>
+    </div>
+  </div>
+
   <!-- Step 1: Upload -->
   <div id="import-step-upload" class="ix-card ix-card-full" style="max-width:620px">
     <div class="ix-card-header">Select file</div>
@@ -1196,6 +1205,12 @@
       <button class="btn-primary" id="import-confirm-btn">Import as intersection →</button>
       <button id="import-retry-btn">← Start over</button>
       <span id="import-step3-error" style="font-size:12px;color:var(--danger)"></span>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding-top:12px;border-top:1px solid var(--border);margin-top:12px">
+      <span style="font-size:12px;color:var(--text2)">Save mapping as template:</span>
+      <input id="import-template-name" type="text" placeholder="e.g. Miovision, ATR-24" style="font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);width:180px">
+      <button id="import-save-template-btn" style="font-size:12px;padding:4px 10px">Save template</button>
+      <span id="import-template-save-msg" style="font-size:12px;color:var(--text2)"></span>
     </div>
   </div>
 </div>

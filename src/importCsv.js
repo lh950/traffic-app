@@ -2,6 +2,31 @@
 
 export const LS_API_KEY = 'traffic-app-claude-api-key';
 export const LS_LEARNED_MAPS = 'traffic-app-learned-column-maps';
+export const LS_IMPORT_TEMPLATES = 'tc_import_templates';
+
+export function saveImportTemplate(name, mapping, headers) {
+  try {
+    const templates = loadImportTemplates();
+    templates.push({ id: Date.now().toString(36), name, savedAt: new Date().toISOString(), columnSignature: [...headers].sort(), mapping });
+    localStorage.setItem(LS_IMPORT_TEMPLATES, JSON.stringify(templates));
+  } catch (_) {}
+}
+
+export function loadImportTemplates() {
+  try { return JSON.parse(localStorage.getItem(LS_IMPORT_TEMPLATES) || '[]'); } catch (_) { return []; }
+}
+
+export function deleteImportTemplate(id) {
+  try {
+    const templates = loadImportTemplates().filter(t => t.id !== id);
+    localStorage.setItem(LS_IMPORT_TEMPLATES, JSON.stringify(templates));
+  } catch (_) {}
+}
+
+export function findMatchingTemplate(headers) {
+  const sig = [...headers].sort().join('\0');
+  return loadImportTemplates().find(t => [...t.columnSignature].sort().join('\0') === sig) || null;
+}
 
 /** Save column→code pairs learned from a successful Claude mapping to localStorage. */
 export function saveLearnedMappings(mapping) {

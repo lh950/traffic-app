@@ -757,7 +757,7 @@ tfoot td:first-child{text-align:left;color:var(--text2)}
 /* Push all workspace screens to the right when sidebar is visible */
 body.workspace-mode #home-screen,
 body.workspace-mode #landing-screen { display:none!important; }
-body.workspace-mode .workspace-screen{padding-left:224px}
+body.workspace-mode .workspace-screen{margin-left:224px}
 body.workspace-mode #setup-screen{margin-left:224px}
 body.workspace-mode #counter-screen{padding-left:0}
 body.workspace-mode .counter-header,

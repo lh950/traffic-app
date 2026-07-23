@@ -1,6 +1,41 @@
 // Shareable study page — a self-contained HTML file the user can email or host.
 // Screen-optimised (not print-optimised), dark/light aware.
 
+import { toHourlyVolumes, runWarrant1, runWarrant2, runWarrant3, runWarrant4 } from './warrant.js';
+
+// ── Signal warrant summary (uses same defaults as the interactive warrant UI) ─
+
+function computeShareableWarrants(tmcParsed, pedParsed, intervalMin) {
+  const allLegs = (tmcParsed?.approaches || []).map(a => a.leg).filter(Boolean);
+  if (!allLegs.length) return null;
+  const majorLegs = new Set(
+    allLegs.filter(l => l === 'N' || l === 'S').length >= 2
+      ? allLegs.filter(l => l === 'N' || l === 'S')
+      : allLegs.slice(0, 2)
+  );
+  const minorLegs = allLegs.filter(l => !majorLegs.has(l));
+  const hasTmc = tmcParsed?.intervals?.some(iv =>
+    Object.values(iv.counts).some(dests => Object.values(dests).some(arr => arr.some(v => v > 0))));
+  let w1 = null, w2 = null, w3 = null;
+  if (hasTmc && majorLegs.size > 0 && minorLegs.length > 0) {
+    const hourly = toHourlyVolumes(tmcParsed, majorLegs, intervalMin);
+    if (hourly.length > 0) {
+      w1 = runWarrant1(hourly, 1, 1);
+      w2 = runWarrant2(hourly, 'urban');
+      w3 = runWarrant3(hourly, 'urban');
+    }
+  }
+  const w4 = runWarrant4(pedParsed, intervalMin);
+  const results = [
+    { num: 1, title: 'Eight-Hour Vehicular Volume', result: w1 },
+    { num: 2, title: 'Four-Hour Vehicular Volume',  result: w2 },
+    { num: 3, title: 'Peak Hour',                   result: w3 },
+    { num: 4, title: 'Pedestrian Volume',            result: w4 },
+  ];
+  const anyData = results.some(r => r.result !== null);
+  return anyData ? results : null;
+}
+
 // ── TMC peak-hour computation ─────────────────────────────────────────────────
 
 function computePeakHour(tmcParsed) {
@@ -272,13 +307,27 @@ a{color:var(--accent)}
 .tmd-legend{display:flex;gap:16px;justify-content:center;margin-top:10px;font-size:11px;color:var(--text2)}
 .tmd-sw{display:inline-block;width:24px;height:3px;border-radius:2px;margin-right:5px;vertical-align:middle}
 
+/* Warrant summary */
+.warrant-grid{display:flex;flex-wrap:wrap;gap:10px}
+.warrant-row{display:flex;align-items:center;gap:8px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:8px 12px;min-width:220px;flex:1}
+.warrant-badge{font-size:10px;font-weight:700;border-radius:4px;padding:2px 7px;white-space:nowrap}
+.warrant-badge.pass{background:#dcfce7;color:#166534}
+.warrant-badge.fail{background:#fee2e2;color:#991b1b}
+.warrant-badge.na{background:var(--border);color:var(--text3)}
+@media(prefers-color-scheme:dark){
+  .warrant-badge.pass{background:#14532d;color:#86efac}
+  .warrant-badge.fail{background:#7f1d1d;color:#fca5a5}
+}
+.warrant-num{font-size:11px;font-weight:700;color:var(--text3)}
+.warrant-title{font-size:12px;color:var(--text);flex:1}
+
 /* Footer */
 .page-footer{margin-top:40px;padding-top:14px;border-top:1px solid var(--border);font-size:11px;color:var(--text3);display:flex;justify-content:space-between;align-items:center}
 `;
 
 // ── Main export ───────────────────────────────────────────────────────────────
 
-export function exportShareablePage(projectInfo, intersection, vehParsed, pedParsed, tmcParsed, motorIdx, bikeIdx, hasBikes) {
+export function exportShareablePage(projectInfo, intersection, vehParsed, pedParsed, tmcParsed, motorIdx, bikeIdx, hasBikes, intervalMin = 15) {
   const legLabels = intersection.legLabels || {};
 
   // Meta
@@ -287,7 +336,7 @@ export function exportShareablePage(projectInfo, intersection, vehParsed, pedPar
     projectInfo.date          && { label: 'Date', value: fmtDate(projectInfo.date) },
     projectInfo.weather       && { label: 'Weather', value: projectInfo.weather },
     projectInfo.counterName   && { label: 'Counter', value: projectInfo.counterName },
-    periodMeta.observer       && !projectInfo.counterName && { label: 'Observer', value: periodMeta.observer },
+    projectInfo.equipment     && { label: 'Equipment', value: projectInfo.equipment },
     projectInfo.companyName   && { label: 'Firm', value: projectInfo.companyName },
     projectInfo.studyPurpose  && { label: 'Purpose', value: projectInfo.studyPurpose },
   ].filter(Boolean);
@@ -354,6 +403,27 @@ export function exportShareablePage(projectInfo, intersection, vehParsed, pedPar
     ${buildPedHtml(pedParsed)}
   </div>` : '';
 
+  // Signal warrant summary
+  const warrantResults = computeShareableWarrants(tmcParsed, pedParsed, intervalMin);
+  const warrantsSection = warrantResults ? `
+  <div class="section">
+    <div class="section-title">Signal warrant screening (HCM defaults — urban, 1 lane each approach)</div>
+    <div class="warrant-grid">
+      ${warrantResults.map(w => {
+        const r = w.result;
+        const badge = r === null
+          ? `<span class="warrant-badge na">No data</span>`
+          : r.noData
+            ? `<span class="warrant-badge na">No data</span>`
+            : r.passed
+              ? `<span class="warrant-badge pass">MEETS</span>`
+              : `<span class="warrant-badge fail">Does not meet</span>`;
+        return `<div class="warrant-row"><span class="warrant-num">${w.num}</span><span class="warrant-title">${w.title}</span>${badge}</div>`;
+      }).join('')}
+    </div>
+    <p style="margin-top:8px;font-size:11px;color:var(--text3)">Screening only — does not substitute for a formal engineering study.</p>
+  </div>` : '';
+
   const generatedOn = new Date().toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' });
 
   const html = `<!DOCTYPE html>
@@ -382,6 +452,7 @@ export function exportShareablePage(projectInfo, intersection, vehParsed, pedPar
   ${motorSection}
   ${bikeSection}
   ${pedSection}
+  ${warrantsSection}
 
   <footer class="page-footer">
     <span>Generated ${generatedOn}</span>

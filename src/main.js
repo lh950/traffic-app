@@ -3,6 +3,9 @@ import './analysis/style.css';
 
 const LS_KEY = 'traffic-app-autosave';
 const LS_RECENTS_KEY = 'tc_recents';
+const LS_PROJECTS_INDEX = 'tc_projects_index';
+
+let projectUUID = null;
 
 import {
   cfg, vPairs, tmcPairs, setTmcPairs, intersection, fnames, vData, pedData, tmcData,
@@ -39,7 +42,8 @@ import {
 
 import { parseTmcCsv } from './parseTmcCsv.js';
 import { parseRawCountXlsx, buildIntersectionFromMeta } from './parseRawCountXlsx.js';
-import { parseCSV, detectColumnsLocally, mapColumnsWithClaude, buildSnapshotFromMapping, saveLearnedMappings, LS_API_KEY } from './importCsv.js';
+import { parseDotTmcXlsx, buildTmcIntersectionFromMeta } from './parseDotTmcXlsx.js';
+import { parseCSV, detectColumnsLocally, mapColumnsWithClaude, buildSnapshotFromMapping, saveLearnedMappings, saveImportTemplate, loadImportTemplates, deleteImportTemplate, findMatchingTemplate, LS_API_KEY } from './importCsv.js';
 import * as analysisData from './analysis/ui/dataAdapter.js';
 import { renderSummary } from './analysis/ui/summary.js';
 import { renderTmcSection } from './analysis/ui/tmcDiagram.js';
@@ -140,6 +144,7 @@ Object.assign(window, {
     weather: periodMeta.weather,
     counterName: periodMeta.observer || projectInfo.counterName,
     studyPurpose: periodMeta.notes || projectInfo.studyPurpose,
+    equipment: periodMeta.equipment,
   }),
   exportAnalyzeXLSX: () => {
     if (projectType === 'tripgen') exportTripgenXLSX(tripgenEntries, tripgenSiteInfo, projectInfo);
@@ -268,11 +273,13 @@ function showScreen(id) {
 let _sidebarActiveItem = null;
 
 function enterWorkspace() {
+  if (!projectUUID) projectUUID = crypto.randomUUID();
   document.body.classList.add('workspace-mode');
   document.getElementById('app-sidebar')?.classList.add('visible');
 }
 
 function exitWorkspace() {
+  projectUUID = null;
   document.body.classList.remove('workspace-mode');
   document.getElementById('app-sidebar')?.classList.remove('visible');
 }
@@ -812,7 +819,10 @@ async function renderAnalyzePeriodContent(root, vehParsed, pedParsed, tmcParsed)
   }
 
   document.getElementById('btn-share-report')?.addEventListener('click', () => {
-    exportShareablePage(projectInfo, intersection, vehParsed, pedParsed, tmcParsed, motorIdx, bikeIdx, hasBikes);
+    exportShareablePage(
+      { ...projectInfo, date: periodMeta.date || projectInfo.date, weather: periodMeta.weather || projectInfo.weather, counterName: periodMeta.observer || projectInfo.counterName, studyPurpose: periodMeta.notes || projectInfo.studyPurpose, equipment: periodMeta.equipment },
+      intersection, vehParsed, pedParsed, tmcParsed, motorIdx, bikeIdx, hasBikes, cfg?.intervalMin || 15
+    );
   });
 }
 
@@ -1221,9 +1231,18 @@ document.getElementById('btn-area-import-xlsx')?.addEventListener('click', () =>
     for (const file of files) {
       try {
         const buf = await file.arrayBuffer();
-        const sheets = parseRawCountXlsx(buf);
+        let sheets, isTmc = false;
+        try {
+          sheets = parseDotTmcXlsx(buf);
+          isTmc = true;
+        } catch (_tmcErr) {
+          sheets = parseRawCountXlsx(buf);
+        }
         // Auto-import all valid sheets — no picker in batch mode
-        for (const sheet of sheets) loadRawCountSheet(sheet);
+        for (const sheet of sheets) {
+          if (isTmc) loadTmcSheet(sheet);
+          else loadRawCountSheet(sheet);
+        }
       } catch (err) {
         errors.push(`${file.name}: ${err.message}`);
       }
@@ -1302,11 +1321,30 @@ function importSetStep(step) {
   document.getElementById('import-step-preview').style.display      = step === 'preview' ? '' : 'none';
 }
 
+function renderImportTemplatesPanel() {
+  const panel = document.getElementById('import-templates-panel');
+  const list = document.getElementById('import-templates-list');
+  if (!panel || !list) return;
+  const templates = loadImportTemplates();
+  if (!templates.length) { panel.style.display = 'none'; return; }
+  panel.style.display = '';
+  list.innerHTML = templates.map(t => `
+    <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border)">
+      <span style="flex:1;font-size:13px">${t.name}</span>
+      <span style="font-size:11px;color:var(--text2)">${t.savedAt ? new Date(t.savedAt).toLocaleDateString() : ''}</span>
+      <button data-tpl-id="${t.id}" style="font-size:11px;padding:2px 8px;color:var(--danger)">Delete</button>
+    </div>`).join('');
+  list.querySelectorAll('[data-tpl-id]').forEach(btn => {
+    btn.addEventListener('click', () => { deleteImportTemplate(btn.dataset.tplId); renderImportTemplatesPanel(); });
+  });
+}
+
 function showImportScreen() {
   _sidebarActiveItem = 'area-import';
   renderAppSidebar();
   showScreen('area-import-screen');
   importSetStep('upload');
+  renderImportTemplatesPanel();
   document.getElementById('import-step1-error').textContent = '';
   // Pre-fill saved API key hint
   const savedKey = localStorage.getItem(LS_API_KEY);
@@ -1347,6 +1385,14 @@ document.getElementById('import-detect-btn')?.addEventListener('click', async ()
   const { headers, rows } = parseCSV(text);
   _csvImportHeaders = headers;
   _csvImportRows = rows;
+
+  const tpl = findMatchingTemplate(headers);
+  if (tpl) {
+    _csvImportMapping = tpl.mapping;
+    renderImportPreview(tpl.mapping, headers, rows, `template: ${tpl.name}`);
+    importSetStep('preview');
+    return;
+  }
 
   const local = detectColumnsLocally(headers, rows);
   if (local && local._localMatched >= MIN_MOVEMENTS_TO_ACCEPT) {
@@ -1436,6 +1482,18 @@ function renderImportPreview(mapping, headers, rows, source) {
 document.getElementById('import-retry-btn')?.addEventListener('click', () => {
   importSetStep('upload');
   document.getElementById('import-step1-error').textContent = '';
+});
+
+document.getElementById('import-save-template-btn')?.addEventListener('click', () => {
+  const nameEl = document.getElementById('import-template-name');
+  const msgEl = document.getElementById('import-template-save-msg');
+  const name = nameEl?.value?.trim();
+  if (!name) { if (msgEl) msgEl.textContent = 'Enter a name first.'; return; }
+  if (!_csvImportMapping || !_csvImportHeaders) { if (msgEl) msgEl.textContent = 'No mapping to save.'; return; }
+  saveImportTemplate(name, _csvImportMapping, _csvImportHeaders);
+  if (msgEl) msgEl.textContent = `Saved "${name}" ✓`;
+  if (nameEl) nameEl.value = '';
+  setTimeout(() => { if (msgEl) msgEl.textContent = ''; }, 3000);
 });
 
 document.getElementById('import-confirm-btn')?.addEventListener('click', () => {
@@ -1573,12 +1631,19 @@ document.getElementById('import-raw-count-input')?.addEventListener('change', as
   const errEl = document.getElementById('load-project-error');
   try {
     const buf = await file.arrayBuffer();
-    const sheets = parseRawCountXlsx(buf);
+    let sheets, loadFn;
+    try {
+      sheets = parseDotTmcXlsx(buf);
+      loadFn = loadTmcSheet;
+    } catch (_tmcErr) {
+      sheets = parseRawCountXlsx(buf);
+      loadFn = loadRawCountSheet;
+    }
     errEl.textContent = '';
     if (sheets.length === 1) {
-      loadRawCountSheet(sheets[0]);
+      loadFn(sheets[0]);
     } else {
-      renderRawCountSheetPicker(sheets);
+      renderRawCountSheetPicker(sheets, loadFn);
     }
   } catch (err) {
     errEl.textContent = `Could not import: ${err.message}`;
@@ -1587,7 +1652,7 @@ document.getElementById('import-raw-count-input')?.addEventListener('change', as
   e.target.value = '';
 });
 
-function renderRawCountSheetPicker(sheets) {
+function renderRawCountSheetPicker(sheets, loadFn = loadRawCountSheet) {
   const banner = document.getElementById('autosave-banner');
   banner.innerHTML = `
     <div style="margin-bottom:8px;font-size:13px;font-weight:500">
@@ -1621,13 +1686,79 @@ function renderRawCountSheetPicker(sheets) {
       const sheet = sheets[Number(btn.dataset.sheetIdx)];
       banner.style.display = 'none';
       banner.innerHTML = '';
-      loadRawCountSheet(sheet);
+      loadFn(sheet);
     });
   });
   document.getElementById('btn-dismiss-sheet-picker')?.addEventListener('click', () => {
     banner.style.display = 'none';
     banner.innerHTML = '';
   });
+}
+
+function tmcSheetToSnapshot(sheet) {
+  const { meta, periods: parsedPeriods } = sheet;
+  const locName = [meta.locationNS, meta.locationEW].filter(Boolean).join(' & ') || sheet.sheetName;
+  const newIntersection = buildTmcIntersectionFromMeta(meta);
+  const hasBike = parsedPeriods.some(p => p.hasBike);
+  const tmcPairs = [{ label: 'Motor', def: '', key: 'a', isBike: false }];
+  if (hasBike) tmcPairs.push({ label: 'Bike', def: '', key: 'b', isBike: true });
+  return {
+    version: 2, projectType: 'intersection', mode: 'turning',
+    vPairs: [{ label: 'Vehicles', inKey: 'a', outKey: 'z', icon: null }],
+    tmcPairs,
+    intersection: newIntersection,
+    fnames: { vehicle: locName, ped: locName, tmc: locName },
+    activePeriodIdx: 0,
+    periods: parsedPeriods.map(p => ({
+      name: p.name, cfg: p.data.cfg,
+      vData: p.data.vData,
+      pedData: p.data.pedData,
+      tmcData: p.data.tmcData,
+      vManual: { in: [], out: [] },
+      pedManual: p.data.pedManual.map(() => []),
+      tmManual: {},
+    })),
+  };
+}
+
+function loadTmcSheet(sheet) {
+  if (!sheet.periods || !sheet.periods.length) return;
+  const locName = [sheet.meta.locationNS, sheet.meta.locationEW].filter(Boolean).join(' & ') || sheet.sheetName;
+  const snapshot = tmcSheetToSnapshot(sheet);
+
+  if (projectType === 'area') {
+    const onHub = document.getElementById('area-setup-screen')?.style.display !== 'none';
+    if (!onHub && areaIntersections.length > 0) {
+      try { areaIntersections[activeIntersectionIdx].snapshot = serializeIntersectionSnapshot(); } catch (_) {}
+    }
+    const existing = areaIntersections.find(ix => ix.name === locName);
+    if (existing) {
+      const newPeriods = snapshot.periods.filter(
+        np => !existing.snapshot.periods.some(ep => ep.name === np.name)
+      );
+      existing.snapshot.periods.push(...newPeriods);
+      renderAreaIntersectionsList();
+      return;
+    }
+    const _streets = extractStreets({ name: locName, snapshot });
+    areaIntersections.push({ name: locName, snapshot, street1: _streets.street1, street2: _streets.street2, corridor: '', counterName: '', lat: '', lng: '' });
+    activeIntersectionIdx = areaIntersections.length - 1;
+    if (document.getElementById('area-setup-screen')?.style.display !== 'none') {
+      renderAreaIntersectionsList();
+    } else {
+      resetUndoStacks(); updateUndoUI();
+      loadIntersectionIntoView(snapshot);
+      window.scheduleAutosave();
+    }
+  } else {
+    areaIntersections.length = 0;
+    activeIntersectionIdx = 0;
+    const _streets = extractStreets({ name: locName, snapshot });
+    areaIntersections.push({ name: locName, snapshot, street1: _streets.street1, street2: _streets.street2, corridor: '', counterName: '', lat: '', lng: '' });
+    projectType = 'area';
+    if (projectInfo.projectName === '') projectInfo.projectName = locName;
+    showAreaSetup();
+  }
 }
 
 function rawCountSheetToSnapshot(sheet) {
@@ -1877,6 +2008,11 @@ function buildPeriodMetaBar() {
   const obsEl = mk('input', { type: 'text', className: 'period-meta-input period-meta-wide', placeholder: 'name', value: periodMeta.observer || '' });
   obsEl.addEventListener('input', () => { periodMeta.observer = obsEl.value; window.scheduleAutosave(); });
   bar.appendChild(obsEl);
+
+  lbl('equipment:');
+  const eqEl = mk('input', { type: 'text', className: 'period-meta-input period-meta-wide', placeholder: 'e.g. manual, TDC', value: periodMeta.equipment || '' });
+  eqEl.addEventListener('input', () => { periodMeta.equipment = eqEl.value; window.scheduleAutosave(); });
+  bar.appendChild(eqEl);
 
   lbl('notes:');
   const notesEl = mk('input', { type: 'text', className: 'period-meta-input period-meta-notes', placeholder: 'optional', value: periodMeta.notes || '' });
@@ -3621,6 +3757,7 @@ function downloadJSON(obj, filename) {
 }
 
 function loadProject(proj) {
+  projectUUID = proj.uuid || crypto.randomUUID();
   if (proj.projectInfo) {
     Object.assign(projectInfo, proj.projectInfo);
     wireProjectInfoFields(); // re-sync all input values from restored state
@@ -3731,7 +3868,7 @@ function serializeCurrentProject() {
   if (projectType === 'area') {
     areaIntersections[activeIntersectionIdx].snapshot = serializeIntersectionSnapshot();
     return {
-      version: 2, projectType: 'area', savedAt: new Date().toISOString(),
+      version: 2, projectType: 'area', savedAt: new Date().toISOString(), uuid: projectUUID,
       projectInfo: { ...projectInfo },
       activeIntersectionIdx,
       intersections: areaIntersections.map(ix => ({ name: ix.name, snapshot: ix.snapshot, street1: ix.street1 || '', street2: ix.street2 || '', corridor: ix.corridor || '', counterName: ix.counterName || '', lat: ix.lat || '', lng: ix.lng || '' })),
@@ -3741,7 +3878,7 @@ function serializeCurrentProject() {
     // Snapshot active period before serializing
     if (periods.length > 0) periods[activePeriodIdx].data = captureActivePeriod();
     return {
-      version: 2, projectType: 'intersection', savedAt: new Date().toISOString(),
+      version: 2, projectType: 'intersection', savedAt: new Date().toISOString(), uuid: projectUUID,
       projectInfo: { ...projectInfo },
       mode,
       enabledModes: { ...enabledModes },
@@ -3754,6 +3891,7 @@ function serializeCurrentProject() {
       periods: periods.map(p => ({
         name: p.name,
         cfg: p.data.cfg,
+        meta: p.data.meta || {},
         vData: JSON.parse(JSON.stringify(p.data.vData)),
         pedData: JSON.parse(JSON.stringify(p.data.pedData)),
         tmcData: JSON.parse(JSON.stringify(p.data.tmcData)),
@@ -3765,7 +3903,7 @@ function serializeCurrentProject() {
   }
   if (projectType === 'tripgen') {
     return {
-      version: 1, projectType: 'tripgen', savedAt: new Date().toISOString(),
+      version: 1, projectType: 'tripgen', savedAt: new Date().toISOString(), uuid: projectUUID,
       projectInfo: { ...projectInfo },
       siteInfo: { ...tripgenSiteInfo }, categoryMap: { ...tripgenCategoryMap },
       peakWindows: JSON.parse(JSON.stringify(tripgenPeakWindows)),
@@ -3779,8 +3917,19 @@ function serializeCurrentProject() {
 }
 
 let _autosaveTimer = null;
+let _saveStateTimer = null;
+
+function setSaveState(msg, durationMs) {
+  const el = document.getElementById('sidebar-save-state');
+  if (!el) return;
+  el.textContent = msg;
+  clearTimeout(_saveStateTimer);
+  if (durationMs) _saveStateTimer = setTimeout(() => { el.textContent = ''; }, durationMs);
+}
+
 window.scheduleAutosave = function () {
   if (!projectType) return;
+  setSaveState('Saving…');
   clearTimeout(_autosaveTimer);
   _autosaveTimer = setTimeout(() => {
     try {
@@ -3788,64 +3937,139 @@ window.scheduleAutosave = function () {
       if (proj) {
         localStorage.setItem(LS_KEY, JSON.stringify(proj));
         addToRecents(proj);
+        setSaveState('Saved', 2000);
       }
-    } catch (_) {}
+    } catch (_) { setSaveState('', 0); }
   }, 2000);
 };
 
 function clearAutosave() { localStorage.removeItem(LS_KEY); }
 
+function getProjectName(proj) {
+  return proj?.projectType === 'tripgen'
+    ? (proj.siteInfo?.location || proj.projectInfo?.projectName || 'Trip generation project')
+    : proj?.projectType === 'area'
+      ? (proj.projectInfo?.projectName || 'Area study')
+      : (proj?.projectInfo?.projectName || 'Intersection count');
+}
+
+function loadProjectsIndex() {
+  try { return JSON.parse(localStorage.getItem(LS_PROJECTS_INDEX) || '[]'); } catch (_) { return []; }
+}
+
+function upsertProjectIndex(proj) {
+  if (!proj?.uuid || !proj?.projectType) return;
+  try {
+    const name = getProjectName(proj);
+    const index = loadProjectsIndex().filter(e => e.uuid !== proj.uuid);
+    index.unshift({ uuid: proj.uuid, name, type: proj.projectType, savedAt: proj.savedAt || new Date().toISOString() });
+    localStorage.setItem(LS_PROJECTS_INDEX, JSON.stringify(index));
+  } catch (_) {}
+}
+
+function deleteProjectFromStorage(uuid) {
+  if (!uuid) return;
+  try { localStorage.removeItem(`tc_project_${uuid}`); } catch (_) {}
+  try {
+    const index = loadProjectsIndex().filter(e => e.uuid !== uuid);
+    localStorage.setItem(LS_PROJECTS_INDEX, JSON.stringify(index));
+  } catch (_) {}
+}
+
 function addToRecents(proj) {
   if (!proj?.projectType) return;
-  try {
-    const name = proj.projectType === 'tripgen'
-      ? (proj.siteInfo?.location || proj.projectInfo?.projectName || 'Trip generation project')
-      : proj.projectType === 'area'
-        ? (proj.projectInfo?.projectName || 'Area study')
-        : (proj.projectInfo?.projectName || 'Intersection count');
-    const entry = { name, type: proj.projectType, savedAt: proj.savedAt || new Date().toISOString(), data: proj };
-    let list = [];
-    try { list = JSON.parse(localStorage.getItem(LS_RECENTS_KEY) || '[]'); } catch (_) {}
-    list = list.filter(r => !(r.name === name && r.type === proj.projectType));
-    list.unshift(entry);
-    list = list.slice(0, 8);
-    localStorage.setItem(LS_RECENTS_KEY, JSON.stringify(list));
-  } catch (_) {}
+  if (proj.uuid) {
+    try {
+      localStorage.setItem(`tc_project_${proj.uuid}`, JSON.stringify(proj));
+      upsertProjectIndex(proj);
+    } catch (_) {}
+  } else {
+    try {
+      const name = getProjectName(proj);
+      const entry = { name, type: proj.projectType, savedAt: proj.savedAt || new Date().toISOString(), data: proj };
+      let list = [];
+      try { list = JSON.parse(localStorage.getItem(LS_RECENTS_KEY) || '[]'); } catch (_) {}
+      list = list.filter(r => !(r.name === name && r.type === proj.projectType));
+      list.unshift(entry);
+      list = list.slice(0, 8);
+      localStorage.setItem(LS_RECENTS_KEY, JSON.stringify(list));
+    } catch (_) {}
+  }
 }
 
 function renderHomeRecents() {
   const el = document.getElementById('home-recents');
   if (!el) return;
-  let list = [];
-  try { list = JSON.parse(localStorage.getItem(LS_RECENTS_KEY) || '[]'); } catch (_) {}
-  if (!list.length) { el.style.display = 'none'; return; }
-  el.style.display = '';
   const typeLabel = t => t === 'tripgen' ? 'Trip Gen' : t === 'area' ? 'Area Study' : 'Intersection';
+
+  const indexEntries = loadProjectsIndex();
+  let legacyList = [];
+  try { legacyList = JSON.parse(localStorage.getItem(LS_RECENTS_KEY) || '[]'); } catch (_) {}
+  const indexUUIDs = new Set(indexEntries.map(e => e.uuid));
+  // Filter legacy: exclude any that have a UUID already in the index
+  legacyList = legacyList.filter(r => !r.data?.uuid || !indexUUIDs.has(r.data.uuid));
+
+  if (!indexEntries.length && !legacyList.length) { el.style.display = 'none'; return; }
+  el.style.display = '';
+
+  const cardStyle = 'flex-direction:row;align-items:center;gap:12px;cursor:pointer';
+  const btnBase = 'flex-shrink:0;width:22px;height:22px;border-radius:50%;border:.5px solid var(--border);background:var(--surface2);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1';
+
+  const indexHtml = indexEntries.map(e => `
+    <div class="home-card home-recent-card" data-uuid="${e.uuid}" style="${cardStyle}">
+      <div style="flex:1;min-width:0;overflow:hidden">
+        <div class="home-card-title" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${e.name}</div>
+        <div class="home-card-desc">${typeLabel(e.type)} · ${formatTimeAgo(new Date(e.savedAt))}</div>
+      </div>
+      <button class="home-project-delete" data-uuid="${e.uuid}" title="Delete project" style="${btnBase};color:var(--danger)">×</button>
+    </div>`).join('');
+
+  const legacyHtml = legacyList.map((r, i) => `
+    <div class="home-card home-recent-card" data-legacy-idx="${i}" style="${cardStyle}">
+      <div style="flex:1;min-width:0;overflow:hidden">
+        <div class="home-card-title" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</div>
+        <div class="home-card-desc">${typeLabel(r.type)} · ${formatTimeAgo(new Date(r.savedAt))}</div>
+      </div>
+      <button class="home-recent-remove" data-legacy-idx="${i}" title="Remove from list" style="${btnBase};color:var(--text3)">×</button>
+    </div>`).join('');
+
   el.innerHTML = `
-    <div class="home-section-label" style="margin-bottom:10px">Recent projects</div>
-    <div class="home-cards" style="grid-template-columns:1fr;gap:6px">
-      ${list.map((r, i) => `
-        <div class="home-card home-recent-card" data-recent-idx="${i}" style="flex-direction:row;align-items:center;gap:12px;cursor:pointer">
-          <div style="flex:1;min-width:0;overflow:hidden">
-            <div class="home-card-title" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</div>
-            <div class="home-card-desc">${typeLabel(r.type)} · ${formatTimeAgo(new Date(r.savedAt))}</div>
-          </div>
-          <button class="home-recent-remove" data-recent-idx="${i}" title="Remove from recents" style="flex-shrink:0;width:22px;height:22px;border-radius:50%;border:.5px solid var(--border);background:var(--surface2);color:var(--text3);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1">×</button>
-        </div>
-      `).join('')}
-    </div>`;
+    <div class="home-section-label" style="margin-bottom:10px">Projects</div>
+    <div class="home-cards" style="grid-template-columns:1fr;gap:6px">${indexHtml}${legacyHtml}</div>`;
+
   el.querySelectorAll('.home-recent-card').forEach(card => {
     card.addEventListener('click', e => {
-      if (e.target.closest('.home-recent-remove')) return;
-      const r = list[+card.dataset.recentIdx];
-      if (r?.data) loadProject(r.data);
+      if (e.target.closest('.home-project-delete') || e.target.closest('.home-recent-remove')) return;
+      if (card.dataset.uuid) {
+        try {
+          const raw = localStorage.getItem(`tc_project_${card.dataset.uuid}`);
+          if (raw) { loadProject(JSON.parse(raw)); return; }
+        } catch (_) {}
+        alert('Project data not found in browser storage.');
+        return;
+      }
+      if (card.dataset.legacyIdx !== undefined) {
+        const r = legacyList[+card.dataset.legacyIdx];
+        if (r?.data) loadProject(r.data);
+      }
     });
   });
+
+  el.querySelectorAll('.home-project-delete').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const entry = indexEntries.find(en => en.uuid === btn.dataset.uuid);
+      if (!confirm(`Delete "${entry?.name || 'this project'}" from browser storage? This cannot be undone.`)) return;
+      deleteProjectFromStorage(btn.dataset.uuid);
+      renderHomeRecents();
+    });
+  });
+
   el.querySelectorAll('.home-recent-remove').forEach(btn => {
     btn.addEventListener('click', e => {
       e.stopPropagation();
-      list.splice(+btn.dataset.recentIdx, 1);
-      try { localStorage.setItem(LS_RECENTS_KEY, JSON.stringify(list)); } catch (_) {}
+      legacyList.splice(+btn.dataset.legacyIdx, 1);
+      try { localStorage.setItem(LS_RECENTS_KEY, JSON.stringify(legacyList)); } catch (_) {}
       renderHomeRecents();
     });
   });

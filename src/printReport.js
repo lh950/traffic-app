@@ -225,6 +225,7 @@ export function openPrintReport(projectInfo = {}) {
     projectInfo.weather       && `Weather: ${projectInfo.weather}`,
     projectInfo.counterName   && `Counter: ${projectInfo.counterName}`,
     projectInfo.qaCounterName && `QA: ${projectInfo.qaCounterName}`,
+    projectInfo.equipment     && `Equipment: ${projectInfo.equipment}`,
     projectInfo.studyPurpose  && `Notes: ${projectInfo.studyPurpose}`,
   ].filter(Boolean).map(l => `<div class="count-meta">${l}</div>`).join('');
 
