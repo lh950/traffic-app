@@ -1,5 +1,13 @@
 # Changelog
 
+## v3.17.0 — 2026-07-23
+
+### Added
+- **PWA / installable web app** — `manifest.json` + `sw.js` added to the build. When hosted (GitHub Pages), Chrome/Edge shows an "Install" button in the URL bar; one click installs the app to the user's profile without admin rights. Installed app opens as a standalone window from taskbar/Start menu. Service worker caches all assets after first load — fully offline after first visit. Cache named `traffic-app-v3.17` so bumping the cache name on future deploys triggers a transparent update.
+- **GitHub Actions deploy workflow** — `.github/workflows/deploy.yml` builds and deploys `dist/` to GitHub Pages on every push to `master`. No manual build step needed after initial setup.
+
+---
+
 ## v3.16.0 — 2026-07-23
 
 ### Added

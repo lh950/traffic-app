@@ -60,6 +60,18 @@ All built on existing data — no new collection types needed for Stage 1.
 
 ---
 
+## 2026-07-23 — v3.17.0 PWA + GitHub Pages
+
+**Distribution model:** hosted at `https://lh950.github.io/traffic-app/`. Users visit the URL in Chrome/Edge; after first load the service worker caches all assets and the app works offline permanently. The "Install" button in the URL bar installs to the user's profile (no admin needed) — shows up in Start/taskbar as a standalone window.
+
+**Service worker strategy:** stale-while-revalidate — return cache immediately (fast + offline), refresh in background when network is available. External origins (Claude API at `api.anthropic.com`) are excluded from the SW fetch handler so they always go straight to the network. Cache keyed by version string (`traffic-app-v3.17`) — increment on major deploys to force a cache refresh.
+
+**GitHub Actions:** single job — checkout → `npm ci` → `npm run build` → `actions/upload-pages-artifact` → `actions/deploy-pages`. Triggers on push to `master` and `workflow_dispatch`. Source must be set to "GitHub Actions" in repo Settings > Pages before first deploy.
+
+**`base: './'` preserved:** relative asset paths work on GitHub Pages (`./assets/...` resolves to the subdirectory), and still work for local file:// or localhost serving. No env-specific build config needed.
+
+---
+
 ## 2026-07-23 — v3.16.0 Cross-device sync
 
 **`.tcsync` format:** `{version: 1, exportedAt: ISO, projects: [...full project JSONs]}`. Export walks `tc_projects_index`, loads each `tc_project_${uuid}` key, bundles all into one JSON blob. Import reads the array, skips UUIDs already in localStorage (merge-by-UUID, no overwrites), writes new ones with `upsertProjectIndex`. No conflict UI needed in practice — field offices export before going to the field, office imports after. Same pattern as `.tcproject` but multi-project. Works in any browser without a server.
