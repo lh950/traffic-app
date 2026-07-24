@@ -457,7 +457,7 @@ function renderSidebarParking() {
     btn.classList.toggle('active', btn.dataset.ws === _sidebarActiveItem);
     btn.addEventListener('click', () => openWorkspaceTab(btn.dataset.ws));
   });
-  body.querySelector('[data-action="bug-report"]')?.addEventListener('click', downloadBugReport);
+  body.querySelector('[data-action="bug-report"]')?.addEventListener('click', openBugReportDialog);
 }
 
 // ── In-app navigation history ──
@@ -559,7 +559,7 @@ function renderSidebarIntersection() {
     btn.classList.toggle('active', btn.dataset.ws === _sidebarActiveItem);
     btn.addEventListener('click', () => openWorkspaceTab(btn.dataset.ws));
   });
-  body.querySelector('[data-action="bug-report"]')?.addEventListener('click', downloadBugReport);
+  body.querySelector('[data-action="bug-report"]')?.addEventListener('click', openBugReportDialog);
 }
 
 function renderSidebarArea() {
@@ -600,7 +600,7 @@ function renderSidebarArea() {
     renderSidebarArea();
     showScreen('area-setup-screen');
   });
-  body.querySelector('[data-action="bug-report"]')?.addEventListener('click', downloadBugReport);
+  body.querySelector('[data-action="bug-report"]')?.addEventListener('click', openBugReportDialog);
 }
 
 function renderSidebarTripgen() {
@@ -619,7 +619,7 @@ function renderSidebarTripgen() {
     btn.classList.toggle('active', btn.dataset.ws === _sidebarActiveItem);
     btn.addEventListener('click', () => openWorkspaceTab(btn.dataset.ws));
   });
-  body.querySelector('[data-action="bug-report"]')?.addEventListener('click', downloadBugReport);
+  body.querySelector('[data-action="bug-report"]')?.addEventListener('click', openBugReportDialog);
 }
 
 function renderAppSidebar() {
@@ -893,31 +893,121 @@ document.getElementById('home-sync-input')?.addEventListener('change', (e) => {
   e.target.value = '';
 });
 
-function downloadBugReport() {
+function openBugReportDialog() {
+  document.getElementById('bug-report-modal')?.classList.add('open');
+  _bugReportShowPanel(!!localStorage.getItem('tc_gh_token'));
+  const desc = document.getElementById('bug-desc');
+  if (desc) desc.value = '';
+  const st = document.getElementById('bug-status');
+  if (st) st.style.display = 'none';
+  const sub = document.getElementById('bug-submit');
+  if (sub) sub.disabled = false;
+}
+
+function closeBugReportDialog() {
+  document.getElementById('bug-report-modal')?.classList.remove('open');
+}
+
+function _bugReportShowPanel(hasToken) {
+  const tp = document.getElementById('bug-token-panel');
+  const fp = document.getElementById('bug-form-panel');
+  const te = document.getElementById('bug-token-error');
+  if (tp) tp.style.display = hasToken ? 'none' : 'flex';
+  if (fp) fp.style.display = hasToken ? 'flex' : 'none';
+  if (te) te.style.display = 'none';
+}
+
+function _captureBugState() {
   const state = {};
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
-    if (!key) continue;
+    if (!key || key === 'tc_gh_token') continue;
     try { state[key] = JSON.parse(localStorage.getItem(key)); }
     catch { state[key] = localStorage.getItem(key); }
   }
+  return state;
+}
+
+document.getElementById('bug-modal-close')?.addEventListener('click', closeBugReportDialog);
+document.getElementById('bug-report-modal')?.addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeBugReportDialog();
+});
+document.getElementById('bug-token-save')?.addEventListener('click', () => {
+  const token = document.getElementById('bug-token-input').value.trim();
+  const errEl = document.getElementById('bug-token-error');
+  if (!token) { errEl.textContent = 'Please enter a token.'; errEl.style.display = 'block'; return; }
+  localStorage.setItem('tc_gh_token', token);
+  document.getElementById('bug-token-input').value = '';
+  _bugReportShowPanel(true);
+});
+document.getElementById('bug-cancel')?.addEventListener('click', closeBugReportDialog);
+document.getElementById('bug-change-token')?.addEventListener('click', () => {
+  localStorage.removeItem('tc_gh_token');
+  _bugReportShowPanel(false);
+});
+document.getElementById('bug-submit')?.addEventListener('click', async () => {
+  const token = localStorage.getItem('tc_gh_token');
+  if (!token) { _bugReportShowPanel(false); return; }
+
+  const desc = document.getElementById('bug-desc').value.trim();
+  const statusEl = document.getElementById('bug-status');
+  const submitBtn = document.getElementById('bug-submit');
+
+  submitBtn.disabled = true;
+  statusEl.style.display = 'block';
+  statusEl.style.color = 'var(--text2)';
+  statusEl.textContent = 'Sending…';
+
   const report = {
-    appVersion: document.title,
     timestamp: new Date().toISOString(),
+    appVersion: document.title,
+    description: desc || '(no description)',
     currentScreen: _currentScreen,
     projectType,
     navHistory: [..._navHistory],
-    storage: state,
+    storage: _captureBugState(),
   };
-  const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `traffic-app-bug-report-${Date.now()}.json`;
-  a.click();
-  URL.revokeObjectURL(a.href);
-}
 
-document.getElementById('home-btn-bug-report')?.addEventListener('click', downloadBugReport);
+  try {
+    const ts = Date.now();
+    const filename = `bug-reports/report-${ts}.json`;
+    const json = JSON.stringify(report, null, 2);
+    const content = btoa(unescape(encodeURIComponent(json)));
+    const commitMsg = `Bug report ${new Date().toISOString().slice(0, 10)}: ${(desc || 'no description').slice(0, 60)}`;
+
+    const res = await fetch(`https://api.github.com/repos/lh950/traffic-app/contents/${filename}`, {
+      method: 'PUT',
+      headers: {
+        Authorization: `token ${token}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/vnd.github+json',
+      },
+      body: JSON.stringify({ message: commitMsg, content }),
+    });
+
+    if (res.status === 401) {
+      localStorage.removeItem('tc_gh_token');
+      _bugReportShowPanel(false);
+      const errEl = document.getElementById('bug-token-error');
+      errEl.textContent = 'Token rejected (401) — please enter a valid token.';
+      errEl.style.display = 'block';
+      submitBtn.disabled = false;
+      statusEl.style.display = 'none';
+      return;
+    }
+    if (!res.ok) throw new Error(`GitHub API ${res.status}`);
+
+    statusEl.style.color = 'var(--success, #22c55e)';
+    statusEl.textContent = '✓ Report sent — thank you!';
+    setTimeout(closeBugReportDialog, 1800);
+  } catch (err) {
+    statusEl.style.color = 'var(--danger)';
+    statusEl.textContent = `Failed to send: ${err.message}`;
+    submitBtn.disabled = false;
+  }
+});
+
+document.getElementById('home-btn-bug-report')?.addEventListener('click', openBugReportDialog);
 document.getElementById('home-btn-help')?.addEventListener('click', showHelp);
 document.getElementById('app-back-btn')?.addEventListener('click', goBack);
 // ────────────────────────────────────────────────────────────────────────────
