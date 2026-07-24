@@ -171,13 +171,6 @@ function adaptRealTmcSummary(real) {
   return { approaches, grandTotal };
 }
 
-// levelOfService(volume, capacity, opts?) -> { vc: number|null, los: 'A'..'F'|null }
-export async function levelOfService(volume, capacity, opts) {
-  const mod = await loadReal();
-  if (mod?.levelOfService) return mod.levelOfService(volume, capacity, opts);
-  return fallbackLevelOfService(volume, capacity, opts);
-}
-
 // ---- trip-generation analysis (no CSV-era fallback needed — only used by tripgenSection.js,
 // which already requires the real data layer for parseTripGenWorkbook) ----
 export async function peakHourInWindow(intervals, intervalMinutes, searchStartMin, searchEndMin, totalFnPromiseOrKind) {
@@ -276,18 +269,6 @@ function fallbackTmcSummary(tmcParsed) {
     };
   });
   return { approaches, grandTotal };
-}
-
-function fallbackLevelOfService(volume, capacity, opts = {}) {
-  const thresholds = opts.thresholds || [0.6, 0.7, 0.8, 0.9, 1.0];
-  if (!capacity || capacity <= 0) return { vc: null, los: null };
-  const vc = volume / capacity;
-  const letters = ['A', 'B', 'C', 'D', 'E', 'F'];
-  let los = 'F';
-  for (let i = 0; i < thresholds.length; i++) {
-    if (vc <= thresholds[i]) { los = letters[i]; break; }
-  }
-  return { vc: Math.round(vc * 1000) / 1000, los };
 }
 
 // ---- minimal CSV fallback parsers (BOM + en-dash aware) ----

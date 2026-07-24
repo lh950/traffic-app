@@ -36,8 +36,6 @@ export {
   amPmSplit,
   /** tmcSummary(tmcParsed) -> { [approachLeg]: { total, destinations: { [destLeg]: { total, turnClass, pct } } } } */
   tmcSummary,
-  /** levelOfService(volume, capacity, opts?) -> { vc: number|null, los: 'A'|'B'|'C'|'D'|'E'|'F'|null } — simplified v/c-ratio method, see analyze.js for cited thresholds */
-  levelOfService,
   /** tripRate(dayTotalVolume, gsf) -> number|null — trips per 1000 GSF for one day */
   tripRate,
   /** balanceEntryExit(inboundByInterval, outboundByInterval) -> { inbound: number[], outbound: number[] } — reconciles entry/exit so day totals match */

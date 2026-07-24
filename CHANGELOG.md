@@ -1,5 +1,12 @@
 # Changelog
 
+## v3.24.0-alpha.2 — 2026-07-24
+
+### Removed
+- **Level of service (LOS) section** — removed the v/c-ratio LOS letter-grade panel from the analyze tab (`losSection.js`, `levelOfService()` in the data layer, related CSS). Same reasoning as warrant screening: even a simplified planning-level LOS estimate is engineering-analysis territory this app shouldn't be replicating. The generic table styling it shared with the turning-movement breakdown table was kept and renamed `.data-table`.
+
+---
+
 ## v3.24.0-alpha.1 — 2026-07-24
 
 ### Removed

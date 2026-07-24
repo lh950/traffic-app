@@ -186,45 +186,6 @@ export function tmcSummary(tmcParsed) {
 }
 
 /**
- * levelOfService(volume, capacity, opts?) -> { vc: number, los: 'A'|'B'|'C'|'D'|'E'|'F' }
- *
- * Simplified volume-to-capacity (v/c) ratio method — NOT a full HCM delay-based LOS
- * calculation. The counter app captures movement/approach volumes only (no signal timing,
- * phasing, or geometry), so a true HCM Chapter 19 (signalized) or Chapter 20 (unsignalized)
- * delay-based LOS cannot be derived from counts alone. `capacity` (vehicles/hour for the
- * period being analyzed) is a caller-supplied input — typically an engineer's estimate or a
- * planning-level capacity value — never derived from the count data itself.
- *
- * Default thresholds below follow the common simplified v/c-ratio convention used in many
- * planning-level sketch analyses (e.g. as summarized in ITE/FHWA planning guidance and
- * HCM-adjacent practice): LOS degrades as v/c approaches and exceeds 1.0.
- *   A: v/c <= 0.60   (free flow, well under capacity)
- *   B: v/c <= 0.70
- *   C: v/c <= 0.80
- *   D: v/c <= 0.90
- *   E: v/c <= 1.00   (at capacity)
- *   F: v/c >  1.00   (over capacity / breakdown)
- * These thresholds are a simplification and should be confirmed against the specific HCM
- * edition/method the maintainer wants before being treated as authoritative — see
- * DATA_CONTRACT.md "Open questions". Callers may override via opts.thresholds, an array of
- * 5 ascending v/c cut points for A/B/C/D/E (F is anything above the 5th value).
- */
-export function levelOfService(volume, capacity, opts = {}) {
-  const thresholds = opts.thresholds || [0.6, 0.7, 0.8, 0.9, 1.0];
-  if (!capacity || capacity <= 0) return { vc: null, los: null };
-  const vc = volume / capacity;
-  const letters = ['A', 'B', 'C', 'D', 'E', 'F'];
-  let los = 'F';
-  for (let i = 0; i < thresholds.length; i++) {
-    if (vc <= thresholds[i]) {
-      los = letters[i];
-      break;
-    }
-  }
-  return { vc: Math.round(vc * 1000) / 1000, los };
-}
-
-/**
  * peakHourInWindow(intervals, intervalMinutes, searchStartMin, searchEndMin, totalFn?)
  *   -> { startIdx, endIdx, volume, label, inbound, outbound, pctOfDay }
  *

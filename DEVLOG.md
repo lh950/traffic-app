@@ -4,6 +4,18 @@ Key decisions, scope constraints, and architectural choices.
 
 ---
 
+## 2026-07-24 — v3.24.0-alpha.2
+
+**Scope correction continued: LOS section removed, and a standing process rule.** Following the warrant-screening removal, the analyze tab's "Level of service" section (a simplified v/c-ratio LOS letter grade) was also cut — it's the same category of problem, an engineering-analysis output this app shouldn't be producing, just a softer case since it disclaimed itself as non-authoritative. Removed `losSection.js`, `levelOfService()`/`fallbackLevelOfService()` from the data layer (`analyze.js`, `dataAdapter.js`, `index.js`), its selftest coverage, and LOS-specific CSS. The generic table styling `.los-table` shared with the turning-movement breakdown table was kept and renamed `.data-table` to remove the now-stale name.
+
+**Also identified during this pass:** the analyze tab's "Data quality" panel (gap/spike/outlier heuristics, `qa.js`) is unrelated to the QA/QC recount-verification workflow the user described as missing (a second reviewer independently re-counting a one-hour snapshot per period/intersection/count-type against the primary count, to verify data before it moves downstream). The on-screen label is already "Data quality," not "QA," so no rename was needed there — just a documentation distinction going forward: "Data quality flags" (existing, automated) vs. "QA/QC" (new, human verification, its own screen — not a section bolted onto Analyze).
+
+**Reusable groundwork for QA/QC:** Trip Gen already implements the recount-comparison pattern (`tripgen-qaqc-screen`, `renderQaqcScreen`, a `recounts` array per peak window) and the underlying scoring functions already exist in the shared data layer: `qaqcThresholdPct`, `qaqcPeakHourScore`, `threePeakHourRating` (`src/analysis/data/analyze.js` + `index.js`). Extending an equivalent QA/QC screen to intersection counts (vehicle/ped/TMC) should reuse these rather than reinvent them.
+
+**Standing process rule (going forward):** when a new feature or scope expansion is proposed, name where it sits in the stage order and check it against the app's purpose (data collection / top-level analysis / organizing for GIS-Excel export — not replacing engineering analysis tools) before building. At the end of each stage, do a brief re-read against the Project Brief: what shipped, where we are, and whether scope has drifted.
+
+---
+
 ## 2026-07-24 — v3.24.0-alpha.1
 
 **Scope correction: signal warrant screening removed.** During a project-brief review, the positioning was sharpened: this app is for data collection, top-level data analysis (peak hour, mode split, volume charts), and organizing data for export to GIS/Excel — not for building or replacing engineering analysis tools (Synchro/HCS/SIDRA) or specialized calculations like MUTCD signal warrant screening. Warrant screening had already been hidden from the analyze-tab UI since v3.22.1 ("scope TBD") but the code, its shareable-export wiring, and its CSS were all still live. Removed entirely: `src/warrant.js`, the `analyze-warrant-root` section and `renderWarrantSection` call in `main.js`, `computeShareableWarrants`/`warrantsSection` in `shareReport.js`, and the `.warrant-*` CSS blocks in both `style.css` and `shareReport.js`.

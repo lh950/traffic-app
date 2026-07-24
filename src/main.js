@@ -47,7 +47,6 @@ import { parseCSV, detectColumnsLocally, mapColumnsWithClaude, buildSnapshotFrom
 import * as analysisData from './analysis/ui/dataAdapter.js';
 import { renderSummary } from './analysis/ui/summary.js';
 import { renderTmcSection } from './analysis/ui/tmcDiagram.js';
-import { renderLosSection } from './analysis/ui/losSection.js';
 import { openPrintReport } from './printReport.js';
 import { runTmcQA, runVehicleQA, renderQASection } from './qa.js';
 import { parseProjectSnapshot, parseCurrentSnapshot, renderComparisonSection, pickComparisonFile } from './compare.js';
@@ -1080,8 +1079,7 @@ document.getElementById('btn-analyze-to-landing')?.addEventListener('click', () 
 // ═══════════════════════════════════════════
 // LIVE COUNTER STATE -> ANALYSIS SHAPES
 // (converts the in-memory counter state into the exact parsed shapes analyze.js already
-// consumes — see DATA_CONTRACT.md from the original two-app split — so summary.js/
-// tmcDiagram.js/losSection.js are reused completely unmodified, no CSV round-trip needed.)
+// consumes, so summary.js/tmcDiagram.js are reused unmodified, no CSV round-trip needed.)
 // ═══════════════════════════════════════════
 function slotStartEnd(i) {
   const s = cfg.startMinutes + i * cfg.intervalMin, e = s + cfg.intervalMin;
@@ -1207,7 +1205,6 @@ async function renderAnalyzePeriodContent(root, vehParsed, pedParsed, tmcParsed)
     ${hasMotor ? `<div class="section"><div class="section-head"><h2>Turning movements${hasBikes ? ' — motor vehicles' : ''}</h2></div><div id="analyze-tmc-root"></div></div>` : ''}
     ${hasBikes ? `<div class="section"><div class="section-head"><h2>Turning movements — bicycles</h2></div><div id="analyze-bike-root"></div></div>` : ''}
     ${hasTmc && !hasMotor && !hasBikes ? '<div class="section"><div class="section-head"><h2>Turning movements</h2></div><div id="analyze-tmc-root"></div></div>' : ''}
-    <div class="section"><div class="section-head"><h2>Level of service</h2></div><div id="analyze-los-root"></div></div>
     <div class="section no-print"><div class="section-head"><h2>Before / After comparison</h2></div><div id="analyze-compare-root"></div></div>
   `;
 
@@ -1247,17 +1244,6 @@ async function renderAnalyzePeriodContent(root, vehParsed, pedParsed, tmcParsed)
     await renderTmcSection(document.getElementById('analyze-bike-root'), filterTmcParsedByIndices(tmcParsed, bikeIdx));
   }
 
-  const losRows = [];
-  intersection.approaches.forEach((a) => {
-    if (!a.destinations.length) return;
-    const total = tmcParsed.intervals.reduce((s, iv) => s + Object.values(iv.counts[a.leg] || {}).reduce((s2, arr) => s2 + arr.reduce((x, y) => x + y, 0), 0), 0);
-    losRows.push({ key: `tmc-${a.leg}`, label: `Approach ${a.leg}`, volume: total });
-  });
-  const inTotal = vehParsed.intervals.reduce((s, iv) => s + iv.inbound.reduce((a, b) => a + b, 0), 0);
-  const outTotal = vehParsed.intervals.reduce((s, iv) => s + iv.outbound.reduce((a, b) => a + b, 0), 0);
-  losRows.push({ key: 'veh-in', label: 'Vehicle — inbound', volume: inTotal });
-  losRows.push({ key: 'veh-out', label: 'Vehicle — outbound', volume: outTotal });
-  renderLosSection(document.getElementById('analyze-los-root'), losRows);
 
   const compareRoot = document.getElementById('analyze-compare-root');
   if (compareRoot) {

@@ -7,7 +7,6 @@ import {
   volumeByInterval,
   amPmSplit,
   tmcSummary,
-  levelOfService,
   vehicleIntervalTotal,
   pedIntervalTotal,
   tmcIntervalTotal,
@@ -175,20 +174,6 @@ const tmcCSV =
   assertEqual(summary.N.total, 17, 'tmc: N approach total (4+1 + 9+3 = 17)');
   assertEqual(summary.N.destinations.E.total, 5, 'tmc: N->E destination total (3+1+1+0=5)');
   assertClose(summary.N.destinations.E.pct, Math.round((5 / 17) * 1000) / 10, 'tmc: N->E pct');
-}
-
-// ───────────────────────────────────────────
-// levelOfService
-// ───────────────────────────────────────────
-{
-  assertEqual(levelOfService(500, 1000).los, 'A', 'los: v/c 0.5 -> A');
-  assertEqual(levelOfService(650, 1000).los, 'B', 'los: v/c 0.65 -> B');
-  assertEqual(levelOfService(750, 1000).los, 'C', 'los: v/c 0.75 -> C');
-  assertEqual(levelOfService(850, 1000).los, 'D', 'los: v/c 0.85 -> D');
-  assertEqual(levelOfService(950, 1000).los, 'E', 'los: v/c 0.95 -> E');
-  assertEqual(levelOfService(1100, 1000).los, 'F', 'los: v/c 1.1 -> F');
-  assertEqual(levelOfService(100, 0).los, null, 'los: zero capacity -> null (no division by zero)');
-  assertClose(levelOfService(600, 1000).vc, 0.6, 'los: vc value rounded correctly');
 }
 
 // ───────────────────────────────────────────

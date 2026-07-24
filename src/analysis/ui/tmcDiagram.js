@@ -109,7 +109,7 @@ export async function renderTmcSection(container, parsed) {
           <div class="tmc-approach-select">${chips}</div>
           <div class="card">
             <h3>${activeLeg ? lbl(activeLeg) : ''} — movement breakdown</h3>
-            <table class="los-table">
+            <table class="data-table">
               <thead><tr><th>Movement</th><th>Class</th><th style="text-align:right">Volume</th><th style="text-align:right">% of approach</th></tr></thead>
               <tbody>${destRows}</tbody>
               <tfoot><tr><td colspan="2">Approach total</td><td style="text-align:right">${approachTotal.toLocaleString()}</td><td></td></tr></tfoot>
