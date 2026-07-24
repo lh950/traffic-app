@@ -4,6 +4,14 @@ Key decisions, scope constraints, and architectural choices.
 
 ---
 
+## 2026-07-24 — v3.24.0-alpha.1
+
+**Scope correction: signal warrant screening removed.** During a project-brief review, the positioning was sharpened: this app is for data collection, top-level data analysis (peak hour, mode split, volume charts), and organizing data for export to GIS/Excel — not for building or replacing engineering analysis tools (Synchro/HCS/SIDRA) or specialized calculations like MUTCD signal warrant screening. Warrant screening had already been hidden from the analyze-tab UI since v3.22.1 ("scope TBD") but the code, its shareable-export wiring, and its CSS were all still live. Removed entirely: `src/warrant.js`, the `analyze-warrant-root` section and `renderWarrantSection` call in `main.js`, `computeShareableWarrants`/`warrantsSection` in `shareReport.js`, and the `.warrant-*` CSS blocks in both `style.css` and `shareReport.js`.
+
+**Why this matters for future scope decisions:** the core value proposition is replacing broken, formula-corruptible Excel workflows with a UI that can't be broken the same way — not becoming a second analysis engine. Anything that duplicates a capability already served by dedicated engineering software (Synchro, HCS, SIDRA, or similar) is out of scope by default, even if it's technically easy to add. The "Before/after comparison" feature (`compare.js`) remains a similar borderline case — kept in code but explicitly unsupported since no real use case has appeared.
+
+---
+
 ## 2026-07-24 — v3.23.0 / v3.23.1-alpha.1
 
 **Single master vehicle/TMC list.** Replaced the two-list system (`vPairs` for directional vehicle counting, `tmcPairs` for turning movement counting) with one `vPairs` list that both modes read from. Each row now carries `tmcKey` (fixed per row, survives reordering), `includeTmc` (checkbox), and `isBike`. Drag-to-reorder is cosmetic only — keys travel with the row object, not the row's screen position. Labels lock (read-only) once `hasCountData()` is true for that project, to prevent silent data corruption from relabeling a type mid-count. `migrateVPairsFromLegacyTmc()` in `main.js` converts old project files' `tmcPairs` into the new `vPairs` shape on load.

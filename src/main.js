@@ -50,7 +50,6 @@ import { renderTmcSection } from './analysis/ui/tmcDiagram.js';
 import { renderLosSection } from './analysis/ui/losSection.js';
 import { openPrintReport } from './printReport.js';
 import { runTmcQA, runVehicleQA, renderQASection } from './qa.js';
-import { renderWarrantSection } from './warrant.js';
 import { parseProjectSnapshot, parseCurrentSnapshot, renderComparisonSection, pickComparisonFile } from './compare.js';
 import { renderCorridorChart } from './corridorChart.js';
 import { exportShareablePage, buildShareableHTML } from './shareReport.js';
@@ -1209,8 +1208,6 @@ async function renderAnalyzePeriodContent(root, vehParsed, pedParsed, tmcParsed)
     ${hasBikes ? `<div class="section"><div class="section-head"><h2>Turning movements — bicycles</h2></div><div id="analyze-bike-root"></div></div>` : ''}
     ${hasTmc && !hasMotor && !hasBikes ? '<div class="section"><div class="section-head"><h2>Turning movements</h2></div><div id="analyze-tmc-root"></div></div>' : ''}
     <div class="section"><div class="section-head"><h2>Level of service</h2></div><div id="analyze-los-root"></div></div>
-    <!-- signal warrants hidden: scope TBD -->
-    <div class="section no-print" style="display:none"><div class="section-head"><h2>Signal warrants</h2><span class="section-sub">MUTCD Warrants 1–4</span></div><div id="analyze-warrant-root"></div></div>
     <div class="section no-print"><div class="section-head"><h2>Before / After comparison</h2></div><div id="analyze-compare-root"></div></div>
   `;
 
@@ -1261,12 +1258,6 @@ async function renderAnalyzePeriodContent(root, vehParsed, pedParsed, tmcParsed)
   losRows.push({ key: 'veh-in', label: 'Vehicle — inbound', volume: inTotal });
   losRows.push({ key: 'veh-out', label: 'Vehicle — outbound', volume: outTotal });
   renderLosSection(document.getElementById('analyze-los-root'), losRows);
-
-  const warrantRoot = document.getElementById('analyze-warrant-root');
-  if (warrantRoot) {
-    const allLegs = intersection.approaches.map(a => a.leg);
-    renderWarrantSection(warrantRoot, tmcParsed, pedParsed, cfg.intervalMin, allLegs);
-  }
 
   const compareRoot = document.getElementById('analyze-compare-root');
   if (compareRoot) {

@@ -1,5 +1,12 @@
 # Changelog
 
+## v3.24.0-alpha.1 — 2026-07-24
+
+### Removed
+- **Signal warrant screening** — removed `warrant.js` and all wiring (analyze-tab section, shareable HTML export badges, related CSS). This app's scope is data collection, top-level data analysis, and data organizing for export to GIS/Excel — not a replacement for engineering analysis tools. MUTCD warrant screening duplicated functionality that belongs in dedicated engineering software, not this platform. See the Project Brief for the corrected scope guardrails.
+
+---
+
 ## v3.23.1-alpha.1 — 2026-07-24
 
 ### Fixed
