@@ -926,8 +926,9 @@ function _bugDownloadJSON(report) {
   const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  const ts = report.timestamp.replace(/[:.]/g, '-').slice(0, 19);
-  a.download = `bug-report-${ts}.json`;
+  const ts = report.timestamp.slice(0, 10);
+  const uid = crypto.randomUUID().slice(0, 8);
+  a.download = `bug-report-${ts}-${uid}.json`;
   a.click();
   URL.revokeObjectURL(a.href);
 }
