@@ -926,7 +926,8 @@ function _bugDownloadJSON(report) {
   const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'bug-report.json';
+  const ts = report.timestamp.replace(/[:.]/g, '-').slice(0, 19);
+  a.download = `bug-report-${ts}.json`;
   a.click();
   URL.revokeObjectURL(a.href);
 }
@@ -948,7 +949,7 @@ document.getElementById('bug-btn-email')?.addEventListener('click', () => {
   const body = encodeURIComponent(
     `Description:\n${report.description}\n\n` +
     `Version: ${report.appVersion}\nScreen: ${report.currentScreen}\nTime: ${report.timestamp}\n\n` +
-    `Please attach the bug-report.json file that was just downloaded.`
+    `Please attach the bug-report-*.json file that was just downloaded.`
   );
   window.open(`mailto:lhidalg93@gmail.com?subject=${subject}&body=${body}`);
   document.getElementById('bug-email-note').style.display = 'block';
