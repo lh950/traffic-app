@@ -1179,7 +1179,8 @@ async function renderAnalyzePeriodContent(root, vehParsed, pedParsed, tmcParsed)
     ${hasBikes ? `<div class="section"><div class="section-head"><h2>Turning movements — bicycles</h2></div><div id="analyze-bike-root"></div></div>` : ''}
     ${hasTmc && !hasMotor && !hasBikes ? '<div class="section"><div class="section-head"><h2>Turning movements</h2></div><div id="analyze-tmc-root"></div></div>' : ''}
     <div class="section"><div class="section-head"><h2>Level of service</h2></div><div id="analyze-los-root"></div></div>
-    <div class="section no-print"><div class="section-head"><h2>Signal warrants</h2><span class="section-sub">MUTCD Warrants 1–4</span></div><div id="analyze-warrant-root"></div></div>
+    <!-- signal warrants hidden: scope TBD -->
+    <div class="section no-print" style="display:none"><div class="section-head"><h2>Signal warrants</h2><span class="section-sub">MUTCD Warrants 1–4</span></div><div id="analyze-warrant-root"></div></div>
     <div class="section no-print"><div class="section-head"><h2>Before / After comparison</h2></div><div id="analyze-compare-root"></div></div>
   `;
 

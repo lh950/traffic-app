@@ -403,8 +403,8 @@ export function buildShareableHTML(projectInfo, intersection, vehParsed, pedPars
     ${buildPedHtml(pedParsed)}
   </div>` : '';
 
-  // Signal warrant summary
-  const warrantResults = computeShareableWarrants(tmcParsed, pedParsed, intervalMin);
+  // Signal warrant summary — hidden until scope is defined
+  const warrantResults = null; // computeShareableWarrants(tmcParsed, pedParsed, intervalMin);
   const warrantsSection = warrantResults ? `
   <div class="section">
     <div class="section-title">Signal warrant screening (HCM defaults — urban, 1 lane each approach)</div>
