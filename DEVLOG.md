@@ -4,6 +4,34 @@ Key decisions, scope constraints, and architectural choices.
 
 ---
 
+## 2026-07-24 — v3.22.1
+
+**Full audit results (two-cycle):** Performed a complete two-cycle feature audit focusing on TMC area-wide study workflows.
+
+**Cycle 1 fixes (alpha.1 → alpha.2):**
+
+1. **Mode highlight** (BUG-010) — `buildCounterSidebar()` ran with the old mode before `setMode()` updated it; adding a second `buildCounterSidebar()` call after `setMode()` in the click handler is the minimal fix.
+
+2. **ix-analysis TMC data view** (BUG-011) — the data view was 100% ped-focused. For TMC intersections, added: (a) TMC approach totals card (leg, movements per destination, total entering, peak stats); (b) 15-min distribution table switches to TMC volume column when `hasTmcData`; (c) slot count derivation now falls back to tmcData array length when pedData and vData lengths are zero; (d) charts view `vTotalPerSlot` falls back to TMC motor counts when vData sums to zero. `hasModeData` now includes `tmcInfo.hasTmc` so the mode split section shows for TMC-only intersections.
+
+3. **Print summary ped-only** (BUG-012) — `printSummaryReport` rewritten to detect which count types (ped/tmc/vehicle) exist across the study and render only the relevant columns. Ped-only studies see an identical output; mixed or TMC-only studies get the correct columns.
+
+4. **Counter sidebar section header** — added `<div class="sidebar-nav-header">Count mode</div>` before the mode buttons. Added `.sidebar-nav-header` CSS rule.
+
+5. **Back navigation from ix-analysis** — for standalone intersection projects, `btn-ix-analysis-back` now shows "← Count" and calls `goToCountMode()`. For area studies it shows "← Summary" and calls `showSummaryScreen()`. Previously both buttons were hidden for standalone intersection type.
+
+6. **Period comparison in ix-analysis (data view)** — rewrote `compHtml` to detect TMC vs ped per period and compute `compMax` before the row map so bar scaling is correct across all rows.
+
+7. **Volume profile hidden for TMC-only** — `volumeProfileHtml` is now an empty string when `hasTmcData && grandTotal === 0`, preventing a flat zero-line chart from rendering.
+
+**Cycle 2 fix (alpha.2 → alpha.3):**
+
+8. **Print summary period breakdown blank for TMC** (BUG-013) — `byPeriod` and `periodTotals` used `pedTotalForPeriod` which always returns 0 for TMC intersections. Added `countTotalForPeriod` that falls back to tmcData motor counts when pedData is zero.
+
+**Deferred (next feature pass):** summary view filter (ped/vehicle/TMC/all), customizable print headers, area study sidebar restructure, intersection ID field, period breakdown label per data type in print summary.
+
+---
+
 ## 2026-07-23 — v3.22.0
 
 **TMC / vehicle types coupling:** Previously the directional vehicle types (vPairs) and the TMC types (tmcPairs) were two independent lists — users had to configure classification labels twice, once for each mode, which was redundant and error-prone. The redesign makes tmcPairs labels derived from vPairs: the add dropdown is populated from the current vPairs list and syncs whenever a vPairs label changes (`_syncTmcAddSelect` called from the vPairs oninput handler). TMC rows show label and definition as read-only spans, pulled from the matching vPairs entry, so they stay in sync without user action.

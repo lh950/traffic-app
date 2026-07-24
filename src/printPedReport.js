@@ -65,33 +65,83 @@ export function printSummaryReport(projectInfo, intersections, opts = {}) {
     const p = snap?.periods?.find(p => p.name === pname);
     if (!p) return null;
     let t = 0;
-    for (const xw of p.pedData) for (const sl of xw) t += (sl[0]||0)+(sl[1]||0);
+    for (const xw of (p.pedData||[])) for (const sl of xw) t += (sl[0]||0)+(sl[1]||0);
     return t;
+  }
+  function countTotalForPeriod(snap, pname) {
+    const p = snap?.periods?.find(p => p.name === pname);
+    if (!p) return null;
+    let ped = 0;
+    for (const xw of (p.pedData||[])) for (const sl of xw) ped += (sl[0]||0)+(sl[1]||0);
+    if (ped > 0) return ped;
+    let tmc = 0;
+    for (const from of Object.values(p.tmcData||{}))
+      for (const slots of Object.values(from))
+        for (const slot of slots) tmc += (slot||[]).reduce((a,b)=>a+(b||0),0);
+    return tmc;
   }
   function pedTotal(snap) {
     let t = 0;
-    for (const p of snap?.periods||[]) for (const xw of p.pedData) for (const sl of xw) t += (sl[0]||0)+(sl[1]||0);
+    for (const p of snap?.periods||[]) for (const xw of (p.pedData||[])) for (const sl of xw) t += (sl[0]||0)+(sl[1]||0);
     return t;
   }
+  function vehTotal(snap) {
+    let t = 0;
+    for (const p of snap?.periods||[]) {
+      const vRaw = (p.vData?.in||[]).reduce((s,r)=>s+r.reduce((a,b)=>a+(b||0),0),0)
+                 + (p.vData?.out||[]).reduce((s,r)=>s+r.reduce((a,b)=>a+(b||0),0),0);
+      if (vRaw > 0) { t += vRaw; continue; }
+      for (const from of Object.values(p.tmcData||{}))
+        for (const slots of Object.values(from))
+          for (const slot of slots) t += slot?.[0]||0;
+    }
+    return t;
+  }
+  function tmcTotal(snap) {
+    let t = 0;
+    for (const p of snap?.periods||[])
+      for (const from of Object.values(p.tmcData||{}))
+        for (const slots of Object.values(from))
+          for (const slot of slots) t += (slot||[]).reduce((a,b)=>a+(b||0),0);
+    return t;
+  }
+
+  // Detect which column types actually have data across all intersections
+  const hasAnyPed = intersections.some(ix => pedTotal(ix.snapshot) > 0);
+  const hasAnyTmc = intersections.some(ix => tmcTotal(ix.snapshot) > 0);
+  const hasAnyVeh = intersections.some(ix => {
+    for (const p of ix.snapshot?.periods||[]) {
+      const v = (p.vData?.in||[]).reduce((s,r)=>s+r.reduce((a,b)=>a+(b||0),0),0);
+      if (v > 0) return true;
+    }
+    return false;
+  });
 
   const visiblePeriods = showPeriods ? allPeriods : [];
 
   const tableRows = intersections.map((ix, i) => {
     const snap = ix.snapshot;
-    const tot = snap ? pedTotal(snap) : 0;
-    const byPeriod = visiblePeriods.map(n => pedTotalForPeriod(snap, n));
+    const ped = snap ? pedTotal(snap) : 0;
+    const veh = snap ? vehTotal(snap) : 0;
+    const tmc = snap ? tmcTotal(snap) : 0;
+    const byPeriod = visiblePeriods.map(n => countTotalForPeriod(snap, n));
+    const fmt = v => v > 0 ? v.toLocaleString() : '—';
     return `<tr style="${i % 2 === 0 ? '' : 'background:#fafafa'}">
       <td class="r" style="color:#999;width:24px">${i+1}</td>
       <td style="font-weight:500">${ix.name}</td>
       <td style="color:#555">${ix.counterName || '—'}</td>
-      <td class="r bold">${tot > 0 ? tot.toLocaleString() : '—'}</td>
+      ${hasAnyPed ? `<td class="r bold">${fmt(ped)}</td>` : ''}
+      ${hasAnyTmc ? `<td class="r bold">${fmt(tmc)}</td>` : ''}
+      ${hasAnyVeh ? `<td class="r bold">${fmt(veh)}</td>` : ''}
       ${byPeriod.map(v => `<td class="r">${v != null ? (v > 0 ? v.toLocaleString() : '—') : '<span style="color:#ddd">·</span>'}</td>`).join('')}
     </tr>`;
   }).join('');
 
-  const totAll = intersections.reduce((a,ix) => a + (ix.snapshot ? pedTotal(ix.snapshot) : 0), 0);
+  const totPedAll = intersections.reduce((a,ix) => a + (ix.snapshot ? pedTotal(ix.snapshot) : 0), 0);
+  const totVehAll = intersections.reduce((a,ix) => a + (ix.snapshot ? vehTotal(ix.snapshot) : 0), 0);
+  const totTmcAll = intersections.reduce((a,ix) => a + (ix.snapshot ? tmcTotal(ix.snapshot) : 0), 0);
   const periodTotals = visiblePeriods.map(n =>
-    intersections.reduce((a, ix) => a + (pedTotalForPeriod(ix.snapshot, n)||0), 0));
+    intersections.reduce((a, ix) => a + (countTotalForPeriod(ix.snapshot, n)||0), 0));
 
   const logoHtml = projectInfo.logoUrl
     ? `<img src="${projectInfo.logoUrl}" style="max-height:54px;max-width:170px;object-fit:contain">` : '';
@@ -115,7 +165,7 @@ ${baseStyles()}
     <div class="rpt-info">${infoHtml}</div>
   </div>
   <div class="rpt-header-right">
-    <div class="rpt-title">Pedestrian Count Summary</div>
+    <div class="rpt-title">Count Summary</div>
     <div class="rpt-meta">${intersections.length} intersection${intersections.length!==1?'s':''} · Area-wide study</div>
     ${projectInfo.studyPurpose ? `<div class="rpt-meta">${projectInfo.studyPurpose}</div>` : ''}
     ${projectInfo.counterName ? `<div class="rpt-meta">Project manager: ${projectInfo.counterName}</div>` : ''}
@@ -127,14 +177,18 @@ ${baseStyles()}
     <th>#</th>
     <th>Intersection</th>
     <th>Counter</th>
-    <th class="r">Total Peds</th>
+    ${hasAnyPed ? `<th class="r">Total Peds</th>` : ''}
+    ${hasAnyTmc ? `<th class="r">TMC Total</th>` : ''}
+    ${hasAnyVeh ? `<th class="r">Vehicle Total</th>` : ''}
     ${visiblePeriods.map(n => `<th class="r">${n}</th>`).join('')}
   </tr></thead>
   <tbody>${tableRows}</tbody>
   <tfoot>
     <tr class="foot-row">
       <td></td><td colspan="2" style="font-weight:700">Study Total</td>
-      <td class="r">${totAll.toLocaleString()}</td>
+      ${hasAnyPed ? `<td class="r">${totPedAll.toLocaleString()}</td>` : ''}
+      ${hasAnyTmc ? `<td class="r">${totTmcAll.toLocaleString()}</td>` : ''}
+      ${hasAnyVeh ? `<td class="r">${totVehAll.toLocaleString()}</td>` : ''}
       ${periodTotals.map(t => `<td class="r">${t.toLocaleString()}</td>`).join('')}
     </tr>
   </tfoot>

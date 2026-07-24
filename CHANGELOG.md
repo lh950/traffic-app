@@ -1,5 +1,15 @@
 # Changelog
 
+## v3.22.1 — 2026-07-24
+
+### Fixed
+- **Mode highlight first-click bug** (BUG-010) — counter sidebar mode buttons (pedestrian / vehicle / TMC) now correctly highlight on the first click. Previously a `buildCounterSidebar()` rebuild ran before `setMode()`, leaving the highlight stale until the next interaction.
+- **TMC intersection analysis showing no data** (BUG-011) — the individual intersection analysis screen now shows a "Turning Movement Summary" card with approach totals, peak 15-min, and peak hour when TMC data exists. The 15-min distribution table switches to TMC vehicle volumes for TMC intersections. Charts view volume bars now correctly reflect TMC motor counts when `vData` is zero.
+- **Print summary report ped-only** (BUG-012) — the area-wide summary print report now auto-detects which data types are present (Peds / TMC / Vehicle) and renders the relevant columns. Title changed from "Pedestrian Count Summary" to "Count Summary".
+- **Print summary period breakdown blank for TMC** (BUG-013) — per-period breakdown columns showed "—" for all TMC intersections because `pedTotalForPeriod` only read `pedData`. Added `countTotalForPeriod` that falls back to `tmcData` motor count totals when ped data is zero.
+
+---
+
 ## v3.22.0 — 2026-07-23
 
 ### Changed

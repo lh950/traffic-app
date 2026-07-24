@@ -368,6 +368,7 @@ tfoot td:first-child{text-align:left;color:var(--text2)}
 .sidebar-nav-icon{font-size:15px;flex-shrink:0;width:18px;text-align:center}
 .sidebar-nav-label{font-size:13px}
 .sidebar-nav-divider{height:.5px;background:var(--border);margin:6px 12px}
+.sidebar-nav-header{font-size:9px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--text3);padding:10px 16px 4px}
 
 /* approach config */
 .approach-row{display:flex;align-items:center;gap:12px;margin-bottom:8px;padding:8px 12px;background:var(--surface2);border:.5px solid var(--border);border-radius:var(--r)}
