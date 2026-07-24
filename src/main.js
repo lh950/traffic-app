@@ -896,31 +896,21 @@ document.getElementById('home-sync-input')?.addEventListener('change', (e) => {
 function openBugReportDialog() {
   document.getElementById('bug-report-modal')?.classList.add('open');
   document.getElementById('bug-desc').value = '';
-  document.getElementById('bug-token-panel').style.display = 'none';
-  document.getElementById('bug-status').style.display = 'none';
-  document.getElementById('bug-change-token-row').style.display =
-    localStorage.getItem('tc_gh_token') ? 'block' : 'none';
-  ['bug-btn-github', 'bug-btn-email', 'bug-btn-download'].forEach(id => {
-    const b = document.getElementById(id); if (b) b.disabled = false;
-  });
+  document.getElementById('bug-email-note').style.display = 'none';
 }
 
 function closeBugReportDialog() {
   document.getElementById('bug-report-modal')?.classList.remove('open');
 }
 
-function _captureBugState() {
+function _bugReportPayload() {
   const state = {};
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
-    if (!key || key === 'tc_gh_token') continue;
+    if (!key) continue;
     try { state[key] = JSON.parse(localStorage.getItem(key)); }
     catch { state[key] = localStorage.getItem(key); }
   }
-  return state;
-}
-
-function _bugReportPayload() {
   return {
     timestamp: new Date().toISOString(),
     appVersion: document.title,
@@ -928,122 +918,41 @@ function _bugReportPayload() {
     currentScreen: _currentScreen,
     projectType,
     navHistory: [..._navHistory],
-    storage: _captureBugState(),
+    storage: state,
   };
 }
 
-function _bugSetStatus(msg, color) {
-  const el = document.getElementById('bug-status');
-  el.style.display = 'block';
-  el.style.color = color || 'var(--text2)';
-  el.textContent = msg;
+function _bugDownloadJSON(report) {
+  const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'bug-report.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
 
-// Wire static modal elements
 document.getElementById('bug-modal-close')?.addEventListener('click', closeBugReportDialog);
 document.getElementById('bug-report-modal')?.addEventListener('click', e => {
   if (e.target === e.currentTarget) closeBugReportDialog();
 });
-document.getElementById('bug-token-cancel')?.addEventListener('click', () => {
-  document.getElementById('bug-token-panel').style.display = 'none';
-});
-document.getElementById('bug-change-token')?.addEventListener('click', () => {
-  localStorage.removeItem('tc_gh_token');
-  document.getElementById('bug-change-token-row').style.display = 'none';
-  document.getElementById('bug-token-panel').style.display = 'flex';
-  document.getElementById('bug-token-error').style.display = 'none';
-  document.getElementById('bug-token-input').value = '';
-});
 
-// Download
 document.getElementById('bug-btn-download')?.addEventListener('click', () => {
-  const report = _bugReportPayload();
-  const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `traffic-app-bug-report-${Date.now()}.json`;
-  a.click();
-  URL.revokeObjectURL(a.href);
+  _bugDownloadJSON(_bugReportPayload());
   closeBugReportDialog();
 });
 
-// Email
 document.getElementById('bug-btn-email')?.addEventListener('click', () => {
   const report = _bugReportPayload();
+  _bugDownloadJSON(report);
   const subject = encodeURIComponent(`Bug report — Traffic App ${report.appVersion}`);
   const body = encodeURIComponent(
     `Description:\n${report.description}\n\n` +
     `Version: ${report.appVersion}\nScreen: ${report.currentScreen}\nTime: ${report.timestamp}\n\n` +
-    `App state (JSON):\n${JSON.stringify({ projectType: report.projectType, navHistory: report.navHistory }, null, 2)}`
+    `Please attach the bug-report.json file that was just downloaded.`
   );
   window.open(`mailto:lhidalg93@gmail.com?subject=${subject}&body=${body}`);
-  closeBugReportDialog();
+  document.getElementById('bug-email-note').style.display = 'block';
 });
-
-// GitHub — show token panel if no token saved, otherwise upload
-document.getElementById('bug-btn-github')?.addEventListener('click', () => {
-  if (!localStorage.getItem('tc_gh_token')) {
-    document.getElementById('bug-token-panel').style.display = 'flex';
-    document.getElementById('bug-token-error').style.display = 'none';
-    document.getElementById('bug-token-input').value = '';
-    return;
-  }
-  _bugUploadToGitHub();
-});
-
-document.getElementById('bug-token-save')?.addEventListener('click', () => {
-  const token = document.getElementById('bug-token-input').value.trim();
-  const errEl = document.getElementById('bug-token-error');
-  if (!token) { errEl.textContent = 'Please enter a token.'; errEl.style.display = 'block'; return; }
-  localStorage.setItem('tc_gh_token', token);
-  document.getElementById('bug-token-input').value = '';
-  document.getElementById('bug-token-panel').style.display = 'none';
-  document.getElementById('bug-change-token-row').style.display = 'block';
-  _bugUploadToGitHub();
-});
-
-async function _bugUploadToGitHub() {
-  const token = localStorage.getItem('tc_gh_token');
-  const submitBtn = document.getElementById('bug-btn-github');
-  submitBtn.disabled = true;
-  _bugSetStatus('Uploading…');
-
-  const report = _bugReportPayload();
-  try {
-    const filename = `bug-reports/report-${Date.now()}.json`;
-    const content = btoa(unescape(encodeURIComponent(JSON.stringify(report, null, 2))));
-    const commitMsg = `Bug report ${report.timestamp.slice(0, 10)}: ${report.description.slice(0, 60)}`;
-
-    const res = await fetch(`https://api.github.com/repos/lh950/traffic-app/contents/${filename}`, {
-      method: 'PUT',
-      headers: {
-        Authorization: `token ${token}`,
-        'Content-Type': 'application/json',
-        Accept: 'application/vnd.github+json',
-      },
-      body: JSON.stringify({ message: commitMsg, content }),
-    });
-
-    if (res.status === 401) {
-      localStorage.removeItem('tc_gh_token');
-      document.getElementById('bug-change-token-row').style.display = 'none';
-      document.getElementById('bug-token-panel').style.display = 'flex';
-      const errEl = document.getElementById('bug-token-error');
-      errEl.textContent = 'Token rejected (401) — please enter a valid token.';
-      errEl.style.display = 'block';
-      submitBtn.disabled = false;
-      document.getElementById('bug-status').style.display = 'none';
-      return;
-    }
-    if (!res.ok) throw new Error(`GitHub API ${res.status}`);
-
-    _bugSetStatus('✓ Report uploaded — thank you!', 'var(--success, #22c55e)');
-    setTimeout(closeBugReportDialog, 1800);
-  } catch (err) {
-    _bugSetStatus(`Failed: ${err.message}`, 'var(--danger)');
-    submitBtn.disabled = false;
-  }
-}
 
 document.getElementById('home-btn-bug-report')?.addEventListener('click', openBugReportDialog);
 document.getElementById('home-btn-help')?.addEventListener('click', showHelp);

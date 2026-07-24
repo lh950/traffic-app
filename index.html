@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Traffic App v3.22.0-alpha.3</title>
+<title>Traffic App v3.22.0-alpha.4</title>
 <link rel="manifest" href="./manifest.json">
 <meta name="theme-color" content="#131b23">
 <script>
@@ -117,7 +117,7 @@
   <div class="home-inner">
     <div class="home-wordmark">
       <h1>Traffic App</h1>
-      <div class="home-version">v3.22.0-alpha.3</div>
+      <div class="home-version">v3.22.0-alpha.4</div>
       <button id="home-btn-help" title="Help / instructions" style="margin-left:auto;font-size:13px;font-weight:600;color:var(--text3);background:none;border:.5px solid var(--border);border-radius:50%;width:26px;height:26px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">?</button>
     </div>
     <div id="home-resume-banner" style="display:none" class="home-resume-banner"></div>
@@ -184,7 +184,7 @@
     <!-- wordmark -->
     <div style="margin-bottom:2rem">
       <h1 style="font-size:22px;font-weight:500;letter-spacing:-.01em">Traffic App</h1>
-      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v3.22.0-alpha.3</span>
+      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v3.22.0-alpha.4</span>
     </div>
 
     <!-- autosave / resume banner -->
@@ -886,7 +886,7 @@
 
   <header class="counter-header">
     <button id="btn-back-to-project" style="font-size:12px;padding:4px 10px;margin-right:8px">← Project</button>
-    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v3.22.0-alpha.3</span></h1>
+    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v3.22.0-alpha.4</span></h1>
     <div class="hcontrols">
       <div class="mode-toggle" style="display:none">
         <button class="mode-btn active" id="btn-count-mode" onclick="goToCountMode()">count</button>
@@ -1404,32 +1404,16 @@
       <button class="modal-close" id="bug-modal-close">×</button>
     </div>
     <div class="modal-body">
-      <!-- Description (always visible) -->
       <div>
         <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text2);margin-bottom:6px">What happened?</div>
         <textarea id="bug-desc" rows="5" placeholder="Describe what you were doing and what went wrong…" style="width:100%;resize:vertical;padding:8px 10px;border:.5px solid var(--border2);border-radius:var(--r);background:var(--surface2);color:var(--text);font-family:var(--font);font-size:13px;line-height:1.5;box-sizing:border-box"></textarea>
       </div>
-      <!-- Method buttons -->
       <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn-primary" id="bug-btn-github">Upload to GitHub</button>
-        <button class="preset-btn" id="bug-btn-email">Send by email</button>
-        <button class="preset-btn" id="bug-btn-download">Download</button>
+        <button class="btn-primary" id="bug-btn-email">Send by email</button>
+        <button class="preset-btn" id="bug-btn-download">Download report</button>
       </div>
-      <!-- GitHub token sub-panel (shown only when GitHub selected and no token) -->
-      <div id="bug-token-panel" style="display:none;flex-direction:column;gap:10px;padding:14px;background:var(--surface2);border:.5px solid var(--border);border-radius:var(--r)">
-        <p class="stat-detail" style="line-height:1.6">Paste a GitHub personal access token with <strong>Contents: Read and write</strong> access on <code>lh950/traffic-app</code>. Stored only in your browser.</p>
-        <input type="password" id="bug-token-input" placeholder="ghp_…" style="width:100%;font-family:var(--mono);font-size:12px;padding:7px 10px;border:.5px solid var(--border2);border-radius:var(--r);background:var(--surface);color:var(--text);box-sizing:border-box">
-        <div id="bug-token-error" style="color:var(--danger);font-size:12px;display:none"></div>
-        <div style="display:flex;gap:8px">
-          <button class="btn-primary" id="bug-token-save">Save &amp; upload →</button>
-          <button class="preset-btn" id="bug-token-cancel">Cancel</button>
-        </div>
-      </div>
-      <!-- Status -->
-      <div id="bug-status" style="font-size:12px;display:none"></div>
-      <!-- Change token link (shown when token is already saved) -->
-      <div id="bug-change-token-row" style="display:none">
-        <button id="bug-change-token" style="font-size:11px;color:var(--text3);background:none;border:none;cursor:pointer;padding:0">Change GitHub token</button>
+      <div id="bug-email-note" style="display:none;font-size:12px;color:var(--text2);line-height:1.6">
+        A <strong>bug-report.json</strong> file was saved to your downloads — please attach it to the email that just opened.
       </div>
     </div>
   </div>
