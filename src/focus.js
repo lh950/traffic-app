@@ -1,5 +1,5 @@
 import {
-  vPairs, tmcPairs, intersection, cfg, tmcApproach, slot, setSlot, mode,
+  vPairs, intersection, cfg, tmcApproach, slot, setSlot, mode,
   focusMode, setFocusMode, vGroup, setVGroup, focusTarget, setFocusTargetState,
   diagWin, tmcWin, undo as undoImpl, redo as redoImpl, setScrollOnRender,
 } from './state.js';
@@ -33,8 +33,8 @@ export function buildTKeyMap(){
   const m={};
   const app=intersection.approaches.find(a=>a.leg===tmcApproach);
   if(!app||!app.destinations.length)return m;
-  tmcPairs.forEach((p,ti)=>{
-    if(p.key)m[p.key]=()=>tmcRecord(ti);
+  vPairs.filter(p=>p.includeTmc).forEach((p,ti)=>{
+    if(p.tmcKey)m[p.tmcKey]=()=>tmcRecord(ti);
   });
   return m;
 }
@@ -60,7 +60,7 @@ export function isVKeyAllowed(k){
   return k===p.inKey||k===p.outKey;
 }
 export function isTKeyAllowed(k){
-  return tmcPairs.some(p=>p.key===k);
+  return vPairs.filter(p=>p.includeTmc).some(p=>p.tmcKey===k);
 }
 
 export function toggleFocusMode(){

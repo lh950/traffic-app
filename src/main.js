@@ -8,7 +8,7 @@ const LS_PROJECTS_INDEX = 'tc_projects_index';
 let projectUUID = null;
 
 import {
-  cfg, vPairs, tmcPairs, setTmcPairs, intersection, fnames, vData, pedData, tmcData,
+  cfg, vPairs, intersection, fnames, vData, pedData, tmcData,
   vManual, pedManual, tmManual, slotLabel, setVPairs, setTmcApproach,
   initVData, initPedData, initTMCData, mode,
   periods, activePeriodIdx, setActivePeriodIdx,
@@ -17,11 +17,10 @@ import {
 } from './state.js';
 import {
   switchSetupTab, setIntervalLen, updateDerived, updateVCount, applyVPreset,
-  checkVKeys, checkPKeys, setLegLabel, toggleLegCrosswalk, toggleLegApproach, toggleLegOneWay, toggleLegOneWayIn,
+  checkVKeys, checkPKeys, checkTmcKeys, setLegLabel, toggleLegCrosswalk, toggleLegApproach, toggleLegOneWay, toggleLegOneWayIn,
   updateCrosswalkField, toggleApproachDestUnified, toggleApproachCount, renderLegConfig,
-  buildTemplateGrid, renderVPairsList, renderTmcPairsList, checkTmcKeys, addBikeClass,
-  addTmcType, addAllVPairsToTmc, _syncTmcAddSelect,
-  copyVPairsFromProject, copyTmcPairsFromProject,
+  buildTemplateGrid, renderVPairsList, addBikeToVPairs, addAllVPairsToTmc,
+  copyVPairsFromProject,
   updateTemplateSuboption, setDiagLeg, setMissingLeg,
   initApproaches, updateDefaultFilenames, wireSetupFilenameInputs, startCounting, goSetup,
   openLegPopover, closeLegPopover, getOpenLeg, wireLegPopoverDismiss,
@@ -126,14 +125,13 @@ function buildCounterSidebar() {
 
 // ── Expose state objects + functions referenced bare in inline HTML handlers ──
 window.vPairs = vPairs;
-window.tmcPairs = tmcPairs;
 window.intersection = intersection;
 Object.assign(window, {
   switchSetupTab, switchTgTab,
   setIntervalLen, updateDerived, updateVCount, applyVPreset,
   checkVKeys, checkPKeys, setLegLabel, toggleLegCrosswalk, toggleLegApproach, toggleLegOneWay, toggleLegOneWayIn,
   updateCrosswalkField, toggleApproachDestUnified, toggleApproachCount, renderLegConfig,
-  renderTmcPairsList, checkTmcKeys, addBikeClass, addTmcType, addAllVPairsToTmc, _syncTmcAddSelect,
+  checkTmcKeys, addBikeToVPairs, addAllVPairsToTmc, renderVPairsList,
   openLegPopover, closeLegPopover, getOpenLeg,
   setDiagLeg, setMissingLeg, updateDiagram, toggleDiagram, toggleTurningDiagram,
   setMode, render, buildKbd, updateCfgFields, vGroupPrev, vGroupNext,
@@ -1004,18 +1002,16 @@ window.openWorkspaceTab = openWorkspaceTab;
 window.goToCountMode = function () {
   document.getElementById('btn-count-mode')?.classList.add('active');
   document.getElementById('btn-analyze-mode')?.classList.remove('active');
-  showScreen('counter-screen');
+  document.getElementById('counter-screen')?.classList.remove('analyze-mode');
   buildCounterSidebar();
   if (periods.length) { buildPeriodTabs(); }
 };
 window.goToAnalyzeMode = async function () {
   document.getElementById('btn-count-mode')?.classList.remove('active');
   document.getElementById('btn-analyze-mode')?.classList.add('active');
-  showScreen('analyze-screen');
-  document.getElementById('btn-analyze-to-count').style.display = '';
-  document.getElementById('btn-analyze-to-qaqc').style.display = 'none';
-  document.getElementById('analyze-sub').textContent = '— live intersection count';
-  await renderIntersectionAnalysis();
+  document.getElementById('counter-screen')?.classList.add('analyze-mode');
+  buildCounterSidebar();
+  await renderIntersectionAnalysis(document.getElementById('counter-analyze-pane'));
 };
 // ─── Period planner (setup screen → study parameters tab) ───────────────
 const plannedPeriods = []; // [{name, start, end}]
@@ -1124,7 +1120,7 @@ function liveTmcParsed() {
     });
     return { label: slotLabel(i), start, end, counts };
   });
-  return { approaches, types: tmcPairs.map(p => ({ label: p.label, isBike: !!p.isBike })), intervals, legLabels: intersection.legLabels || {}, intervalMin: cfg.intervalMin };
+  return { approaches, types: vPairs.filter(p=>p.includeTmc).map(p => ({ label: p.label, isBike: !!p.isBike })), intervals, legLabels: intersection.legLabels || {}, intervalMin: cfg.intervalMin };
 }
 
 // ── Period-stored-data → analysis shapes ─────────────────────────────────────
@@ -1154,7 +1150,7 @@ function parsedFromPeriod(pData) {
     })),
   };
   const tmcParsed = {
-    approaches, types: tmcPairs.map(p => ({ label: p.label, isBike: !!p.isBike })),
+    approaches, types: vPairs.filter(p=>p.includeTmc).map(p => ({ label: p.label, isBike: !!p.isBike })),
     legLabels: intersection.legLabels || {}, intervalMin,
     intervals: Array.from({ length: slots }, (_, i) => {
       const counts = {};
@@ -1194,8 +1190,9 @@ function filterTmcParsedByIndices(parsed, indices) {
 // ── Analyze: single-period content ───────────────────────────────────────────
 async function renderAnalyzePeriodContent(root, vehParsed, pedParsed, tmcParsed) {
   const hasTmc = intersection.approaches.some((a) => a.destinations.length);
-  const bikeIdx = tmcPairs.map((p, i) => p.isBike ? i : -1).filter(i => i >= 0);
-  const motorIdx = tmcPairs.map((p, i) => !p.isBike ? i : -1).filter(i => i >= 0);
+  const _tmcTypes = vPairs.filter(p=>p.includeTmc);
+  const bikeIdx = _tmcTypes.map((p, i) => p.isBike ? i : -1).filter(i => i >= 0);
+  const motorIdx = _tmcTypes.map((p, i) => !p.isBike ? i : -1).filter(i => i >= 0);
   const hasBikes = hasTmc && bikeIdx.length > 0;
   const hasMotor = hasTmc && motorIdx.length > 0;
 
@@ -1322,7 +1319,7 @@ async function renderAnalyzePeriodContent(root, vehParsed, pedParsed, tmcParsed)
 
 // ── Analyze: all-periods comparison view ─────────────────────────────────────
 function renderAllPeriodsView(root) {
-  const motorIdx = tmcPairs.map((p, i) => !p.isBike ? i : -1).filter(i => i >= 0);
+  const motorIdx = vPairs.filter(p=>p.includeTmc).map((p, i) => !p.isBike ? i : -1).filter(i => i >= 0);
   const fmt2 = (m) => `${String(Math.floor(m/60)%24).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
 
   const cols = periods.map((p, i) => {
@@ -1398,28 +1395,26 @@ function renderAllPeriodsView(root) {
 }
 
 // ── Analyze: main entry point ─────────────────────────────────────────────────
-async function renderIntersectionAnalysis() {
+async function renderIntersectionAnalysis(containerEl = null) {
   // Flush live state into active period before any reads
   if (periods.length > 0) periods[activePeriodIdx].data = captureActivePeriod();
 
-  const analyzeScreen = document.getElementById('analyze-screen');
-  if (!analyzeScreen) return;
+  const pane = containerEl || document.getElementById('analyze-screen');
+  if (!pane) return;
 
-  // Period picker bar (rendered once at the screen level, above #analyze-root)
-  let periodBar = document.getElementById('analyze-period-bar');
+  // Period picker bar — find or create inside the pane
+  let periodBar = pane.querySelector('.analyze-period-bar');
   if (!periodBar) {
     periodBar = document.createElement('div');
-    periodBar.id = 'analyze-period-bar';
     periodBar.className = 'analyze-period-bar no-print';
-    analyzeScreen.insertBefore(periodBar, analyzeScreen.firstChild);
+    pane.insertBefore(periodBar, pane.firstChild);
   }
 
-  // Track which period/view is selected in the analyze screen (independent of active counting period)
-  if (analyzeScreen._viewPeriodIdx == null) analyzeScreen._viewPeriodIdx = activePeriodIdx;
-  const isAll = analyzeScreen._viewPeriodIdx === 'all';
+  // Track which period/view is selected (independent of active counting period)
+  if (pane._viewPeriodIdx == null) pane._viewPeriodIdx = activePeriodIdx;
 
   function buildPeriodBar() {
-    const vpi = analyzeScreen._viewPeriodIdx;
+    const vpi = pane._viewPeriodIdx;
     periodBar.innerHTML = '';
     if (periods.length <= 1) { periodBar.style.display = 'none'; return; }
     periodBar.style.display = 'flex';
@@ -1440,7 +1435,7 @@ async function renderIntersectionAnalysis() {
         btn.appendChild(dot);
       }
       btn.addEventListener('click', () => {
-        analyzeScreen._viewPeriodIdx = i;
+        pane._viewPeriodIdx = i;
         buildPeriodBar();
         repaintContent();
       });
@@ -1451,7 +1446,7 @@ async function renderIntersectionAnalysis() {
       allBtn.className = 'apb-tab apb-all' + (vpi === 'all' ? ' active' : '');
       allBtn.textContent = 'All periods';
       allBtn.addEventListener('click', () => {
-        analyzeScreen._viewPeriodIdx = 'all';
+        pane._viewPeriodIdx = 'all';
         buildPeriodBar();
         repaintContent();
       });
@@ -1459,10 +1454,21 @@ async function renderIntersectionAnalysis() {
     }
   }
 
-  const root = document.getElementById('analyze-root');
+  // Content root — use existing #analyze-root for analyze-screen, or create one for counter-analyze-pane
+  let root;
+  if (!containerEl) {
+    root = document.getElementById('analyze-root');
+  } else {
+    root = pane.querySelector('.analyze-root-inner');
+    if (!root) {
+      root = document.createElement('div');
+      root.className = 'analyze-root-inner';
+      pane.appendChild(root);
+    }
+  }
 
   async function repaintContent() {
-    const vpi = analyzeScreen._viewPeriodIdx;
+    const vpi = pane._viewPeriodIdx;
     if (vpi === 'all') {
       renderAllPeriodsView(root);
       return;
@@ -2077,12 +2083,39 @@ document.getElementById('import-tmc-csv-input')?.addEventListener('change', asyn
   e.target.value = '';
 });
 
+function migrateVPairsFromLegacyTmc(legacyTmcPairs) {
+  vPairs.forEach(p => {
+    if (p.tmcKey   === undefined) p.tmcKey   = p.inKey || '';
+    if (p.includeTmc === undefined) p.includeTmc = false;
+    if (p.isBike   === undefined) p.isBike   = false;
+  });
+  if (!legacyTmcPairs || !legacyTmcPairs.length) return;
+  const matched = new Set();
+  legacyTmcPairs.forEach(t => {
+    const lbl = (t.label || '').toLowerCase();
+    const vp = vPairs.find(p => p.label.toLowerCase() === lbl);
+    if (vp) {
+      vp.includeTmc = true;
+      if (t.key) vp.tmcKey = t.key;
+      matched.add(vp);
+    } else {
+      vPairs.push({ label:t.label||'', def:t.def||'', inKey:'', outKey:'', icon:null,
+        tmcKey:t.key||'', includeTmc:true, isBike:!!t.isBike });
+    }
+  });
+}
+
 function loadTmcCsvData(parsed) {
   // ── cfg ──
   Object.assign(cfg, parsed.cfg);
 
-  // ── tmcPairs (vehicle types) ──
-  setTmcPairs(parsed.tmcPairs);
+  // ── vehicle types (convert legacy tmcPairs → vPairs with new fields) ──
+  if (parsed.tmcPairs && parsed.tmcPairs.length) {
+    setVPairs(parsed.tmcPairs.map(t => ({
+      label:t.label||'', def:t.def||'', inKey:'', outKey:'', icon:null,
+      tmcKey:t.key||'', includeTmc:true, isBike:!!t.isBike,
+    })));
+  }
 
   // ── intersection ──
   intersection.template   = parsed.intersection.template;
@@ -2208,12 +2241,11 @@ function tmcSheetToSnapshot(sheet) {
   const locName = [meta.locationNS, meta.locationEW].filter(Boolean).join(' & ') || sheet.sheetName;
   const newIntersection = buildTmcIntersectionFromMeta(meta);
   const hasBike = parsedPeriods.some(p => p.hasBike);
-  const tmcPairs = [{ label: 'Motor', def: '', key: 'a', isBike: false }];
-  if (hasBike) tmcPairs.push({ label: 'Bike', def: '', key: 'b', isBike: true });
+  const newVPairs = [{ label:'Motor', def:'', inKey:'', outKey:'', icon:null, tmcKey:'a', includeTmc:true, isBike:false }];
+  if (hasBike) newVPairs.push({ label:'Bicycle', def:'', inKey:'', outKey:'', icon:null, tmcKey:'b', includeTmc:true, isBike:true });
   return {
     version: 2, projectType: 'intersection', mode: 'turning',
-    vPairs: [{ label: 'Vehicles', inKey: 'a', outKey: 'z', icon: null }],
-    tmcPairs,
+    vPairs: newVPairs,
     intersection: newIntersection,
     fnames: { vehicle: locName, ped: locName, tmc: locName },
     activePeriodIdx: 0,
@@ -2281,8 +2313,7 @@ function rawCountSheetToSnapshot(sheet) {
   const newIntersection = buildIntersectionFromMeta(meta);
   return {
     version: 2, projectType: 'intersection', mode: 'ped',
-    vPairs: [{ label: 'Vehicles', inKey: 'a', outKey: 'z', icon: null }],
-    tmcPairs: [],
+    vPairs: [{ label: 'Vehicles', inKey: 'a', outKey: 'z', icon: null, tmcKey: 'a', includeTmc: true, isBike: false }],
     intersection: newIntersection,
     fnames: { vehicle: locName, ped: locName, tmc: locName },
     activePeriodIdx: 0,
@@ -2608,7 +2639,6 @@ function serializeIntersectionSnapshot() {
   return {
     version: 2, projectType: 'intersection', mode,
     vPairs: JSON.parse(JSON.stringify(vPairs)),
-    tmcPairs: JSON.parse(JSON.stringify(tmcPairs)),
     intersection: JSON.parse(JSON.stringify(intersection)),
     fnames: { ...fnames },
     activePeriodIdx,
@@ -3064,8 +3094,9 @@ async function exportProjectPackage() {
     // Shareable HTML — build from active period data
     const pData = captureActivePeriod();
     const { vehParsed, pedParsed, tmcParsed } = parsedFromPeriod(pData);
-    const bikeIdx = tmcPairs.map((p, i) => p.isBike ? i : -1).filter(i => i >= 0);
-    const motorIdx = tmcPairs.map((p, i) => !p.isBike ? i : -1).filter(i => i >= 0);
+    const _tmcT1 = vPairs.filter(p=>p.includeTmc);
+    const bikeIdx = _tmcT1.map((p, i) => p.isBike ? i : -1).filter(i => i >= 0);
+    const motorIdx = _tmcT1.map((p, i) => !p.isBike ? i : -1).filter(i => i >= 0);
     const hasBikes = intersection.approaches.some(a => a.destinations.length) && bikeIdx.length > 0;
     const { html, filename: htmlFilename } = buildShareableHTML(
       { ...projectInfo, date: periodMeta.date || projectInfo.date, weather: periodMeta.weather || projectInfo.weather, counterName: periodMeta.observer || projectInfo.counterName, studyPurpose: periodMeta.notes || projectInfo.studyPurpose, equipment: periodMeta.equipment },
@@ -3115,8 +3146,9 @@ function renderExportBuilder() {
         intersection, ...(() => {
           const pData = captureActivePeriod();
           const { vehParsed, pedParsed, tmcParsed } = parsedFromPeriod(pData);
-          const bikeIdx = tmcPairs.map((p, i) => p.isBike ? i : -1).filter(i => i >= 0);
-          const motorIdx = tmcPairs.map((p, i) => !p.isBike ? i : -1).filter(i => i >= 0);
+          const _tmcT2 = vPairs.filter(p=>p.includeTmc);
+          const bikeIdx = _tmcT2.map((p, i) => p.isBike ? i : -1).filter(i => i >= 0);
+          const motorIdx = _tmcT2.map((p, i) => !p.isBike ? i : -1).filter(i => i >= 0);
           const hasBikes = intersection.approaches.some(a => a.destinations.length) && bikeIdx.length > 0;
           return [vehParsed, pedParsed, tmcParsed, motorIdx, bikeIdx, hasBikes, pData.cfg?.intervalMin || 15];
         })()
@@ -4441,7 +4473,12 @@ function renderIxAnalysis(periodIdx, view) {
 
 function loadIntersectionIntoView(snap) {
   setVPairs(snap.vPairs || []);
-  if (snap.tmcPairs) setTmcPairs(snap.tmcPairs);
+  if (snap.tmcPairs) migrateVPairsFromLegacyTmc(snap.tmcPairs);
+  else vPairs.forEach(p => {
+    if (p.tmcKey   === undefined) p.tmcKey   = p.inKey || '';
+    if (p.includeTmc === undefined) p.includeTmc = true;
+    if (p.isBike   === undefined) p.isBike   = false;
+  });
   Object.assign(intersection, snap.intersection);
   Object.assign(fnames, snap.fnames || {});
   if (snap.periods) {
@@ -4553,7 +4590,12 @@ function loadProject(proj) {
   // intersection project — structural (shared across all periods)
   if (proj.enabledModes) { Object.assign(enabledModes, proj.enabledModes); syncCountTypeToggles(); }
   setVPairs(proj.vPairs || []);
-  if (proj.tmcPairs) setTmcPairs(proj.tmcPairs);
+  if (proj.tmcPairs) migrateVPairsFromLegacyTmc(proj.tmcPairs);
+  else vPairs.forEach(p => {
+    if (p.tmcKey   === undefined) p.tmcKey   = p.inKey || '';
+    if (p.includeTmc === undefined) p.includeTmc = true;
+    if (p.isBike   === undefined) p.isBike   = false;
+  });
   Object.assign(intersection, proj.intersection);
   Object.assign(fnames, proj.fnames);
 
@@ -4644,7 +4686,6 @@ function serializeCurrentProject() {
       mode,
       enabledModes: { ...enabledModes },
       vPairs: JSON.parse(JSON.stringify(vPairs)),
-      tmcPairs: JSON.parse(JSON.stringify(tmcPairs)),
       intersection: JSON.parse(JSON.stringify(intersection)),
       fnames: { ...fnames },
       activePeriodIdx,

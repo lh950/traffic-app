@@ -1,5 +1,5 @@
 import {
-  cfg, vPairs, tmcPairs, intersection, fnames, tmcData, tmcApproach, setTmcApproach, tmManual,
+  cfg, vPairs, intersection, fnames, tmcData, tmcApproach, setTmcApproach, tmManual,
   vData, vManual, pedData, pedManual, customInterval, undoStack,
   slot, setSlot, mode, setMode_, kbdCollapsed, setKbdCollapsed, scrollOnRender, setScrollOnRender,
   focusMode, setFocusMode, vGroup, setVGroup, focusTarget, setFocusTargetState,
@@ -192,8 +192,8 @@ export function buildKbd(){
       const cls=classifyTurn(tApp.leg,dest);
       html+=`<span class="kbd-group-label"><span class="turn-cls turn-cls-${cls}" style="font-size:9px">${TURN_CLS_LABEL[cls]}</span> → ${legLabel(dest)}</span>`;
       // flat layout — all types in one row, no groups
-      tmcPairs.forEach((p,i)=>{
-        const k=p.key===';'?';':p.key.toUpperCase();
+      vPairs.filter(p=>p.includeTmc).forEach((p,i)=>{
+        const k=(p.tmcKey||'?')===';'?';':(p.tmcKey||'?').toUpperCase();
         html+=`<span class="kbd-chip" data-focus-idx="${i}"><kbd>${k}</kbd><span class="key-label">${p.label}</span></span>`;
       });
     } else {
@@ -386,7 +386,8 @@ export function renderTMC(){
     return;
   }
   const dests=app.destinations;
-  const n=tmcPairs.length;
+  const tmcTypes=vPairs.filter(p=>p.includeTmc);
+  const n=tmcTypes.length;
 
   let movHdrs='';
   dests.forEach((d,di)=>{
@@ -400,7 +401,7 @@ export function renderTMC(){
   let typeHdrs='';
   dests.forEach((d,di)=>{
     const acol=di===focusTarget?' tmc-acol':'';
-    tmcPairs.forEach((p,ti)=>{
+    tmcTypes.forEach((p,ti)=>{
       const sep=(di>0&&ti===0)?' class="type-sub-hdr mov-group-sep'+acol+'"':` class="type-sub-hdr${acol}"`;
       typeHdrs+=`<th${sep}>${p.label}</th>`;
     });
@@ -430,7 +431,7 @@ export function renderTMC(){
 
   let totCells=''; let grandTot=0;
   dests.forEach((d,di)=>{
-    const typeTots=tmcPairs.map((_,ti)=>Array.from({length:cfg.slots},(_,ri)=>(tmcData[app.leg]&&tmcData[app.leg][d]&&tmcData[app.leg][d][ri]&&tmcData[app.leg][d][ri][ti])||0).reduce((a,b)=>a+b,0));
+    const typeTots=tmcTypes.map((_,ti)=>Array.from({length:cfg.slots},(_,ri)=>(tmcData[app.leg]&&tmcData[app.leg][d]&&tmcData[app.leg][d][ri]&&tmcData[app.leg][d][ri][ti])||0).reduce((a,b)=>a+b,0));
     const sub=typeTots.reduce((a,b)=>a+b,0);
     const tacol=di===focusTarget?' tmc-acol':'';
     typeTots.forEach((t,ti)=>{

@@ -1,6 +1,7 @@
 import {
-  TEMPLATES, PED_COLORS, cfg, vPairs, setVPairs, tmcPairs, setTmcPairs, intersection,
+  TEMPLATES, PED_COLORS, cfg, vPairs, setVPairs, intersection,
   fnames, customInterval, setCustomInterval, setXwalkAssign,
+  vData, pedData, tmcData, periods, activePeriodIdx,
 } from './state.js';
 import { classifyTurn, renderSetupDiagram, buildLegDestinationsSVG } from './diagram.js';
 import { startCounting, goSetup } from './counter.js';
@@ -80,151 +81,146 @@ export async function copyVPairsFromProject(file){
 export async function copyTmcPairsFromProject(file){
   try {
     const proj = JSON.parse(await file.text());
-    if (!proj?.tmcPairs?.length) { alert('No TMC vehicle types found in that project file.'); return; }
-    setTmcPairs(proj.tmcPairs.map(p=>({...p})));
-    document.getElementById('tmc-count').value=tmcPairs.length;
-    renderTmcPairsList();
+    if (proj?.vPairs?.length) { setVPairs(proj.vPairs.map(p=>({...p}))); renderVPairsList(); }
+    else alert('No vehicle types found in that project file.');
   } catch(e) { alert('Could not read project file: '+e.message); }
 }
 
+function hasCountData(){
+  const chkV=d=>d.in.some(r=>r.some(v=>v))||d.out.some(r=>r.some(v=>v));
+  const chkP=d=>d.some(xw=>xw.some(sl=>sl[0]||sl[1]));
+  const chkT=d=>Object.values(d).some(leg=>Object.values(leg).some(dests=>dests.some(sl=>sl.some(v=>v))));
+  if(chkV(vData)||chkP(pedData)||chkT(tmcData)) return true;
+  return periods.some(p=>{const d=p.data;if(!d)return false;return chkV(d.vData)||chkP(d.pedData)||chkT(d.tmcData||{});});
+}
+
 export function renderVPairsList(){
-  const wrap=document.getElementById('v-pairs-list'); wrap.innerHTML='';
-  const multiGroup = vPairs.length > 4;
+  const wrap=document.getElementById('v-pairs-list'); if(!wrap) return;
+  wrap.innerHTML='';
+  const locked=hasCountData();
+  const multiGroup=vPairs.length>4;
   if(multiGroup){
     const notice=document.createElement('div'); notice.className='group-notice';
-    notice.innerHTML=`<strong>Keybinding groups</strong> — types 1–4 use one set of keys; types 5–8 reuse the same keys as a second group (and so on). During counting, use the ‹ › arrows to switch the active group. Each group's keys must be unique within that group only.`;
+    notice.innerHTML=`<strong>Keybinding groups</strong> — types 1–4 use one set of keys; types 5–8 reuse the same keys as a second group. Use ‹ › during counting to switch groups.`;
     wrap.appendChild(notice);
   }
+  let dragSrc=-1;
   vPairs.forEach((p,i)=>{
-    if(multiGroup && i%4===0){
+    if(multiGroup&&!p.isBike&&i%4===0){
       const sep=document.createElement('div'); sep.className='group-sep';
-      sep.textContent=`Group ${Math.floor(i/4)+1}`;
-      wrap.appendChild(sep);
+      sep.textContent=`Group ${Math.floor(i/4)+1}`; wrap.appendChild(sep);
     }
-    const row=document.createElement('div'); row.className='pair-row'; row.dataset.idx=i;
+    const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+    const labelEl=locked||p.isBike
+      ?`<span class="pair-label-ro${p.isBike?' bike-label-locked':''}">${esc(p.label)}</span>`
+      :`<input type="text" value="${esc(p.label)}" placeholder="label" oninput="vPairs[${i}].label=this.value;updateCfgFields()">`;
+    const defEl=locked||p.isBike
+      ?`<span class="tmc-def-ro">${p.isBike?'Cyclists':esc(p.def)}</span>`
+      :`<input type="text" value="${esc(p.def)}" placeholder="definition" style="font-size:11px" oninput="vPairs[${i}].def=this.value">`;
+    const inKeyEl=p.isBike
+      ?`<span class="key-input key-input-blank"></span>`
+      :`<input type="text" class="key-input" maxlength="1" value="${(p.inKey||'')===';'?';':(p.inKey||'').toUpperCase()}" placeholder="in" oninput="vPairs[${i}].inKey=this.value.toLowerCase();checkVKeys()">`;
+    const outKeyEl=p.isBike
+      ?`<span class="key-input key-input-blank"></span>`
+      :`<input type="text" class="key-input" maxlength="1" value="${(p.outKey||'')===';'?';':(p.outKey||'').toUpperCase()}" placeholder="out" oninput="vPairs[${i}].outKey=this.value.toLowerCase();checkVKeys()">`;
+    const tmcKey=(p.tmcKey||'')===';'?';':(p.tmcKey||'').toUpperCase();
+    const row=document.createElement('div'); row.className='pair-row vpair-row'; row.dataset.idx=i;
     row.innerHTML=`
-      <span class="pair-num">${i+1}</span>
-      <input type="text" value="${p.label}" placeholder="label" oninput="vPairs[${i}].label=this.value;updateCfgFields();_syncTmcAddSelect()">
-      <input type="text" value="${p.def}" placeholder="definition" style="font-size:11px" oninput="vPairs[${i}].def=this.value">
-      <input type="text" class="key-input" maxlength="1" value="${p.inKey===';'?';':p.inKey.toUpperCase()}" placeholder="in"
-        oninput="vPairs[${i}].inKey=this.value.toLowerCase();checkVKeys()">
-      <input type="text" class="key-input" maxlength="1" value="${p.outKey===';'?';':p.outKey.toUpperCase()}" placeholder="out"
-        oninput="vPairs[${i}].outKey=this.value.toLowerCase();checkVKeys()">`;
+      <span class="drag-handle${locked?' drag-locked':''}" title="${locked?'locked — count data exists':'drag to reorder'}">⣿</span>
+      ${labelEl}${defEl}${inKeyEl}${outKeyEl}
+      <label class="tmc-incl-label" title="Include in TMC turning mode">
+        <input type="checkbox" class="tmc-incl-chk" ${p.includeTmc?'checked':''} ${locked||p.isBike?'disabled':''}>
+        <span>tmc</span>
+      </label>
+      <input type="text" class="key-input tmc-key-input" maxlength="1" value="${tmcKey}" placeholder="t-key"
+        style="${p.includeTmc?'':'opacity:.35;pointer-events:none'}"
+        oninput="vPairs[${i}].tmcKey=this.value.toLowerCase();checkTmcKeys()">
+      <button class="tmc-remove-btn" onclick="vPairs.splice(${i},1);renderVPairsList()" title="Remove" ${locked?'disabled':''}>×</button>`;
+    const chk=row.querySelector('.tmc-incl-chk');
+    if(chk&&!locked&&!p.isBike){
+      chk.addEventListener('change',()=>{
+        vPairs[i].includeTmc=chk.checked;
+        const ki=row.querySelector('.tmc-key-input');
+        if(ki)ki.style.cssText=chk.checked?'':'opacity:.35;pointer-events:none';
+        checkTmcKeys();
+      });
+    }
+    if(!locked){
+      row.draggable=true;
+      row.addEventListener('dragstart',e=>{dragSrc=i;e.dataTransfer.effectAllowed='move';row.classList.add('dragging');});
+      row.addEventListener('dragend',()=>row.classList.remove('dragging'));
+      row.addEventListener('dragover',e=>{e.preventDefault();e.dataTransfer.dropEffect='move';row.classList.add('drag-over');});
+      row.addEventListener('dragleave',()=>row.classList.remove('drag-over'));
+      row.addEventListener('drop',e=>{
+        e.preventDefault();row.classList.remove('drag-over');
+        if(dragSrc<0||dragSrc===i)return;
+        const moved=vPairs.splice(dragSrc,1)[0];
+        vPairs.splice(i,0,moved);
+        renderVPairsList();
+      });
+    }
     wrap.appendChild(row);
   });
   checkVKeys();
-  _syncTmcAddSelect();
+  checkTmcKeys();
+  // show/hide bicycle button
+  const bikeBtn=document.getElementById('btn-vpairs-add-bike');
+  if(bikeBtn)bikeBtn.style.display=vPairs.some(p=>p.isBike)?'none':'';
+}
+
+export function addBikeToVPairs(){
+  if(vPairs.some(p=>p.isBike))return;
+  const usedTmc=new Set(vPairs.map(p=>p.tmcKey));
+  const freeKey='abcdefghijklmnopqrstuvwxyz'.split('').find(c=>!usedTmc.has(c))||'?';
+  vPairs.push({label:'Bicycle',def:'Cyclists',inKey:null,outKey:null,icon:null,tmcKey:freeKey,includeTmc:true,isBike:true});
+  renderVPairsList();
 }
 
 export function checkVKeys(){
-  // Keys only need to be unique within each group of 4; cross-group reuse is fine
   const dupeSet=new Set();
   for(let g=0;g<vPairs.length;g+=4){
-    const grp=vPairs.slice(g,g+4);
+    const grp=vPairs.slice(g,g+4).filter(p=>!p.isBike);
     const gk=grp.flatMap(p=>[p.inKey,p.outKey]);
     gk.forEach((k,i)=>{if(k&&k!=='?'&&gk.indexOf(k)!==i)dupeSet.add(g+'_'+k);});
   }
-  document.querySelectorAll('#v-pairs-list input.key-input').forEach(inp=>{
+  document.querySelectorAll('#v-pairs-list .vpair-row input.key-input:not(.tmc-key-input)').forEach(inp=>{
     const row=inp.closest('[data-idx]');
     const idx=row?parseInt(row.dataset.idx):-1;
     const g=Math.floor(idx/4);
     inp.classList.toggle('key-conflict',idx>=0&&dupeSet.has(g+'_'+inp.value.toLowerCase()));
   });
-  document.getElementById('v-conflict').classList.toggle('visible',dupeSet.size>0);
+  const conf=document.getElementById('v-conflict');
+  if(conf)conf.classList.toggle('visible',dupeSet.size>0);
   return dupeSet.size===0;
 }
 
-// ═══════════════════════════════════════════
-// TMC-SPECIFIC VEHICLE TYPES
-// TMC labels are drawn from the vPairs list configured above.
-// ═══════════════════════════════════════════
-
-function _nextFreeKey(){
-  const used=new Set(tmcPairs.map(p=>p.key));
-  return 'abcdefghijklmnopqrstuvwxyz'.split('').find(c=>!used.has(c))||'?';
-}
-
-export function addTmcType(label){
-  if(!label) return;
-  if(tmcPairs.some(p=>p.label===label&&!p.isBike)) return; // already included
-  tmcPairs.push({label,key:_nextFreeKey(),isBike:false});
-  renderTmcPairsList();
-  const sel=document.getElementById('tmc-add-select');
-  if(sel) sel.value='';
-}
-
-export function addAllVPairsToTmc(){
-  const used=new Set(tmcPairs.filter(p=>!p.isBike).map(p=>p.label));
-  vPairs.forEach(vp=>{
-    if(used.has(vp.label)) return;
-    tmcPairs.push({label:vp.label,key:_nextFreeKey(),isBike:false});
-  });
-  renderTmcPairsList();
-}
-
-export function addBikeClass(){
-  if(tmcPairs.some(p=>p.isBike)) return; // already added
-  tmcPairs.push({label:'Bicycle',key:_nextFreeKey(),isBike:true});
-  renderTmcPairsList();
-}
-
-// kept for project-file backward compat (loadProject calls renderTmcPairsList directly)
-export function applyTmcPreset(){}
-export function updateTmcCount(){}
-
-export function _syncTmcAddSelect(){
-  const sel=document.getElementById('tmc-add-select'); if(!sel) return;
-  const used=new Set(tmcPairs.filter(p=>!p.isBike).map(p=>p.label));
-  sel.innerHTML='<option value="">add a type…</option>'+
-    vPairs.map(vp=>`<option value="${vp.label}"${used.has(vp.label)?' disabled':''}>${vp.label}</option>`).join('');
-}
-
-export function renderTmcPairsList(){
-  const wrap=document.getElementById('tmc-pairs-list'); if(!wrap) return;
-  wrap.innerHTML='';
-  _syncTmcAddSelect();
-  // show/hide "add all" button depending on whether all vPairs are already included
-  const addAllBtn=document.getElementById('btn-tmc-add-all');
-  if(addAllBtn){
-    const used=new Set(tmcPairs.filter(p=>!p.isBike).map(p=>p.label));
-    addAllBtn.style.display=vPairs.length>0&&vPairs.every(vp=>used.has(vp.label))?'none':'';
-  }
-  // show/hide bicycle button
-  const bikeBtn=document.getElementById('btn-tmc-add-bike');
-  if(bikeBtn) bikeBtn.style.display=tmcPairs.some(p=>p.isBike)?'none':'';
-
-  tmcPairs.forEach((p,i)=>{
-    if(p.isBike) p.label='Bicycle';
-    const def=p.isBike?'Cyclists':(vPairs.find(v=>v.label===p.label)?.def||'');
-    const row=document.createElement('div'); row.className='pair-row'; row.dataset.idx=i;
-    row.innerHTML=`
-      <span class="pair-num">${i+1}</span>
-      <span class="tmc-label-ro${p.isBike?' bike-label-locked':''}">${p.label}</span>
-      <span class="tmc-def-ro">${def}</span>
-      <input type="text" class="key-input" maxlength="1" value="${(p.key||'').toUpperCase()}" placeholder="key"
-        oninput="tmcPairs[${i}].key=this.value.toLowerCase();checkTmcKeys()">
-      <button class="tmc-remove-btn" onclick="tmcPairs.splice(${i},1);renderTmcPairsList()" title="Remove">×</button>`;
-    wrap.appendChild(row);
-  });
-  checkTmcKeys();
-}
-
 export function checkTmcKeys(){
-  const seen=new Set(), dupes=new Set();
-  tmcPairs.forEach(p=>{
-    if(p.key&&seen.has(p.key))dupes.add(p.key);
-    seen.add(p.key);
+  const seen=new Set(),dupes=new Set();
+  vPairs.filter(p=>p.includeTmc).forEach(p=>{
+    if(p.tmcKey&&seen.has(p.tmcKey))dupes.add(p.tmcKey);
+    seen.add(p.tmcKey);
   });
-  // Also flag keys shared with nav keys
   const navKeys=new Set(['arrowup','arrowdown','z','y','\\',']','[']);
-  document.querySelectorAll('#tmc-pairs-list input.key-input').forEach(inp=>{
+  document.querySelectorAll('#v-pairs-list input.tmc-key-input').forEach(inp=>{
     const k=inp.value.toLowerCase();
     inp.classList.toggle('key-conflict',dupes.has(k)||navKeys.has(k));
   });
-  const conflict=document.getElementById('tmc-conflict');
-  if(conflict)conflict.classList.toggle('visible',dupes.size>0);
+  const conf=document.getElementById('tmc-conflict');
+  if(conf)conf.classList.toggle('visible',dupes.size>0);
   return dupes.size===0;
 }
+
+// stubs kept so any stale callers don't throw
+export function renderTmcPairsList(){ renderVPairsList(); }
+export function addTmcType(){ renderVPairsList(); }
+export function addAllVPairsToTmc(){
+  vPairs.filter(p=>!p.isBike).forEach(p=>{ p.includeTmc=true; if(!p.tmcKey){const used=new Set(vPairs.map(q=>q.tmcKey));p.tmcKey='abcdefghijklmnopqrstuvwxyz'.split('').find(c=>!used.has(c))||'?';} });
+  renderVPairsList();
+}
+export function addBikeClass(){ addBikeToVPairs(); }
+export function _syncTmcAddSelect(){}
+export function applyTmcPreset(){}
+export function updateTmcCount(){}
 
 // ═══════════════════════════════════════════
 // STREET NAMES + LEG HELPERS

@@ -31,11 +31,12 @@ export const periodMeta = { date:'', weather:'', observer:'', equipment:'', note
 export let customInterval = 15;
 export function setCustomInterval(v){ customInterval = v; }
 
+// tmcKey: fixed key bound to this row (not position); includeTmc: show in TMC mode; isBike: bicycle row
 export const vPairs = [
-  {label:'light truck',     def:'Class 2 — passenger cars & light vehicles',   inKey:'a', outKey:'j', icon:null},
-  {label:'single truck',    def:'Class 5 — 2-axle, 6-tire single unit',         inKey:'s', outKey:'k', icon:null},
-  {label:'tractor trailer', def:'Class 8 — 3-axle single trailer combination',  inKey:'d', outKey:'l', icon:null},
-  {label:'tandem trailer',  def:'Class 9 — 4-axle single trailer combination',  inKey:'f', outKey:';', icon:null},
+  {label:'light truck',     def:'Class 2 — passenger cars & light vehicles',   inKey:'a', outKey:'j', icon:null, tmcKey:'a', includeTmc:true,  isBike:false},
+  {label:'single truck',    def:'Class 5 — 2-axle, 6-tire single unit',         inKey:'s', outKey:'k', icon:null, tmcKey:'s', includeTmc:true,  isBike:false},
+  {label:'tractor trailer', def:'Class 8 — 3-axle single trailer combination',  inKey:'d', outKey:'l', icon:null, tmcKey:'d', includeTmc:true,  isBike:false},
+  {label:'tandem trailer',  def:'Class 9 — 4-axle single trailer combination',  inKey:'f', outKey:';', icon:null, tmcKey:'f', includeTmc:true,  isBike:false},
 ];
 // Mutates in place (not a reassignment) so window.vPairs stays valid for inline HTML handlers.
 export function setVPairs(arr){ vPairs.length=0; vPairs.push(...arr); }
@@ -63,16 +64,6 @@ export let intersection = {
 Object.defineProperty(window,'pedTemplate',{get(){return intersection.template;},set(v){intersection.template=v;}});
 Object.defineProperty(window,'pedPairs',   {get(){return intersection.crosswalks;},set(v){intersection.crosswalks=v;}});
 
-// Separate type list for turning-movement counts — one key per type, independent of vehicle in/out.
-// Mutates in place so window.tmcPairs stays valid for inline HTML handlers.
-export const tmcPairs = [
-  {label:'passenger / light',  def:'Cars, vans, pickups',                      key:'a'},
-  {label:'single unit',        def:'2-axle, 6-tire trucks',                    key:'s'},
-  {label:'tractor trailer',    def:'3-axle+ combination trucks',                key:'d'},
-  {label:'bus',                def:'Full-size transit / charter bus',           key:'f'},
-];
-export function setTmcPairs(arr){ tmcPairs.length=0; tmcPairs.push(...arr); }
-
 export let fnames = {vehicle:'traffic_counts', ped:'ped_counts', tmc:'tmc_counts'};
 
 export let tmcData = {};
@@ -98,7 +89,7 @@ export function initVData(){
 export function initTMCData(initApproaches){
   tmcData={}; tmManual={};
   initApproaches();
-  const s=cfg.slots,n=tmcPairs.length;
+  const s=cfg.slots,n=vPairs.filter(p=>p.includeTmc).length;
   intersection.approaches.forEach(app=>{
     tmcData[app.leg]={}; tmManual[app.leg]={};
     app.destinations.forEach(dest=>{

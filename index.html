@@ -1,9 +1,9 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Traffic App v3.22.1-alpha.3</title>
+<title>Traffic App v3.23.0</title>
 <link rel="manifest" href="./manifest.json">
 <meta name="theme-color" content="#131b23">
 <script>
@@ -117,7 +117,7 @@
   <div class="home-inner">
     <div class="home-wordmark">
       <h1>Traffic App</h1>
-      <div class="home-version">v3.22.1-alpha.3</div>
+      <div class="home-version">v3.23.0</div>
       <button id="home-btn-help" title="Help / instructions" style="margin-left:auto;font-size:13px;font-weight:600;color:var(--text3);background:none;border:.5px solid var(--border);border-radius:50%;width:26px;height:26px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">?</button>
     </div>
     <div id="home-resume-banner" style="display:none" class="home-resume-banner"></div>
@@ -184,7 +184,7 @@
     <!-- wordmark -->
     <div style="margin-bottom:2rem">
       <h1 style="font-size:22px;font-weight:500;letter-spacing:-.01em">Traffic App</h1>
-      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v3.22.1-alpha.3</span>
+      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v3.23.0</span>
     </div>
 
     <!-- autosave / resume banner -->
@@ -759,53 +759,29 @@
     </div>
   </div>
 
-  <!-- COUNTING TYPES (vehicle in/out + TMC merged) -->
+  <!-- COUNTING TYPES (single master list) -->
   <div class="setup-panel" id="sp-vehicle">
     <div class="setup-card">
-      <h2>directional counting types</h2>
-      <div class="stat-detail" style="margin-bottom:14px">Used in <strong>vehicle (in/out)</strong> mode. Each type needs an IN key and an OUT key. Keys are grouped in sets of 4 � types 1�4 share one group, types 5�8 share a second group. Use � � during counting to switch groups.</div>
-      <div class="count-ctrl">
-        <label>number of types</label>
-        <select id="v-count" onchange="updateVCount(+this.value)">
-          <option>1</option><option>2</option><option>3</option><option value="4" selected>4</option>
-          <option>5</option><option>6</option><option>7</option><option>8</option>
-          <option>9</option><option>10</option><option>11</option><option>12</option>
-        </select>
-      </div>
+      <h2>counting types</h2>
+      <div class="stat-detail" style="margin-bottom:14px">One list for all modes. Each row appears in <strong>vehicle (in/out)</strong> counting with its IN/OUT keys. Check <strong>TMC</strong> to include a type in turning movement counts, assigned its own TMC key. Drag &#9776; to reorder (locked once data is entered).</div>
       <div class="preset-btns">
         <span style="font-size:12px;color:var(--text2);align-self:center">presets:</span>
         <button class="preset-btn" onclick="applyVPreset('precise')">FHWA precise (cl. 2,5,8,9)</button>
-        <button class="preset-btn" onclick="applyVPreset('combined')">FHWA combined (1"3, 5, 4"6, 7"13)</button>
-        <button class="preset-btn" id="btn-copy-vpairs" title="Load vehicle types from a saved project (.json)">copy from project�</button>
+        <button class="preset-btn" onclick="applyVPreset('combined')">FHWA combined (1-3, 5, 4-6, 7-13)</button>
+        <button class="preset-btn" onclick="addAllVPairsToTmc()">&#10003; all in TMC</button>
+        <button class="preset-btn" id="btn-vpairs-add-bike" onclick="addBikeToVPairs()">+ bicycle</button>
+        <button class="preset-btn" id="btn-copy-vpairs" title="Load vehicle types from a saved project (.json)">copy from project&#8230;</button>
         <input type="file" id="copy-vpairs-input" accept=".json" style="display:none">
       </div>
-      <div class="pair-header">
-        <span></span><span>label</span><span>definition</span><span>IN key</span><span>OUT key</span>
+      <div class="pair-header vpair-header">
+        <span></span><span>label</span><span>definition</span><span>IN</span><span>OUT</span><span>TMC</span><span>TMC key</span><span></span>
       </div>
       <div id="v-pairs-list"></div>
-      <div class="conflict-msg" id="v-conflict">? duplicate keys � each key must be unique</div>
-      <div class="warn-banner" id="warn-vehicle">? counts recorded � renaming changes labels only</div>
-    </div>
-
-    <div class="setup-card" style="margin-top:16px">
-      <h2>turning movement types</h2>
-      <div class="stat-detail" style="margin-bottom:14px">Used in <strong>TMC</strong> mode. Select types from your vehicle list above � one key per type, no in/out split.</div>
-      <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
-        <select id="tmc-add-select" onchange="addTmcType(this.value)" style="font-size:12px;padding:5px 8px;border:.5px solid var(--border2);border-radius:var(--r);background:var(--surface2);color:var(--text);min-width:160px">
-          <option value="">add a type�</option>
-        </select>
-        <button id="btn-tmc-add-all" class="preset-btn" onclick="addAllVPairsToTmc()">add all vehicle types</button>
-        <button id="btn-tmc-add-bike" class="preset-btn" onclick="addBikeClass()">+ include bicycle</button>
-      </div>
-      <div class="pair-header">
-        <span></span><span>label</span><span>definition</span><span>key</span><span></span>
-      </div>
-      <div id="tmc-pairs-list"></div>
-      <div class="conflict-msg" id="tmc-conflict">? duplicate keys � each key must be unique</div>
-      <div class="warn-banner" id="warn-tmc">? counts recorded � changes apply to labels only</div>
+      <div class="conflict-msg" id="v-conflict">&#9888; duplicate keys &#8212; each key must be unique</div>
+      <div class="conflict-msg" id="tmc-conflict">&#9888; duplicate TMC keys &#8212; each TMC key must be unique</div>
+      <div class="warn-banner" id="warn-vehicle">&#9888; counts recorded &#8212; labels are now read-only</div>
     </div>
   </div>
-
   <!-- CROSSWALKS -->
   <div class="setup-panel" id="sp-intersection">
     <div class="setup-card" style="overflow:visible">
@@ -899,7 +875,7 @@
 
   <header class="counter-header">
     <button id="btn-back-to-project" style="font-size:12px;padding:4px 10px;margin-right:8px">? Project</button>
-    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v3.22.1-alpha.3</span></h1>
+    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v3.23.0</span></h1>
     <div class="hcontrols">
       <div class="mode-toggle" style="display:none">
         <button class="mode-btn active" id="btn-count-mode" onclick="goToCountMode()">count</button>
@@ -983,6 +959,7 @@
   <div class="counter-bottom">counts stored in this tab � do not refresh �� right-click any time cell to reset that interval �� click any count cell to edit</div>
 
   </div><!-- counter-main -->
+  <div id="counter-analyze-pane"></div>
   </div><!-- counter-body -->
 </div>
 
