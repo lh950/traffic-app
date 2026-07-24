@@ -903,13 +903,40 @@ function closeBugReportDialog() {
   document.getElementById('bug-report-modal')?.classList.remove('open');
 }
 
+function _bugStripPeriod(p) {
+  const tmcTotal = Object.values(p.tmcData||{}).reduce((s, from) =>
+    s + Object.values(from).reduce((s2, slots) =>
+      s2 + slots.reduce((s3, slot) => s3 + (slot||[]).reduce((a,b) => a+(b||0), 0), 0), 0), 0);
+  const vehTotal = (p.vData?.in||[]).reduce((s, r) => s + r.reduce((a,b) => a+(b||0), 0), 0)
+                 + (p.vData?.out||[]).reduce((s, r) => s + r.reduce((a,b) => a+(b||0), 0), 0);
+  const pedTotal = (p.pedData||[]).reduce((s, xw) => s + xw.reduce((s2, slot) => s2 + (slot[0]||0)+(slot[1]||0), 0), 0);
+  return { name: p.name, cfg: p.cfg, meta: p.meta, tmcTotal, vehTotal, pedTotal,
+    tmcMovements: Object.entries(p.tmcData||{}).flatMap(([from, dests]) => Object.keys(dests).map(to => `${from}→${to}`)) };
+}
+
+function _bugStripSnap(snap) {
+  if (!snap) return null;
+  return { ...snap, periods: (snap.periods||[]).map(_bugStripPeriod) };
+}
+
 function _bugReportPayload() {
-  const state = {};
+  const storage = {};
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
     if (!key) continue;
-    try { state[key] = JSON.parse(localStorage.getItem(key)); }
-    catch { state[key] = localStorage.getItem(key); }
+    try {
+      const val = JSON.parse(localStorage.getItem(key));
+      if (key.startsWith('tc_project_') || key === 'traffic-app-autosave') {
+        const proj = val;
+        if (proj?.projectType === 'area') {
+          storage[key] = { ...proj, intersections: (proj.intersections||[]).map(ix => ({ ...ix, snapshot: _bugStripSnap(ix.snapshot) })) };
+        } else {
+          storage[key] = _bugStripSnap(proj);
+        }
+      } else {
+        storage[key] = val;
+      }
+    } catch { storage[key] = localStorage.getItem(key); }
   }
   return {
     timestamp: new Date().toISOString(),
@@ -918,12 +945,12 @@ function _bugReportPayload() {
     currentScreen: _currentScreen,
     projectType,
     navHistory: [..._navHistory],
-    storage: state,
+    storage,
   };
 }
 
 function _bugDownloadJSON(report) {
-  const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+  const blob = new Blob([JSON.stringify(report)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   const ts = report.timestamp.slice(0, 10);
@@ -1490,6 +1517,14 @@ function showProjectHub() {
   setSidebarMeta(projectInfo.projectName || 'Area study', '');
   renderAppSidebar();
   showScreen('area-setup-screen');
+  // Live-update area header as project info is edited
+  document.querySelectorAll('[data-pi="projectName"],[data-pi="companyName"],[data-pi="studyPurpose"]').forEach(el => {
+    el.addEventListener('input', () => {
+      if (titleEl) titleEl.textContent = projectInfo.projectName || 'Untitled project';
+      if (subEl) subEl.textContent = [projectInfo.companyName, projectInfo.studyPurpose].filter(Boolean).join(' · ');
+      if (el.dataset.pi === 'projectName') setSidebarMeta(projectInfo.projectName || 'Area study', '');
+    });
+  });
 }
 
 function showAreaSetup() {
@@ -2598,10 +2633,13 @@ function sumVehicle(snap) {
   let total = 0;
   for (const p of snap.periods) {
     if (!p.vData?.in) continue;
-    for (let i = 0; i < p.vData.in.length; i++) {
-      total += (p.vData.in[i] || []).reduce((a,b) => a+(b||0), 0);
-      total += (p.vData.out[i] || []).reduce((a,b) => a+(b||0), 0);
-    }
+    const vRaw = p.vData.in.reduce((s, r) => s + r.reduce((a,b) => a+(b||0), 0), 0)
+               + p.vData.out.reduce((s, r) => s + r.reduce((a,b) => a+(b||0), 0), 0);
+    if (vRaw > 0) { total += vRaw; continue; }
+    // TMC mode — derive motor volume (index 0) from tmcData
+    for (const from of Object.values(p.tmcData||{}))
+      for (const slots of Object.values(from))
+        for (const slot of slots) total += slot?.[0] || 0;
   }
   return total;
 }
@@ -2663,12 +2701,15 @@ function renderSummaryContent() {
       const period = snap.periods?.find(p => p.name === pname);
       if (!period) return null;
       if (!period.vData?.in) return null;
+      const vRaw = period.vData.in.reduce((s, r) => s + r.reduce((a,b) => a+(b||0), 0), 0)
+                 + period.vData.out.reduce((s, r) => s + r.reduce((a,b) => a+(b||0), 0), 0);
+      if (vRaw > 0) return vRaw;
+      // TMC mode — derive motor volume (index 0) from tmcData
       let t = 0;
-      for (let s = 0; s < period.vData.in.length; s++) {
-        t += (period.vData.in[s]||[]).reduce((a,b)=>a+(b||0),0);
-        t += (period.vData.out[s]||[]).reduce((a,b)=>a+(b||0),0);
-      }
-      return t;
+      for (const from of Object.values(period.tmcData||{}))
+        for (const slots of Object.values(from))
+          for (const slot of slots) t += slot?.[0] || 0;
+      return t || null;
     });
     return { ix, i, street1, street2, corridor: ix.corridor||'', totalPed, totalVeh, totalTmc, hasTmcData, pedByPeriod, vehByPeriod };
   }).filter(Boolean);

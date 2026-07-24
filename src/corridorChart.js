@@ -38,6 +38,11 @@ function slotVolume(period, minuteOfDay) {
   let total = 0;
   for (const typeArr of vData.in)  total += typeArr?.[idx] ?? 0;
   for (const typeArr of vData.out) total += typeArr?.[idx] ?? 0;
+  if (total > 0) return total;
+  // TMC mode — derive motor volume (index 0) for this slot from tmcData
+  for (const from of Object.values(period.tmcData || {}))
+    for (const slots of Object.values(from))
+      total += slots?.[idx]?.[0] || 0;
   return total;
 }
 
