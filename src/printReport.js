@@ -1,4 +1,4 @@
-import { cfg, vPairs, tmcPairs, intersection, tmcData, vData, pedData, slotLabel } from './state.js';
+import { cfg, vPairs, intersection, tmcData, vData, pedData, slotLabel } from './state.js';
 import { classifyTurn } from './diagram.js';
 import { legLabel } from './setup.js';
 
@@ -20,7 +20,7 @@ function movLabel(appLeg, destLeg) {
 }
 
 function tmcCountAt(appLeg, destLeg, slotIdx) {
-  return (tmcData[appLeg] && tmcData[appLeg][destLeg] && tmcData[appLeg][destLeg][slotIdx]) || tmcPairs.map(() => 0);
+  return (tmcData[appLeg] && tmcData[appLeg][destLeg] && tmcData[appLeg][destLeg][slotIdx]) || vPairs.filter(p=>p.includeTmc).map(() => 0);
 }
 
 function sumAtIndices(arr, indices) {
@@ -193,6 +193,7 @@ export function openPrintReport(projectInfo = {}) {
   const hasTmc = apps.length > 0;
 
   // Separate bike and motor vehicle type indices
+  const tmcPairs = vPairs.filter(p=>p.includeTmc);
   const bikeIdx  = tmcPairs.map((p, i) => p.isBike  ? i : -1).filter(i => i >= 0);
   const motorIdx = tmcPairs.map((p, i) => !p.isBike ? i : -1).filter(i => i >= 0);
   const hasBikes = hasTmc && bikeIdx.length > 0 && motorIdx.length > 0;

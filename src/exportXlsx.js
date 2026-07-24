@@ -1,5 +1,5 @@
 /* global __APP_VERSION__ */
-import { cfg, vPairs, tmcPairs, intersection, tmcData, vData, pedData, mode, fnames, slotLabel } from './state.js';
+import { cfg, vPairs, intersection, tmcData, vData, pedData, mode, fnames, slotLabel } from './state.js';
 import { classifyTurn, TURN_CLS_LABEL } from './diagram.js';
 import { legLabel } from './setup.js';
 
@@ -68,6 +68,7 @@ export function exportXLSX() {
   const hasVehicle = hasData(vData.in) || hasData(vData.out);
   const hasPed     = hasData(pedData);
   const hasTMC     = intersection.approaches.some(a => a.destinations.some(d => hasData(tmcData[a.leg]?.[d])));
+  const tmcPairs = vPairs.filter(p => p.includeTmc);
   const bikeIdx  = tmcPairs.map((p, i) => p.isBike ? i : -1).filter(i => i >= 0);
   const motorIdx = tmcPairs.map((p, i) => !p.isBike ? i : -1).filter(i => i >= 0);
   const hasBikePairs = bikeIdx.length > 0;
@@ -101,6 +102,7 @@ export function getXLSXBlob() {
   const hasVehicle = hasData(vData.in) || hasData(vData.out);
   const hasPed     = hasData(pedData);
   const hasTMC     = intersection.approaches.some(a => a.destinations.some(d => hasData(tmcData[a.leg]?.[d])));
+  const tmcPairs = vPairs.filter(p => p.includeTmc);
   const bikeIdx  = tmcPairs.map((p, i) => p.isBike ? i : -1).filter(i => i >= 0);
   const motorIdx = tmcPairs.map((p, i) => !p.isBike ? i : -1).filter(i => i >= 0);
   const hasBikePairs = bikeIdx.length > 0;
@@ -132,6 +134,7 @@ export function getXLSXBlob() {
 // sheetName: optional override for the sheet tab label.
 function buildTMCSheet(wb, origIndices, sheetName) {
   const apps = intersection.approaches;
+  const tmcPairs = vPairs.filter(p => p.includeTmc);
   // Derive actual recorded type count from tmcData so header matches data
   // even if tmcPairs was reset to defaults after the count was recorded.
   let nT = tmcPairs.length;

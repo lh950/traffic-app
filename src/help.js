@@ -1,4 +1,4 @@
-import { vPairs, tmcPairs, fnames, vGroup, mode } from './state.js';
+import { vPairs, fnames, vGroup, mode } from './state.js';
 import { render } from './counter.js';
 
 export function openHelp() {document.getElementById('help-modal').classList.add('open');}
@@ -32,13 +32,14 @@ export function renderMsKeymaps(){
   });
   ph+=`</div></div>`;
   let th='';
+  const tmcPairs = vPairs.filter(p=>p.includeTmc);
   if(tmcPairs.length){
     th=`<div style="margin-top:14px"><div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:7px">TMC vehicle types</div><div style="display:flex;flex-direction:column;gap:6px">`;
     tmcPairs.forEach((p,i)=>{
       th+=`<div style="display:flex;align-items:center;gap:10px;font-size:13px">
         <span style="flex:1;color:var(--text)">${p.label||'type '+(i+1)}</span>
         <span style="color:var(--text2);font-size:11px">key</span>
-        <input ${KI} maxlength="1" id="ms-tk-${i}" value="${p.key===';'?';':p.key||''}" oninput="checkMsKeys()">
+        <input ${KI} maxlength="1" id="ms-tk-${i}" value="${p.tmcKey===';'?';':p.tmcKey||''}" oninput="checkMsKeys()">
       </div>`;
     });
     th+=`</div></div>`;
@@ -108,9 +109,9 @@ export function applyMidSettings(){
     if(outEl)p.outKey=outEl.value.trim().toLowerCase()||p.outKey;
   });
   // Apply TMC key changes
-  tmcPairs.forEach((p,i)=>{
+  vPairs.filter(p=>p.includeTmc).forEach((p,i)=>{
     const el=document.getElementById('ms-tk-'+i);
-    if(el)p.key=el.value.trim().toLowerCase()||p.key;
+    if(el)p.tmcKey=el.value.trim().toLowerCase()||p.tmcKey;
   });
   // Apply ped key changes
   window.pedPairs.forEach((p,i)=>{

@@ -251,7 +251,6 @@ wireLegPopoverDismiss();
 
 buildTemplateGrid();
 renderVPairsList();
-renderTmcPairsList();
 updateDerived();
 renderLegConfig();
 renderSetupDiagram();
@@ -2154,7 +2153,6 @@ function loadTmcCsvData(parsed) {
   // Rebuild setup UI in background so setup tab is accurate if user visits it
   buildTemplateGrid();
   renderVPairsList();
-  renderTmcPairsList();
   updateDerived();
   renderLegConfig();
   renderSetupDiagram();
@@ -4500,7 +4498,7 @@ function loadIntersectionIntoView(snap) {
     setActivePeriodIdx(idx);
     restoreActivePeriod(periods[idx].data);
   }
-  buildTemplateGrid(); renderVPairsList(); renderTmcPairsList(); updateDerived(); renderLegConfig(); renderSetupDiagram();
+  buildTemplateGrid(); renderVPairsList(); updateDerived(); renderLegConfig(); renderSetupDiagram();
   updateTemplateSuboption(); initApproaches();
   showScreen('counter-screen');
   window.goToCountMode();
@@ -4650,7 +4648,7 @@ function loadProject(proj) {
   setSidebarMeta(proj.projectInfo?.projectName || 'Intersection count', '');
   _sidebarActiveItem = 'count';
   renderAppSidebar();
-  buildTemplateGrid(); renderVPairsList(); renderTmcPairsList(); updateDerived(); renderLegConfig(); renderSetupDiagram();
+  buildTemplateGrid(); renderVPairsList(); updateDerived(); renderLegConfig(); renderSetupDiagram();
   updateTemplateSuboption(); initApproaches();
   // Jump straight to the counter screen with restored data, skipping setup.
   document.getElementById('setup-screen').style.display = 'none';

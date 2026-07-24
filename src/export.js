@@ -1,5 +1,5 @@
 import {
-  cfg, vPairs, tmcPairs, intersection, fnames, tmcData, vData, pedData, tmManual,
+  cfg, vPairs, intersection, fnames, tmcData, vData, pedData, tmManual,
   mode, slot, setSlot, slotLabel, initVData, initPedData, initTMCData,
   undoStack, redoStack, filterUndoStack, updateUndoUI, clearTmManual,
 } from './state.js';
@@ -49,6 +49,7 @@ export function exportCSV(){
   } else {
     // TMC export — standard turning movement count format
     const apps=intersection.approaches;
+    const tmcPairs=vPairs.filter(p=>p.includeTmc);
     // Derive actual recorded type count from tmcData (not tmcPairs.length),
     // so header always matches data even if tmcPairs was reset after recording.
     let nT=tmcPairs.length;
@@ -151,6 +152,7 @@ export function getCSVText(){
     return [{text:prefix+csv,filename:getCSVFilename(mode)}];
   } else {
     const apps=intersection.approaches;
+    const tmcPairs=vPairs.filter(p=>p.includeTmc);
     let nT=tmcPairs.length;
     for(const app of apps){
       for(const dest of app.destinations){

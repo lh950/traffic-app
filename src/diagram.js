@@ -1,5 +1,5 @@
 ﻿import {
-  TEMPLATES, cfg, vPairs, tmcPairs, intersection, tmcData, tmcApproach, slot, mode, focusTarget,
+  TEMPLATES, cfg, vPairs, intersection, tmcData, tmcApproach, slot, mode, focusTarget,
   pedData, slotLabel, setDiagWin, setTmcWin, diagWin, tmcWin, diagTimers,
 } from './state.js';
 
@@ -732,7 +732,7 @@ export function tmcPopupPayload(){
     focusIdx:focusTarget,
     interval:slotLabel(slot),
     approaches:intersection.approaches.map(a=>a.leg),
-    vLabels:tmcPairs.map(p=>p.label),
+    vLabels:vPairs.filter(p=>p.includeTmc).map(p=>p.label),
     dests:app.destinations,
     destLabels:app.destinations.map(d=>destLabel(app.leg,d)),
     clsLabels:app.destinations.map(d=>''),
