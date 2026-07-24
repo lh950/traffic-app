@@ -1,5 +1,20 @@
 # Changelog
 
+## v3.23.1-alpha.1 — 2026-07-24
+
+### Fixed
+- **App failed to load at all (BUG-014)** — `state.js` dropped its `tmcPairs` export when v3.23.0 switched to a single master `vPairs` list, but five files (`diagram.js`, `help.js`, `printReport.js`, `export.js`, `exportXlsx.js`) still imported it, and `main.js` called an unimported `renderTmcPairsList()` at module top-level. Either failure alone breaks the whole ES module graph, so `showScreen()` never ran and every screen rendered stacked on top of each other. Converted all `tmcPairs` usages to `vPairs.filter(p => p.includeTmc)` and removed the dangling `renderTmcPairsList()` calls.
+
+---
+
+## v3.23.0 — 2026-07-24
+
+### Changed
+- **Single master vehicle/TMC list** — replaced the two-list system (`vPairs` for vehicle counting + `tmcPairs` for TMC) with one master `vPairs` list. Each row carries a fixed `tmcKey`, a TMC-inclusion checkbox, and drag-to-reorder (keys travel with the row); labels lock once count data exists to prevent data corruption. A migration helper (`migrateVPairsFromLegacyTmc`) converts legacy `tmcPairs` project files on load.
+- **Analyze-mode back button fix** — the counter screen's "Analysis" sidebar button now toggles an `analyze-mode` class on `#counter-screen` instead of navigating to a separate screen, so the counting secondary sidebar (and its back button) stays visible and usable while viewing analysis.
+
+---
+
 ## v3.22.1 — 2026-07-24
 
 ### Fixed

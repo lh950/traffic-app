@@ -8,6 +8,17 @@ Severity levels:
 
 ---
 
+## BUG-014
+**Status:** Fixed (v3.23.1-alpha.1)
+**Severity:** Critical
+**Found in:** v3.23.0
+**Description:** App failed to load entirely — home screen and setup screen (and presumably every other screen) rendered stacked on top of each other, no navigation worked, version number appeared stuck on the previous release.
+**Root cause:** The v3.23.0 single-master-list refactor removed `state.js`'s `tmcPairs` export, but `diagram.js`, `help.js`, `printReport.js`, `export.js`, and `exportXlsx.js` still had `import { tmcPairs } from './state.js'`. A missing named export fails the entire ES module graph at parse time — `main.js` never executed a single line, including `showScreen('home-screen')`, so every screen's default (non-`display:none`) CSS just stacked in document flow. A second, independent crash on the same load path: `main.js` called `renderTmcPairsList()` at module top level without importing it from `setup.js`.
+**Fix:** Converted all `tmcPairs` usages in the five affected files to `vPairs.filter(p => p.includeTmc)`. Removed the four dangling `renderTmcPairsList()` calls in `main.js` (it's now a no-op alias for `renderVPairsList()` in `setup.js`).
+**Lesson:** `npm run build` (or the GitHub Actions deploy) catches missing-export errors immediately — the dev server's HMR did not surface this because `read_console_messages` / the browser tool were checked before running a real build, and the error only threw inside a dynamic `import()` probe. Run `npm run build` locally before pushing any commit that removes or renames an export.
+
+---
+
 ## BUG-001
 **Status:** Fixed (v2.9.1)
 **Severity:** Major

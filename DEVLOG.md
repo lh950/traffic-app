@@ -4,6 +4,20 @@ Key decisions, scope constraints, and architectural choices.
 
 ---
 
+## 2026-07-24 — v3.23.0 / v3.23.1-alpha.1
+
+**Single master vehicle/TMC list.** Replaced the two-list system (`vPairs` for directional vehicle counting, `tmcPairs` for turning movement counting) with one `vPairs` list that both modes read from. Each row now carries `tmcKey` (fixed per row, survives reordering), `includeTmc` (checkbox), and `isBike`. Drag-to-reorder is cosmetic only — keys travel with the row object, not the row's screen position. Labels lock (read-only) once `hasCountData()` is true for that project, to prevent silent data corruption from relabeling a type mid-count. `migrateVPairsFromLegacyTmc()` in `main.js` converts old project files' `tmcPairs` into the new `vPairs` shape on load.
+
+**Analyze-mode back button fix.** Previously, clicking "Analysis" from the counter screen's secondary sidebar navigated to a separate `analyze-screen`, which hid the counting sidebar entirely — so there was no way back except browser/app back-button gymnastics. Now `window.goToAnalyzeMode()` toggles an `analyze-mode` class on `#counter-screen` (CSS: `.analyze-mode #counter-analyze-pane{display:block}` / `.analyze-mode .counter-main{display:none}`), so the same sidebar with Setup/Count/Analyze/Charts/Export stays visible and the user can click back to Count directly.
+
+**Post-push crash (BUG-014) — process gap.** The refactor above removed `state.js`'s `tmcPairs` export, but 5 files elsewhere in the codebase still imported it by name (`diagram.js`, `help.js`, `printReport.js`, `export.js`, `exportXlsx.js`), and `main.js` called a `renderTmcPairsList()` that was never imported. Both are the kind of error `npm run build` (rolldown/vite) catches instantly via `MISSING_EXPORT` / `ReferenceError` — but the fix was verified only against the Vite dev server via the browser preview tool, whose console-message capture did not surface the failure (the import error only appeared when manually probed via a dynamic `import()` in the page). The GitHub Actions deploy failed on the first push, which is what actually surfaced the bug.
+
+**Process change going forward:** run `npm run build` locally as a gate before pushing any commit — especially ones that remove/rename exports across multiple files. Dev-server-only verification is not sufficient for confirming the module graph is intact.
+
+**Versioning scheme (reaffirmed):** `MAJOR.MINOR.PATCH[-alpha.BUILD]`. MINOR bumps for features (3.23.0 = master list + analyze-mode fix), PATCH bumps for bug fixes (3.23.1 = crash fix), `-alpha.N` suffix while a version is still being verified/stabilized post-push — dropped once confirmed working in the deployed app.
+
+---
+
 ## 2026-07-24 — v3.22.1
 
 **Full audit results (two-cycle):** Performed a complete two-cycle feature audit focusing on TMC area-wide study workflows.
