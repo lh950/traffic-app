@@ -473,6 +473,7 @@ export async function renderTripGenSection(container, entries, ctx) {
   }));
 
   container.innerHTML = `
+    <div class="stat-detail" style="margin-bottom:14px">Combines every location counted so far into one set of totals, grouped by day type. Assign each classification to a category below if it isn't already grouped correctly, then scroll down for per-location, per-day breakdowns and the peak-hour trip generation figures.</div>
     ${renderSiteInfoForm(siteInfo)}
     ${renderCategoryMapForm(allTypes, categoryMap)}
     <div class="card" style="margin-bottom:14px">

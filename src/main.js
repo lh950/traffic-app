@@ -4454,6 +4454,7 @@ function renderIxAnalysis(periodIdx, view) {
   container.innerHTML = `
     ${tabsHtml}
     ${viewTabsHtml}
+    <div class="stat-detail" style="margin-bottom:14px">Totals, peak-hour figures, and per-interval distribution for the selected period. Switch to <strong>Charts</strong> for the turning movement diagram and volume-over-time view; use the period tabs above to compare across periods when more than one exists.</div>
     <div class="ix-grid">
       ${tmcCardHtml}
       ${pedCardHtml}
@@ -5988,6 +5989,7 @@ async function renderDistributionScreen() {
     <h1 style="font-size:22px;font-weight:500;margin-bottom:1.5rem">Distribution
       <span style="font-size:14px;font-weight:400;color:var(--text2);margin-left:10px">allocate generated trips to nearby intersections</span>
     </h1>
+    <div class="stat-detail" style="margin-bottom:14px">Generated peak-hour volumes come from the AM/Midday/PM windows found in Analysis. Add the intersections that will absorb this site's traffic below, then split each peak period's inbound and outbound trips between them by percentage.</div>
     <div class="card" style="margin-bottom:14px">
       <h3>Nearby intersections</h3>
       <div class="stat-detail" style="margin-bottom:10px">Add the intersections that will receive generated trips from this site. Enter the % of inbound and outbound peak-hour trips allocated to each.</div>

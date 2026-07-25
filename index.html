@@ -263,6 +263,8 @@
     </div>
   </div>
 
+  <div class="stat-detail" style="margin-bottom:14px">Groups multiple intersections under one study. Add intersections below by importing raw count files or setting one up manually, then use the sidebar to review Summary, Import CSV, and Export once at least one has data.</div>
+
   <!-- project info -->
   <div style="background:var(--surface);border:.5px solid var(--border);border-radius:var(--rl);padding:18px 24px;margin-bottom:14px">
     <div style="font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--text3);margin-bottom:12px">Project info</div>
@@ -635,6 +637,7 @@
 
   <!-- PROJECT INFO -->
   <div class="setup-panel" id="sp-project">
+    <div class="stat-detail" style="margin-bottom:14px">Company, project, and personnel details used to fill out export headers and printed reports — none of it affects counting. Everything here is optional, but a project name and count date make this study much easier to find later.</div>
     <div class="setup-card">
       <h2>company</h2>
       <div class="setup-grid" style="margin-bottom:14px">
@@ -672,6 +675,7 @@
 
   <!-- STUDY PARAMS -->
   <div class="setup-panel active" id="sp-study">
+    <div class="stat-detail" style="margin-bottom:14px">Sets the clock window, interval length, and which count types (pedestrian, vehicle, turning movement) the counter will use. If you know your count schedule in advance, add periods below and they'll be created automatically once counting starts.</div>
     <div class="setup-card">
       <h2>timing</h2>
       <div class="setup-grid">
@@ -784,6 +788,7 @@
   </div>
   <!-- CROSSWALKS -->
   <div class="setup-panel" id="sp-intersection">
+    <div class="stat-detail" style="margin-bottom:14px">Choose a template, name your streets, then click each leg's dot to configure its crosswalk and approach movements. This defines the counter's tables and diagrams, so get it right before you start counting — changing legs after data exists can invalidate what's already been recorded.</div>
     <div class="setup-card" style="overflow:visible">
       <h2>intersection template</h2>
       <div class="template-grid" id="template-grid"></div>
@@ -843,6 +848,7 @@
 
   <!-- EXPORT -->
   <div class="setup-panel" id="sp-export">
+    <div class="stat-detail" style="margin-bottom:14px">Filenames used when exporting CSVs during or after counting. These are also editable mid-session from the settings dialog, so there's no need to get them exactly right now — renaming here never touches saved count data.</div>
     <div class="setup-card">
       <h2>export settings</h2>
       <div class="setup-grid">
@@ -909,6 +915,7 @@
   <div id="intersection-tabs-bar" class="intersection-tabs-bar" style="display:none"></div>
   <div id="period-tabs-bar" class="period-tabs-bar"></div>
   <div id="period-meta-bar" class="period-meta-bar"></div>
+  <div class="stat-detail" style="margin:10px 24px 0">Counts are stored only in this browser tab while you work — export before closing or refreshing. Switch modes above to record vehicle, pedestrian, or turning movement activity; the keyboard reference and sidebar update to match.</div>
 
   <!-- hidden keyboard focus anchor — receives focus after clicking non-input UI elements in the counter -->
   <button id="counter-kbd-anchor" tabindex="-1" aria-hidden="true" style="position:fixed;top:0;left:0;width:0;height:0;opacity:0;pointer-events:none;border:none;padding:0;outline:none"></button>
@@ -1247,6 +1254,7 @@
       <button id="btn-summary-back" style="font-size:12px">? Back to project</button>
     </div>
   </div>
+  <div class="stat-detail" style="margin-bottom:14px">One row per intersection, totaled across every period counted so far. Click an intersection's name to open it directly for a closer look, or use Export for a combined CSV across the whole study.</div>
   <div id="summary-content"></div>
 </div>
 
@@ -1360,6 +1368,7 @@
     <button id="btn-import-back" style="font-size:12px">? Back</button>
     <h1 style="font-size:22px;font-weight:500;letter-spacing:-.01em">Import CSV <span style="font-size:14px;font-weight:400;color:var(--text2);margin-left:6px">column mapping</span></h1>
   </div>
+  <div class="stat-detail" style="max-width:620px;margin-bottom:14px">For any turning-movement CSV that isn't in this app's standard export format. Local detection tries first; if your column headers aren't recognized, Claude can map them instead — nothing is uploaded until you click Analyze.</div>
 
   <!-- Saved templates panel (shown when templates exist) -->
   <div id="import-templates-panel" style="display:none;max-width:620px;margin-bottom:14px">
