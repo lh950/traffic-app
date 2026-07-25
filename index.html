@@ -992,30 +992,31 @@
         <div class="modal-section">
           <h3>overview</h3>
           <p>A keyboard-driven field counter for traffic studies. Configure your intersection once in setup, then count by keystroke against time-lapse video. Three independent modes share the same session: <strong>vehicle</strong> (in/out by type), <strong>pedestrian</strong> (crossings by crosswalk and direction), and <strong>TMC</strong> (turning movement counts by approach leg).</p>
+          <p style="margin-top:8px">This help covers single-intersection counting. Traffic App also supports <strong>Area-wide studies</strong> (multiple intersections reviewed and exported together) and <strong>Trip Generation</strong> counts (per-location classification counts with a Distribution tab for allocating generated trips to nearby intersections) — both are started from the home screen and use the same counting mechanics described here.</p>
         </div>
         <div class="modal-divider"></div>
         <div class="modal-section">
           <h3>basic workflow</h3>
           <ul>
-            <li>Fill in the <strong>setup</strong> tabs — study parameters, intersection layout (crosswalks and approaches), vehicle types, and filenames.</li>
-            <li>Click <strong>start counting ?</strong> to enter the counter.</li>
+            <li>Fill in the <strong>setup</strong> tabs — study parameters, intersection layout (crosswalks and approaches), counting types, and filenames.</li>
+            <li>Click <strong>start counting</strong> to enter the counter.</li>
             <li>Run your video. Use the video clock to track interval boundaries.</li>
-            <li>Press <kbd>?</kbd> each time the clock crosses an interval boundary.</li>
+            <li>Press <kbd>↓</kbd> each time the clock crosses an interval boundary.</li>
             <li>Count with the keyboard shortcuts shown in the reference bar. Switch between vehicle, pedestrian, and TMC modes with the toggle in the header — each keeps independent data.</li>
-            <li>Click <strong>?</strong> in the header to export at any time.</li>
+            <li>Click <strong>.csv</strong> or <strong>.xlsx</strong> in the header to export at any time.</li>
           </ul>
         </div>
         <div class="modal-divider"></div>
         <div class="modal-section">
           <h3>navigation, editing &amp; correction</h3>
           <div class="key-table">
-            <kbd>?</kbd><span>advance to next interval</span>
-            <kbd>?</kbd><span>go back to previous interval</span>
+            <kbd>↓</kbd><span>advance to next interval</span>
+            <kbd>↑</kbd><span>go back to previous interval</span>
             <kbd>Z</kbd><span>undo last action</span>
             <kbd>Y</kbd><span>redo</span>
           </div>
           <p style="margin-top:10px"><strong>Edit a cell:</strong> click any count cell, type the corrected value, press <kbd>Enter</kbd> or <kbd>Esc</kbd>. Edited cells are highlighted.</p>
-          <p style="margin-top:8px"><strong>Reset an interval:</strong> right-click any time label ? reset. Single undoable action.</p>
+          <p style="margin-top:8px"><strong>Reset an interval:</strong> right-click any time label to reset it. Single undoable action.</p>
         </div>
         <div class="modal-divider"></div>
         <div class="modal-section">
@@ -1026,6 +1027,11 @@
             <kbd>[</kbd><span>focus previous target</span>
             <kbd>]</kbd><span>focus next target (vehicle: also cycles type groups)</span>
           </div>
+        </div>
+        <div class="modal-divider"></div>
+        <div class="modal-section">
+          <h3>QA/QC recounts</h3>
+          <p>Every project type has a QA/QC screen, reachable from the sidebar, for having a second counter re-count one peak hour and compare it against the original — useful for catching miscounts or inter-counter variance. Recounts show raw counts and differences alongside a pass/fail score, not just a badge.</p>
         </div>
         <div class="modal-divider"></div>
         <div class="modal-section">
@@ -1060,13 +1066,13 @@
         </div>
         <div class="modal-divider"></div>
         <div class="modal-section">
-          <h3>vehicle types</h3>
-          <p>Configure 1"8+ types. Types are counted in groups of 4 — if you add more than 4, they split into groups and you cycle between them with <kbd>[</kbd> / <kbd>]</kbd>. Two FHWA presets are available. Keys must be unique within each group (different groups may reuse the same keys).</p>
+          <h3>counting types</h3>
+          <p>One master list drives both vehicle and TMC counting — there's no separate vehicle-types vs. TMC-types setup anymore. Each row is a type with a label, an IN key, and an OUT key for vehicle (in/out) counting. Check a row's <strong>TMC</strong> box to also include it in turning movement counts, assigned its own TMC key. Drag a row's handle to reorder; rows lock once count data exists for that type, so fix labels and key conflicts before you start counting. Two FHWA presets are available, and a <strong>+ bicycle</strong> button adds a locked "Bicycle" row for consistent bike data across studies.</p>
         </div>
         <div class="modal-divider"></div>
         <div class="modal-section">
           <h3>export filenames</h3>
-          <p>Filenames default to <em>Street1_Street2_TypeOfCount</em> once street names are entered. All three can be changed mid-session via the ? settings button.</p>
+          <p>Filenames default to <em>Street1_Street2_TypeOfCount</em> once street names are entered. All three can be changed mid-session via the settings button.</p>
         </div>
       </div>
 
@@ -1096,7 +1102,7 @@
         <div class="modal-divider"></div>
         <div class="modal-section">
           <h3>mid-session changes</h3>
-          <p>Vehicle type labels can be edited from the config bar below the header without losing data. Key assignments can be changed mid-session via <strong>? settings</strong> — no restart required.</p>
+          <p>Vehicle type labels can be edited from the config bar below the header without losing data. Key assignments can be changed mid-session via the <strong>settings</strong> button — no restart required.</p>
         </div>
         <div class="modal-divider"></div>
         <div class="modal-section">
@@ -1114,12 +1120,12 @@
         <div class="modal-divider"></div>
         <div class="modal-section">
           <h3>intersection diagram</h3>
-          <p>Open with the <strong>?</strong> button in the header. The floating diagram window shows your intersection with colored crosswalk bands, direction keys, and live counts for the current interval. Each keystroke briefly animates the matching count — peripheral confirmation without looking away from the video. Focus mode highlights the active crosswalk and dims the rest.</p>
+          <p>Open with the <strong>diagram</strong> button in the header. The floating diagram window shows your intersection with colored crosswalk bands, direction keys, and live counts for the current interval. Each keystroke briefly animates the matching count — peripheral confirmation without looking away from the video. Focus mode highlights the active crosswalk and dims the rest.</p>
         </div>
         <div class="modal-divider"></div>
         <div class="modal-section">
           <h3>mid-session changes</h3>
-          <p>Crosswalk names and direction labels can be edited from the config bar while counting. Key assignments can be changed via <strong>? settings</strong>. Template, slot assignments, and crosswalk count are fixed once counting begins.</p>
+          <p>Crosswalk names and direction labels can be edited from the config bar while counting. Key assignments can be changed via the <strong>settings</strong> button. Template, slot assignments, and crosswalk count are fixed once counting begins.</p>
         </div>
         <div class="modal-divider"></div>
         <div class="modal-section">
@@ -1147,7 +1153,7 @@
         <div class="modal-divider"></div>
         <div class="modal-section">
           <h3>turning diagram</h3>
-          <p>The compact SVG diagram in the header shows all movements for the current approach with live counts. Open the full <strong>? popup</strong> for a larger view with a counts table by vehicle type and movement — useful on a second monitor positioned over the video.</p>
+          <p>The compact SVG diagram in the header shows all movements for the current approach with live counts. Open the full <strong>turning diagram popup</strong> for a larger view with a counts table by vehicle type and movement — useful on a second monitor positioned over the video.</p>
         </div>
         <div class="modal-divider"></div>
         <div class="modal-section">
@@ -1157,7 +1163,7 @@
         <div class="modal-divider"></div>
         <div class="modal-section">
           <h3>output</h3>
-          <p>TMC CSV exports one section per approach leg, with rows for each interval and columns for each destination ? vehicle type combination.</p>
+          <p>TMC CSV exports one section per approach leg, with rows for each interval and columns for each destination × vehicle type combination.</p>
         </div>
       </div>
 
@@ -1165,16 +1171,16 @@
       <div class="modal-tab" id="htab-export">
         <div class="modal-section">
           <h3>exporting</h3>
-          <p>Click the <strong></strong> button in the header to download the current mode's data as a CSV. Vehicle and pedestrian modes export separately, using the filenames set in setup (editable mid-session via the ? settings button).</p>
+          <p>Click the <strong>.csv</strong> or <strong>.xlsx</strong> button in the header to download the current mode's data. Vehicle and pedestrian modes export separately, using the filenames set in setup (editable mid-session via the settings button). From the workspace <strong>Export</strong> screen you can also download a shareable HTML report page or a full project package (.zip) with everything bundled together.</p>
         </div>
         <div class="modal-divider"></div>
         <div class="modal-section">
           <h3>Excel compatibility</h3>
-          <p>Files include a UTF-8 byte-order mark so special characters like the en-dash in time ranges (e.g. 06:00 " 06:15) display correctly in Excel without any manual import steps.</p>
+          <p>Files include a UTF-8 byte-order mark so special characters like the en-dash in time ranges (e.g. 06:00–06:15) display correctly in Excel without any manual import steps.</p>
         </div>
         <div class="modal-divider"></div>
         <div class="modal-section">
-          <h3>mid-session settings (?)</h3>
+          <h3>mid-session settings</h3>
           <p>The settings button opens a small dialog for changing export filenames without interrupting your session. Structural changes — interval length, duration, type or crosswalk counts — require returning to setup, which warns before clearing counts.</p>
         </div>
         <div class="modal-divider"></div>
@@ -1185,6 +1191,16 @@
             <li>Export regularly, and always before resetting or returning to setup.</li>
             <li>For multi-session work, export and rename each CSV before starting the next.</li>
           </ul>
+        </div>
+        <div class="modal-divider"></div>
+        <div class="modal-section">
+          <h3>moving projects between devices</h3>
+          <p>Each device has its own separate, isolated storage — nothing syncs automatically. Use <strong>Cross-device sync</strong> on the home screen to export every saved project into one <code>.tcsync</code> file, then import that file on another device. Projects are merged by ID, so importing never overwrites an existing project with the same one.</p>
+        </div>
+        <div class="modal-divider"></div>
+        <div class="modal-section">
+          <h3>reporting a problem</h3>
+          <p>Use <strong>Report a bug</strong> in the sidebar (or on the home screen) to describe what happened. You can send it by email or download a JSON file with your description and app state attached — nothing is sent automatically, and no count data leaves your device unless you choose to attach it yourself.</p>
         </div>
       </div>
 
