@@ -40,6 +40,7 @@ import {
   openHelp, closeHelp, switchHelpTab, openSettings, closeSettings,
   applyMidSettings, checkMsKeys, wireHelpKeydown,
 } from './help.js';
+import { maybeShowWalkthroughOnce, wireWalkthrough } from './walkthrough.js';
 
 import { parseTmcCsv } from './parseTmcCsv.js';
 import { parseRawCountXlsx, buildIntersectionFromMeta } from './parseRawCountXlsx.js';
@@ -242,6 +243,7 @@ window.startCounting = function () {
 
 wireKeydown();
 wireHelpKeydown();
+wireWalkthrough();
 wireContextMenu();
 wireSetupFilenameInputs();
 wireLegPopoverDismiss();
@@ -528,6 +530,7 @@ function showHome() {
   showScreen('home-screen');
   renderHomeResumeBanner();
   renderHomeRecents();
+  maybeShowWalkthroughOnce();
 }
 
 function showHelp() {
@@ -1014,6 +1017,7 @@ document.getElementById('sidebar-back-btn')?.addEventListener('click', showHome)
 showScreen('home-screen');
 renderHomeResumeBanner();
 renderHomeRecents();
+maybeShowWalkthroughOnce();
 
 window.openWorkspaceTab = openWorkspaceTab;
 

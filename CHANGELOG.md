@@ -1,5 +1,15 @@
 # Changelog
 
+## v3.26.0-alpha.1 — 2026-07-25
+
+### Added
+- **Stage 5 help/instruction system** — the last item blocking Stage 5's close:
+  - Fixed 109 instances of `�` (U+FFFD) mojibake corruption across `index.html`, introduced by a prior session's PowerShell text round-trip that mangled UTF-8 punctuation (em/en dashes, ellipsis, arrows, division sign, close-button glyph). Reconstructed each from context since FFFD is a lossy, one-way replacement.
+  - `openHelp()` now takes an optional tab argument and opens the help modal directly on the relevant tab; the sidebar "Help" link (present on every workspace screen) now dispatches to a contextual tab based on the current screen/mode instead of always showing the same static full-page guide.
+  - Added `stat-detail` instruction captions to every screen/tab that was missing one: intersection setup (project info, study parameters, intersection, export tabs), Count/Analyze/Charts/Export screens, area study (project info, summary, import CSV, export, per-intersection drill-down), and Trip Gen (analysis screen, distribution tab).
+  - Rewrote the help modal's stale "setup" tab content, which still described vehicle types and TMC types as separate configuration areas — that architecture was replaced by the single master `vPairs` list back in v3.20–3.23. Added missing coverage for the bug report tool, `.tcsync` cross-device sync, area studies, Trip Gen's distribution tab, and the QA/QC screens, none of which were mentioned in help content before. Confirmed no leftover warrant/LOS mentions anywhere in help content.
+  - Added a first-run walkthrough (`src/walkthrough.js`) — a short 4-step modal shown once per browser (`tc_seen_walkthrough` in localStorage) covering what the app does, the three project types, where to find help, and QA/QC + export. Replayable anytime via a "Take the tour" link next to the home screen's help button.
+
 ## v3.25.0-alpha.1 — 2026-07-24
 
 ### Added

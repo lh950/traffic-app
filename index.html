@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Traffic App v3.25.0-alpha.1</title>
+<title>Traffic App v3.26.0-alpha.1</title>
 <link rel="manifest" href="./manifest.json">
 <meta name="theme-color" content="#131b23">
 <script>
@@ -117,8 +117,9 @@
   <div class="home-inner">
     <div class="home-wordmark">
       <h1>Traffic App</h1>
-      <div class="home-version">v3.25.0-alpha.1</div>
-      <button id="home-btn-help" title="Help / instructions" style="margin-left:auto;font-size:13px;font-weight:600;color:var(--text3);background:none;border:.5px solid var(--border);border-radius:50%;width:26px;height:26px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">?</button>
+      <div class="home-version">v3.26.0-alpha.1</div>
+      <button id="home-btn-tour" title="Take the tour" style="margin-left:auto;font-size:12px;color:var(--text3);background:none;border:none;cursor:pointer;text-decoration:underline;flex-shrink:0">Take the tour</button>
+      <button id="home-btn-help" title="Help / instructions" style="margin-left:12px;font-size:13px;font-weight:600;color:var(--text3);background:none;border:.5px solid var(--border);border-radius:50%;width:26px;height:26px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">?</button>
     </div>
     <div id="home-resume-banner" style="display:none" class="home-resume-banner"></div>
     <div class="home-section-label" style="margin-bottom:10px">Start a new study</div>
@@ -184,7 +185,7 @@
     <!-- wordmark -->
     <div style="margin-bottom:2rem">
       <h1 style="font-size:22px;font-weight:500;letter-spacing:-.01em">Traffic App</h1>
-      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v3.25.0-alpha.1</span>
+      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v3.26.0-alpha.1</span>
     </div>
 
     <!-- autosave / resume banner -->
@@ -881,7 +882,7 @@
 
   <header class="counter-header">
     <button id="btn-back-to-project" style="font-size:12px;padding:4px 10px;margin-right:8px">? Project</button>
-    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v3.25.0-alpha.1</span></h1>
+    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v3.26.0-alpha.1</span></h1>
     <div class="hcontrols">
       <div class="mode-toggle" style="display:none">
         <button class="mode-btn active" id="btn-count-mode" onclick="goToCountMode()">count</button>
@@ -1468,6 +1469,28 @@
       <input id="import-template-name" type="text" placeholder="e.g. Miovision, ATR-24" style="font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);width:180px">
       <button id="import-save-template-btn" style="font-size:12px;padding:4px 10px">Save template</button>
       <span id="import-template-save-msg" style="font-size:12px;color:var(--text2)"></span>
+    </div>
+  </div>
+</div>
+
+<!-- FIRST-RUN WALKTHROUGH — short, dismissible orientation shown once (localStorage flag),
+     replayable anytime via the "Take the tour" link next to the home-screen help button.
+     Reuses the existing modal-backdrop/modal styling rather than inventing new UI. -->
+<div class="modal-backdrop" id="walkthrough-modal">
+  <div class="modal" style="max-width:460px">
+    <div class="modal-header">
+      <h2>welcome</h2>
+      <button class="modal-close" id="wt-close">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="wt-content"></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:18px;padding-top:14px;border-top:.5px solid var(--border)">
+        <span id="wt-step-label" style="font-size:11px;color:var(--text3)"></span>
+        <div style="display:flex;gap:8px">
+          <button id="wt-back" style="font-size:12px">← Back</button>
+          <button class="btn-primary" id="wt-next" style="font-size:12px">Next →</button>
+        </div>
+      </div>
     </div>
   </div>
 </div>
