@@ -8,6 +8,16 @@ Severity levels:
 
 ---
 
+## BUG-016
+**Status:** Fixed (v3.27.0-alpha.1)
+**Severity:** Cosmetic
+**Found in:** v3.26.0-alpha.1 (introduced by the previous session's help-caption work)
+**Description:** On the Count screen, the instruction caption ("Counts are stored only in this browser tab while you work…") visually overlapped the fixed workspace sidebar in workspace mode — the sidebar rendered on top of the left ~200px of the caption's text, clipping it (e.g. "...the keyboard reference and si[obscured]update to match" in a screenshot, with "debar" hidden under the sidebar between the visible "si" and "update").
+**Root cause:** The caption `<div>` sits outside `.counter-body` (the flex row that gets `margin-left:224px` in workspace mode alongside `.counter-header`/`#period-tabs-bar`/etc.), so it never got that offset and rendered full-width from x=0 underneath the fixed 224px-wide `.app-sidebar`. The caption also set its base margin via an inline `style="margin:10px 24px 0"` attribute, which no external stylesheet rule — however specific — can override; a first fix attempt that added `body.workspace-mode #counter-instructions{margin-left:224px}` to the shared selector list had no effect because of this.
+**Fix:** Gave the caption an id (`#counter-instructions`), moved its base margin out of the inline `style` attribute into `src/style.css` (`#counter-instructions{margin:10px 24px 0}`), and added `body.workspace-mode #counter-instructions{margin-left:calc(224px + 24px)}` alongside the other workspace-mode offset rules. Verified live in-browser: caption text now reads in full with no overlap in workspace mode.
+
+---
+
 ## BUG-015
 **Status:** Fixed (v3.25.0-alpha.1, before ship — caught during manual testing, not by a user)
 **Severity:** Minor

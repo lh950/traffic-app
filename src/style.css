@@ -871,6 +871,14 @@ body.workspace-mode #period-tabs-bar,
 body.workspace-mode #period-meta-bar,
 body.workspace-mode #intersection-tabs-bar,
 body.workspace-mode .counter-body{margin-left:224px}
+/* BUG-fix: this caption sits outside .counter-body (which gets the 224px
+   workspace-sidebar offset above), so it needs its own margin — previously an
+   inline style set margin-left:24px directly on the element, which no external
+   stylesheet rule (however specific) can beat, so the fixed sidebar rendered
+   over the left ~200px of the caption text. Base margin now lives here instead
+   of inline, so the workspace-mode override below actually applies. */
+#counter-instructions{margin:10px 24px 0}
+body.workspace-mode #counter-instructions{margin-left:calc(224px + 24px)}
 /* hide legacy nav buttons replaced by sidebar */
 body.workspace-mode #btn-area-to-landing,
 body.workspace-mode #btn-area-begin-review,
