@@ -554,7 +554,6 @@ function renderSidebarIntersection() {
       <button class="sidebar-item" data-ws="count">Count</button>
       <button class="sidebar-item" data-ws="qaqc">QA/QC</button>
       <button class="sidebar-item" data-ws="analyze">Analyze</button>
-      <button class="sidebar-item" data-ws="charts">Charts</button>
     </div>
     <div class="sidebar-divider"></div>
     <div class="sidebar-section">
@@ -656,6 +655,10 @@ function openWorkspaceTab(tab, idx) {
     case 'setup': showScreen('setup-screen'); renderPlannedPeriods(); break;
     case 'count': showScreen('counter-screen'); window.goToCountMode?.(); break;
     case 'qaqc': showScreen('intersection-qaqc-screen'); renderIntersectionQaqcScreen(); break;
+    // 'charts' kept as an alias of 'analyze' — the two nav items were consolidated
+    // into a single screen (see renderSidebarIntersection); both used to open the
+    // same ix-analysis-screen with different default sub-tabs, which no longer exist
+    // now that stat cards + chart + data quality + tables all live together.
     case 'analyze':
     case 'charts': {
       showScreen('ix-analysis-screen');
@@ -673,7 +676,11 @@ function openWorkspaceTab(tab, idx) {
         if (titleEl) titleEl.textContent = [intersection.street1, intersection.street2].filter(Boolean).join(' & ') || projectInfo?.projectName || 'Intersection';
         if (subEl) subEl.textContent = projectInfo?.location || '';
       }
-      renderIxAnalysis(ixAnalysisPeriodIdx, tab === 'charts' ? 'charts' : 'data');
+      // Standalone intersection project: render live state directly (full parity
+      // with the Count-screen's inline Analyze pane). Area-study children are
+      // routed to this screen via showIntersectionAnalysis() instead, which
+      // passes a read-only snapshot ctx.
+      renderIntersectionAnalysis(document.getElementById('ix-analysis-content'), null);
       break;
     }
     case 'export': showExportScreen(); break;
@@ -1147,37 +1154,43 @@ function liveTmcParsed() {
 // ── Period-stored-data → analysis shapes ─────────────────────────────────────
 // Like live*Parsed() but reads from a stored period's .data object, so the
 // analyze screen can inspect any period without touching live counting state.
-function parsedFromPeriod(pData) {
+// `ctx` optionally overrides which intersection/vPairs config to read against —
+// used so the same function serves both live-state periods (ctx omitted, reads
+// the live globals) and read-only snapshot periods from an area-study child
+// intersection (ctx = { intersection: snap.intersection, vPairs: snap.vPairs }).
+function parsedFromPeriod(pData, ctx = {}) {
+  const ix = ctx.intersection || intersection;
+  const vp = ctx.vPairs || vPairs;
   const { startMinutes, intervalMin, durationMin } = pData.cfg;
   const slots = Math.floor(durationMin / intervalMin);
   const fmt = (m) => `${String(Math.floor(m / 60) % 24).padStart(2,'0')}:${String(m % 60).padStart(2,'0')}`;
   const slotLabel = (i) => { const s = startMinutes + i * intervalMin; return `${fmt(s)}–${fmt(s + intervalMin)}`; };
-  const approaches = intersection.approaches.map(a => ({
+  const approaches = ix.approaches.map(a => ({
     leg: a.leg,
     destinations: a.destinations.map(d => ({ leg: d, turnClass: classifyTurn(a.leg, d) })),
   }));
   const vehParsed = {
-    types: vPairs.map(p => p.label),
+    types: vp.map(p => p.label),
     intervals: Array.from({ length: slots }, (_, i) => ({
       label: slotLabel(i), start: fmt(startMinutes + i * intervalMin), end: fmt(startMinutes + (i+1) * intervalMin),
       inbound: pData.vData.in[i] || [], outbound: pData.vData.out[i] || [],
     })),
   };
   const pedParsed = {
-    crosswalks: intersection.crosswalks.map(c => ({ name: c.name, dir0: c.dir0, dir1: c.dir1 })),
+    crosswalks: ix.crosswalks.map(c => ({ name: c.name, dir0: c.dir0, dir1: c.dir1 })),
     intervals: Array.from({ length: slots }, (_, i) => ({
       label: slotLabel(i), start: fmt(startMinutes + i * intervalMin), end: fmt(startMinutes + (i+1) * intervalMin),
       counts: pData.pedData.map(xw => xw[i] || [0,0]),
     })),
   };
   const tmcParsed = {
-    approaches, types: vPairs.filter(p=>p.includeTmc).map(p => ({ label: p.label, isBike: !!p.isBike })),
-    legLabels: intersection.legLabels || {}, intervalMin,
+    approaches, types: vp.filter(p=>p.includeTmc).map(p => ({ label: p.label, isBike: !!p.isBike })),
+    legLabels: ix.legLabels || {}, intervalMin,
     intervals: Array.from({ length: slots }, (_, i) => {
       const counts = {};
       approaches.forEach(a => {
         counts[a.leg] = {};
-        a.destinations.forEach(d => { counts[a.leg][d.leg] = pData.tmcData[a.leg]?.[d.leg]?.[i] || vPairs.map(() => 0); });
+        a.destinations.forEach(d => { counts[a.leg][d.leg] = pData.tmcData[a.leg]?.[d.leg]?.[i] || vp.map(() => 0); });
       });
       return { label: slotLabel(i), start: fmt(startMinutes + i * intervalMin), end: fmt(startMinutes + (i+1) * intervalMin), counts };
     }),
@@ -1209,9 +1222,17 @@ function filterTmcParsedByIndices(parsed, indices) {
 }
 
 // ── Analyze: single-period content ───────────────────────────────────────────
-async function renderAnalyzePeriodContent(root, vehParsed, pedParsed, tmcParsed) {
-  const hasTmc = intersection.approaches.some((a) => a.destinations.length);
-  const _tmcTypes = vPairs.filter(p=>p.includeTmc);
+// `ctx` optionally carries { intersection, vPairs, readOnly } — see parsedFromPeriod
+// above. When readOnly (area-study snapshot view), the live-state-only features
+// (print report / export page / before-after comparison, which all pull from live
+// globals like periodMeta/projectInfo/cfg) are hidden rather than wired to the
+// wrong data.
+async function renderAnalyzePeriodContent(root, vehParsed, pedParsed, tmcParsed, ctx = {}) {
+  const ix = ctx.intersection || intersection;
+  const vp = ctx.vPairs || vPairs;
+  const readOnly = !!ctx.readOnly;
+  const hasTmc = ix.approaches.some((a) => a.destinations.length);
+  const _tmcTypes = vp.filter(p=>p.includeTmc);
   const bikeIdx = _tmcTypes.map((p, i) => p.isBike ? i : -1).filter(i => i >= 0);
   const motorIdx = _tmcTypes.map((p, i) => !p.isBike ? i : -1).filter(i => i >= 0);
   const hasBikes = hasTmc && bikeIdx.length > 0;
@@ -1222,15 +1243,17 @@ async function renderAnalyzePeriodContent(root, vehParsed, pedParsed, tmcParsed)
       <button class="dataset-tab active" data-kind="vehicle">Vehicle</button>
       <button class="dataset-tab" data-kind="ped">Pedestrian</button>
       ${hasTmc ? '<button class="dataset-tab" data-kind="tmc">Turning movements</button>' : ''}
+      ${readOnly ? '' : `
       <button class="dataset-tab" style="margin-left:auto;border-left:.5px solid var(--border)" onclick="openPrintReport()">⎙ Print report</button>
-      <button class="dataset-tab" id="btn-share-report" style="border-left:.5px solid var(--border)">↓ Export page</button>
+      <button class="dataset-tab" id="btn-share-report" style="border-left:.5px solid var(--border)">↓ Export page</button>`}
     </div>
     <div class="section"><div class="section-head"><h2>Summary</h2></div><div id="analyze-summary-root"></div></div>
     <div class="section"><div class="section-head"><h2>Data quality</h2></div><div id="analyze-qa-root"></div></div>
     ${hasMotor ? `<div class="section"><div class="section-head"><h2>Turning movements${hasBikes ? ' — motor vehicles' : ''}</h2></div><div id="analyze-tmc-root"></div></div>` : ''}
     ${hasBikes ? `<div class="section"><div class="section-head"><h2>Turning movements — bicycles</h2></div><div id="analyze-bike-root"></div></div>` : ''}
     ${hasTmc && !hasMotor && !hasBikes ? '<div class="section"><div class="section-head"><h2>Turning movements</h2></div><div id="analyze-tmc-root"></div></div>' : ''}
-    <div class="section no-print"><div class="section-head"><h2>Before / After comparison</h2></div><div id="analyze-compare-root"></div></div>
+    <div class="section no-print"><div class="section-head"><h2>Interval detail</h2></div><div id="analyze-interval-root"></div></div>
+    ${readOnly ? '' : '<div class="section no-print"><div class="section-head"><h2>Before / After comparison</h2></div><div id="analyze-compare-root"></div></div>'}
   `;
 
   let activeKind = 'vehicle';
@@ -1244,6 +1267,12 @@ async function renderAnalyzePeriodContent(root, vehParsed, pedParsed, tmcParsed)
     renderQASection(qaRoot, findings);
   }
 
+  function paintInterval() {
+    const intervalRoot = document.getElementById('analyze-interval-root');
+    if (!intervalRoot) return;
+    renderIntervalDetailSection(intervalRoot, activeKind, vehParsed, pedParsed, tmcParsed);
+  }
+
   async function paintSummary() {
     const parsed = activeKind === 'vehicle' ? vehParsed : activeKind === 'ped' ? pedParsed : tmcParsed;
     await renderSummary(document.getElementById('analyze-summary-root'), activeKind, [{ id: 1, dayLabel: 'Current session', parsed }]);
@@ -1255,10 +1284,12 @@ async function renderAnalyzePeriodContent(root, vehParsed, pedParsed, tmcParsed)
       activeKind = btn.dataset.kind;
       paintSummary();
       paintQA();
+      paintInterval();
     });
   });
   await paintSummary();
   paintQA();
+  paintInterval();
 
   if (hasMotor) {
     await renderTmcSection(document.getElementById('analyze-tmc-root'), filterTmcParsedByIndices(tmcParsed, motorIdx));
@@ -1271,7 +1302,7 @@ async function renderAnalyzePeriodContent(root, vehParsed, pedParsed, tmcParsed)
 
 
   const compareRoot = document.getElementById('analyze-compare-root');
-  if (compareRoot) {
+  if (compareRoot && !readOnly) {
     let referenceSnap = null;
     function paintComparison() {
       if (!referenceSnap) {
@@ -1310,21 +1341,122 @@ async function renderAnalyzePeriodContent(root, vehParsed, pedParsed, tmcParsed)
     paintComparison();
   }
 
-  document.getElementById('btn-share-report')?.addEventListener('click', () => {
-    exportShareablePage(
-      { ...projectInfo, date: periodMeta.date || projectInfo.date, weather: periodMeta.weather || projectInfo.weather, counterName: periodMeta.observer || projectInfo.counterName, studyPurpose: periodMeta.notes || projectInfo.studyPurpose, equipment: periodMeta.equipment },
-      intersection, vehParsed, pedParsed, tmcParsed, motorIdx, bikeIdx, hasBikes, cfg?.intervalMin || 15
-    );
-  });
+  if (!readOnly) {
+    document.getElementById('btn-share-report')?.addEventListener('click', () => {
+      exportShareablePage(
+        { ...projectInfo, date: periodMeta.date || projectInfo.date, weather: periodMeta.weather || projectInfo.weather, counterName: periodMeta.observer || projectInfo.counterName, studyPurpose: periodMeta.notes || projectInfo.studyPurpose, equipment: periodMeta.equipment },
+        intersection, vehParsed, pedParsed, tmcParsed, motorIdx, bikeIdx, hasBikes, cfg?.intervalMin || 15
+      );
+    });
+  }
+}
+
+// ── Analyze: interval-by-interval detail table (collapsed by default) ────────
+// Demoted, secondary view of the raw per-interval numbers — kept out of the main
+// visual hierarchy (stat cards → chart → data quality → detail tables) but still
+// fully available via the <details> expand toggle. Shared by every analyze
+// context (live and snapshot) since it only touches the already-normalized
+// vehParsed/pedParsed/tmcParsed shapes, never global/live state directly.
+function intervalBar(val, max, w = 84) {
+  const px = max > 0 ? Math.max(2, Math.round((val / max) * w)) : 2;
+  return `<div class="ix-bar-wrap"><div class="ix-bar" style="width:${px}px"></div></div>`;
+}
+function renderIntervalDetailSection(container, activeKind, vehParsed, pedParsed, tmcParsed) {
+  let headCols, rows, count;
+
+  if (activeKind === 'vehicle') {
+    const { intervals } = vehParsed;
+    const inTotals = intervals.map(iv => iv.inbound.reduce((a,b) => a+(b||0), 0));
+    const outTotals = intervals.map(iv => iv.outbound.reduce((a,b) => a+(b||0), 0));
+    const totals = intervals.map((_, i) => inTotals[i] + outTotals[i]);
+    const maxT = Math.max(...totals, 1);
+    const peakIdx = totals.reduce((bi, v, i) => v > totals[bi] ? i : bi, 0);
+    headCols = '<th class="ix-th">Interval</th><th class="ix-th ix-th-r">In</th><th class="ix-th ix-th-r">Out</th><th class="ix-th ix-th-r">Total</th><th class="ix-th"></th>';
+    rows = intervals.map((iv, i) => `
+      <tr class="ix-tr${i === peakIdx ? ' ix-tr-peak' : ''}">
+        <td class="ix-td ix-td-time">${iv.start}–${iv.end}</td>
+        <td class="ix-td ix-td-num">${inTotals[i].toLocaleString()}</td>
+        <td class="ix-td ix-td-num">${outTotals[i].toLocaleString()}</td>
+        <td class="ix-td ix-td-num ix-td-bold">${totals[i].toLocaleString()}</td>
+        <td class="ix-td ix-td-bar">${intervalBar(totals[i], maxT)}</td>
+      </tr>`).join('');
+    count = intervals.length;
+  } else if (activeKind === 'ped') {
+    const { intervals, crosswalks } = pedParsed;
+    const totals = intervals.map(iv => iv.counts.reduce((s, pair) => s + (pair[0]||0) + (pair[1]||0), 0));
+    const maxT = Math.max(...totals, 1);
+    const peakIdx = totals.reduce((bi, v, i) => v > totals[bi] ? i : bi, 0);
+    headCols = `<th class="ix-th">Interval</th>${crosswalks.map(c => `<th class="ix-th ix-th-r">${c.name}</th>`).join('')}<th class="ix-th ix-th-r">Total</th><th class="ix-th"></th>`;
+    rows = intervals.map((iv, i) => `
+      <tr class="ix-tr${i === peakIdx ? ' ix-tr-peak' : ''}">
+        <td class="ix-td ix-td-time">${iv.start}–${iv.end}</td>
+        ${crosswalks.map((_, xi) => `<td class="ix-td ix-td-num">${((iv.counts[xi]?.[0]||0) + (iv.counts[xi]?.[1]||0)).toLocaleString()}</td>`).join('')}
+        <td class="ix-td ix-td-num ix-td-bold">${totals[i].toLocaleString()}</td>
+        <td class="ix-td ix-td-bar">${intervalBar(totals[i], maxT)}</td>
+      </tr>`).join('');
+    count = intervals.length;
+  } else {
+    const { intervals, approaches } = tmcParsed;
+    const totals = intervals.map(iv => approaches.reduce((s, a) =>
+      s + a.destinations.reduce((s2, d) => s2 + (iv.counts[a.leg]?.[d.leg] || []).reduce((x,y) => x+(y||0), 0), 0), 0));
+    const maxT = Math.max(...totals, 1);
+    const peakIdx = totals.reduce((bi, v, i) => v > totals[bi] ? i : bi, 0);
+    headCols = '<th class="ix-th">Interval</th><th class="ix-th ix-th-r">Total entering</th><th class="ix-th"></th>';
+    rows = intervals.map((iv, i) => `
+      <tr class="ix-tr${i === peakIdx ? ' ix-tr-peak' : ''}">
+        <td class="ix-td ix-td-time">${iv.start}–${iv.end}</td>
+        <td class="ix-td ix-td-num ix-td-bold">${totals[i].toLocaleString()}</td>
+        <td class="ix-td ix-td-bar">${intervalBar(totals[i], maxT)}</td>
+      </tr>`).join('');
+    count = intervals.length;
+  }
+
+  container.innerHTML = `
+    <details class="interval-detail">
+      <summary class="interval-detail-summary">Show all ${count} interval${count !== 1 ? 's' : ''}</summary>
+      <div class="interval-detail-wrap">
+        <table class="ix-table">
+          <thead><tr>${headCols}</tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </details>`;
+}
+
+// ── Analyze: source-of-truth resolver — live counting state vs. read-only snapshot ──
+// Both `renderIntersectionAnalysis` and the workspace sidebar's Analyze/Charts screen
+// route through the same rendering path below; this is the seam between them. Live
+// mode reads/writes the actual global counting state (periods, activePeriodIdx, the
+// "currently counting" indicator, captureActivePeriod flush). Snapshot mode (an
+// area-study child intersection, or any other read-only serialized snapshot) never
+// touches those globals — it only reads the passed-in snapshot object.
+function analysisSource(snapshotCtx) {
+  if (snapshotCtx) {
+    return {
+      periods: (snapshotCtx.periods || []).map(p => ({ name: p.name, data: p })),
+      activePeriodIdx: -1, // no "currently counting" period in a read-only snapshot
+      ctx: { intersection: snapshotCtx.intersection || intersection, vPairs: snapshotCtx.vPairs || vPairs, readOnly: true },
+      captureActive() {}, // no-op — nothing live to flush
+    };
+  }
+  return {
+    periods,
+    activePeriodIdx,
+    ctx: { intersection, vPairs, readOnly: false },
+    captureActive() { if (periods.length > 0) periods[activePeriodIdx].data = captureActivePeriod(); },
+  };
 }
 
 // ── Analyze: all-periods comparison view ─────────────────────────────────────
-function renderAllPeriodsView(root) {
-  const motorIdx = vPairs.filter(p=>p.includeTmc).map((p, i) => !p.isBike ? i : -1).filter(i => i >= 0);
+function renderAllPeriodsView(root, src) {
+  const periodsArr = src.periods;
+  const ix = src.ctx.intersection;
+  const vp = src.ctx.vPairs;
+  const motorIdx = vp.filter(p=>p.includeTmc).map((p, i) => !p.isBike ? i : -1).filter(i => i >= 0);
   const fmt2 = (m) => `${String(Math.floor(m/60)%24).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
 
-  const cols = periods.map((p, i) => {
-    const pd = i === activePeriodIdx ? captureActivePeriod() : p.data;
+  const cols = periodsArr.map((p, i) => {
+    const pd = (i === src.activePeriodIdx && !src.ctx.readOnly) ? captureActivePeriod() : p.data;
     const { startMinutes, intervalMin, durationMin } = pd.cfg;
     const slots = Math.floor(durationMin / intervalMin);
     const timeRange = `${fmt2(startMinutes)}–${fmt2(startMinutes + durationMin)}`;
@@ -1349,7 +1481,7 @@ function renderAllPeriodsView(root) {
 
     // TMC totals (motor only)
     let tmcTotal = 0;
-    for (const a of intersection.approaches) {
+    for (const a of ix.approaches) {
       for (const d of (a.destinations || [])) {
         for (let s = 0; s < slots; s++) {
           const arr = pd.tmcData[a.leg]?.[d]?.[s] || [];
@@ -1396,9 +1528,17 @@ function renderAllPeriodsView(root) {
 }
 
 // ── Analyze: main entry point ─────────────────────────────────────────────────
-async function renderIntersectionAnalysis(containerEl = null) {
-  // Flush live state into active period before any reads
-  if (periods.length > 0) periods[activePeriodIdx].data = captureActivePeriod();
+// Consolidated render path for all four analyze/charts contexts in the app:
+//  (a) standalone #analyze-screen                — renderIntersectionAnalysis(null)
+//  (b) inline Count-screen pane (#counter-analyze-pane) — renderIntersectionAnalysis(pane)
+//  (c) workspace sidebar Analyze/Charts, standalone intersection project — renderIntersectionAnalysis(container)
+//  (d) workspace sidebar Analyze/Charts, area-study child — renderIntersectionAnalysis(container, snapshotCtx)
+// `snapshotCtx` (optional) = { periods, intersection, vPairs } — a read-only serialized
+// snapshot (e.g. an area-study child's areaIntersections[i].snapshot). When omitted,
+// this reads/writes the live global counting state instead (see analysisSource()).
+async function renderIntersectionAnalysis(containerEl = null, snapshotCtx = null) {
+  const src = analysisSource(snapshotCtx);
+  src.captureActive(); // flush live state into the active period before any reads (no-op for snapshots)
 
   const pane = containerEl || document.getElementById('analyze-screen');
   if (!pane) return;
@@ -1411,15 +1551,20 @@ async function renderIntersectionAnalysis(containerEl = null) {
     pane.insertBefore(periodBar, pane.firstChild);
   }
 
-  // Track which period/view is selected (independent of active counting period)
-  if (pane._viewPeriodIdx == null) pane._viewPeriodIdx = activePeriodIdx;
+  // Track which period/view is selected (independent of active counting period).
+  // Callers that switch to a different snapshot (e.g. showIntersectionAnalysis
+  // opening a different area-study child) should reset pane._viewPeriodIdx = null
+  // first so the view defaults back to period 0 rather than carrying over an
+  // index from whichever intersection was viewed previously.
+  if (pane._viewPeriodIdx == null) pane._viewPeriodIdx = Math.max(0, src.activePeriodIdx);
 
   function buildPeriodBar() {
     const vpi = pane._viewPeriodIdx;
+    const periodsArr = src.periods;
     periodBar.innerHTML = '';
-    if (periods.length <= 1) { periodBar.style.display = 'none'; return; }
+    if (periodsArr.length <= 1) { periodBar.style.display = 'none'; return; }
     periodBar.style.display = 'flex';
-    periods.forEach((p, i) => {
+    periodsArr.forEach((p, i) => {
       const btn = document.createElement('button');
       btn.className = 'apb-tab' + (vpi === i ? ' active' : '');
       const pCfg = p.data.cfg;
@@ -1429,7 +1574,7 @@ async function renderIntersectionAnalysis(containerEl = null) {
         : '';
       btn.innerHTML = `<span class="apb-tab-name">${p.name}</span>${timeRange ? `<span class="apb-tab-time">${timeRange}</span>` : ''}`;
       btn.title = timeRange;
-      if (i === activePeriodIdx) {
+      if (i === src.activePeriodIdx) {
         const dot = document.createElement('span');
         dot.className = 'apb-active-dot';
         dot.title = 'Currently counting in this period';
@@ -1442,7 +1587,7 @@ async function renderIntersectionAnalysis(containerEl = null) {
       });
       periodBar.appendChild(btn);
     });
-    if (periods.length >= 2) {
+    if (periodsArr.length >= 2) {
       const allBtn = document.createElement('button');
       allBtn.className = 'apb-tab apb-all' + (vpi === 'all' ? ' active' : '');
       allBtn.textContent = 'All periods';
@@ -1455,7 +1600,7 @@ async function renderIntersectionAnalysis(containerEl = null) {
     }
   }
 
-  // Content root — use existing #analyze-root for analyze-screen, or create one for counter-analyze-pane
+  // Content root — use existing #analyze-root for analyze-screen, or create one for other panes
   let root;
   if (!containerEl) {
     root = document.getElementById('analyze-root');
@@ -1471,19 +1616,19 @@ async function renderIntersectionAnalysis(containerEl = null) {
   async function repaintContent() {
     const vpi = pane._viewPeriodIdx;
     if (vpi === 'all') {
-      renderAllPeriodsView(root);
+      renderAllPeriodsView(root, src);
       return;
     }
-    const pData = periods[vpi]?.data;
+    const pData = src.periods[vpi]?.data;
     let vehParsed, pedParsed, tmcParsed;
     if (pData) {
-      ({ vehParsed, pedParsed, tmcParsed } = parsedFromPeriod(pData));
+      ({ vehParsed, pedParsed, tmcParsed } = parsedFromPeriod(pData, src.ctx));
     } else {
       vehParsed = liveVehicleParsed();
       pedParsed = livePedParsed();
       tmcParsed = liveTmcParsed();
     }
-    await renderAnalyzePeriodContent(root, vehParsed, pedParsed, tmcParsed);
+    await renderAnalyzePeriodContent(root, vehParsed, pedParsed, tmcParsed, src.ctx);
   }
 
   buildPeriodBar();
@@ -4018,11 +4163,15 @@ function renderModeSplit(vehicleTotal, pedTotal, containerId) {
     </div>`;
 }
 
-// ── Intersection detail analysis ──
-let ixAnalysisPeriodIdx = 0;
-let ixAnalysisView = 'data'; // 'data' | 'charts'
-let _tmdScaled = false;
-
+// ── Intersection detail analysis (workspace sidebar Analyze/Charts screen) ──
+// Both the standalone-project path and the area-study child path now render
+// through the same consolidated renderIntersectionAnalysis() used by the
+// standalone #analyze-screen and the inline Count-screen pane — see that
+// function's header comment for the full list of contexts. Area-study children
+// are read-only snapshots (areaIntersections[idx].snapshot); a standalone
+// intersection project reviewed from its own workspace sidebar reads live state
+// directly, giving it full parity with the Count-screen's inline Analyze pane
+// (Export page, Before/After comparison, "currently counting" period marker, etc).
 function showIntersectionAnalysis(idx) {
   activeIntersectionIdx = idx;
   const ix = areaIntersections[idx];
@@ -4032,447 +4181,16 @@ function showIntersectionAnalysis(idx) {
   if (ix.counterName) parts.push(`Counter: ${ix.counterName}`);
   if (projectInfo.projectName) parts.push(projectInfo.projectName);
   document.getElementById('ix-analysis-sub').textContent = parts.join(' · ');
-  ixAnalysisPeriodIdx = 0;
+  const container = document.getElementById('ix-analysis-content');
+  if (container) container._viewPeriodIdx = null; // reset to period 0 for the newly opened intersection
   _sidebarActiveItem = `area-ix-${idx}`;
   renderAppSidebar();
-  renderIxAnalysis(0);
   showScreen('ix-analysis-screen');
-}
-
-function renderIxAnalysis(periodIdx, view) {
-  if (view !== undefined) ixAnalysisView = view;
-  ixAnalysisPeriodIdx = periodIdx;
-  const container = document.getElementById('ix-analysis-content');
-  if (!container) return;
-  const snap = areaIntersections[activeIntersectionIdx]?.snapshot
-    || (projectType === 'intersection' ? serializeIntersectionSnapshot() : null);
-  if (!snap?.periods?.length) {
-    container.innerHTML = `<div style="color:var(--text2);font-size:13px;padding:20px 0">No period data available.</div>`;
-    return;
-  }
-
-  const snPeriods = snap.periods;
-  const period = snPeriods[periodIdx];
-  const cfg = period.cfg;
-  const intervalMin = cfg?.intervalMin || 15;
-  const startMin = cfg?.startMinutes || 0;
-  const crosswalks = snap.intersection?.crosswalks || [
-    { name: 'N crosswalk', dir0: 'EB', dir1: 'WB', assign: 'N' },
-    { name: 'E crosswalk', dir0: 'NB', dir1: 'SB', assign: 'E' },
-    { name: 'S crosswalk', dir0: 'EB', dir1: 'WB', assign: 'S' },
-    { name: 'W crosswalk', dir0: 'NB', dir1: 'SB', assign: 'W' },
-  ];
-
-  const pedData = period.pedData || [];
-  const tmcRaw = period.tmcData || {};
-  // Derive slot count from whichever data source has it
-  const slots = pedData[0]?.length || period.vData?.in?.length
-    || Math.max(0, ...Object.values(tmcRaw).flatMap(d => Object.values(d).map(a => a.length)));
-
-  // TMC approach totals for data view
-  const tmcApproaches = Object.keys(tmcRaw).sort();
-  const tmcApproachData = tmcApproaches.map(leg => {
-    const dests = tmcRaw[leg] || {};
-    const movements = Object.entries(dests).map(([dest, arr]) => ({
-      dest, total: arr.reduce((s, slot) => s + (slot?.[0]||0), 0),
-    }));
-    const total = movements.reduce((s, m) => s + m.total, 0);
-    return { leg, movements, total };
-  }).filter(a => a.total > 0);
-  const tmcGrandTotal = tmcApproachData.reduce((s, a) => s + a.total, 0);
-  const hasTmcData = tmcGrandTotal > 0;
-  const tmcSlotTotals = Array.from({ length: slots }, (_, s) => {
-    let t = 0;
-    for (const toLegMap of Object.values(tmcRaw))
-      for (const arr of Object.values(toLegMap))
-        t += arr[s]?.[0] || 0;
-    return t;
+  renderIntersectionAnalysis(container, {
+    periods: ix.snapshot.periods,
+    intersection: ix.snapshot.intersection,
+    vPairs: ix.snapshot.vPairs,
   });
-  const tmcPeakSlotIdx = tmcSlotTotals.reduce((bi, v, i) => v > tmcSlotTotals[bi] ? i : bi, 0);
-  let tmcPeakHrIdx = 0, tmcPeakHrTotal = 0;
-  if (slots >= 4) {
-    for (let s = 0; s <= slots - 4; s++) {
-      const t = tmcSlotTotals.slice(s, s+4).reduce((a,b)=>a+b, 0);
-      if (t > tmcPeakHrTotal) { tmcPeakHrTotal = t; tmcPeakHrIdx = s; }
-    }
-  }
-
-  function toHHMM(m) {
-    const h = Math.floor(m / 60) % 24, mn = m % 60;
-    return `${String(h).padStart(2,'0')}:${String(mn).padStart(2,'0')}`;
-  }
-  function bar(val, max, w = 84) {
-    const px = max > 0 ? Math.max(2, Math.round((val / max) * w)) : 2;
-    return `<div class="ix-bar-wrap"><div class="ix-bar" style="width:${px}px"></div></div>`;
-  }
-
-  // Per-crosswalk totals
-  const xwTotals = crosswalks.map((xw, xi) => {
-    let d0 = 0, d1 = 0;
-    for (let s = 0; s < slots; s++) { d0 += pedData[xi]?.[s]?.[0]||0; d1 += pedData[xi]?.[s]?.[1]||0; }
-    return { ...xw, d0, d1, total: d0 + d1 };
-  });
-  const grandTotal = xwTotals.reduce((a, x) => a + x.total, 0);
-  const maxXw = Math.max(...xwTotals.map(x => x.total), 1);
-
-  // Per-slot totals
-  const slotData = Array.from({ length: slots }, (_, s) => {
-    const byCw = crosswalks.map((_, xi) => (pedData[xi]?.[s]?.[0]||0) + (pedData[xi]?.[s]?.[1]||0));
-    return { time: startMin + s * intervalMin, byCw, total: byCw.reduce((a,b)=>a+b,0) };
-  });
-  const maxSlot = Math.max(...slotData.map(s => s.total), 1);
-
-  // Peak 15-min
-  const peakSlot = slotData.reduce((best, s) => s.total > best.total ? s : best, slotData[0] || { time: startMin, total: 0 });
-
-  // Peak hour (4 consecutive slots)
-  let peakHrStart = startMin, peakHrTotal = 0;
-  if (slots >= 4) {
-    for (let s = 0; s <= slots - 4; s++) {
-      const t = slotData.slice(s, s+4).reduce((a, sl) => a + sl.total, 0);
-      if (t > peakHrTotal) { peakHrTotal = t; peakHrStart = slotData[s].time; }
-    }
-  }
-
-  // Period tabs
-  const tabsHtml = snPeriods.length > 1
-    ? `<div class="ix-period-tabs">${snPeriods.map((p, pi) => {
-        const pCfg = p.cfg;
-        const tr = pCfg?.startMinutes != null
-          ? `<span class="ixt-time">${toHHMM(pCfg.startMinutes)}–${toHHMM(pCfg.startMinutes + (pCfg.durationMin || 0))}</span>`
-          : '';
-        return `<button class="ix-period-tab${pi === periodIdx ? ' active' : ''}" data-pi="${pi}">${p.name}${tr}</button>`;
-      }).join('')}</div>`
-    : `<div class="ix-period-label">${period.name}</div>`;
-
-  // View toggle (Data | Charts)
-  const viewTabsHtml = `<div class="ix-view-tabs no-print">
-    <button class="ix-view-tab${ixAnalysisView==='data'?' active':''}" data-view="data">Data</button>
-    <button class="ix-view-tab${ixAnalysisView==='charts'?' active':''}" data-view="charts">Charts</button>
-  </div>`;
-
-  // ── CHARTS VIEW ────────────────────────────────────────
-  if (ixAnalysisView === 'charts') {
-    const tmcInfo = snapshotTmcPeakHour(period);
-    const vTotalPerSlot = Array.from({ length: slots }, (_, s) => {
-      const inArr = period.vData?.in?.[s] || [];
-      const outArr = period.vData?.out?.[s] || [];
-      return inArr.reduce((a, b) => a + (b||0), 0) + outArr.reduce((a, b) => a + (b||0), 0);
-    });
-    // TMC fallback: when vData is all zeros, pull motor counts (index 0) from tmcData
-    if (vTotalPerSlot.every(v => v === 0) && hasTmcData) {
-      for (let s = 0; s < slots; s++) vTotalPerSlot[s] = tmcSlotTotals[s];
-    }
-    const chartIntervals = slotData.map((s, i) => ({
-      time: toHHMM(s.time),
-      vehicles: vTotalPerSlot[i] || 0,
-      peds: s.total,
-    }));
-    const vPeriodTotal = vTotalPerSlot.reduce((a, b) => a + b, 0);
-    const hasModeData = grandTotal > 0 || vPeriodTotal > 0 || tmcInfo.hasTmc;
-
-    container.innerHTML = `
-      ${tabsHtml}
-      ${viewTabsHtml}
-      <div class="stat-detail" style="margin-bottom:14px">Visual summary of the selected period — turning movement diagram (if TMC data exists), volume by time of day, and mode split. Switch to <strong>Data</strong> for tables and peak-hour figures.</div>
-      ${tmcInfo.hasTmc ? `<div class="ix-card ix-card-full" style="margin-bottom:14px">
-        <div class="ix-card-header">Turning Movement Diagram
-          <span class="ix-card-hint">peak hour</span>
-          <button class="ix-card-toggle no-print" id="tmd-scale-btn" title="Toggle scaled line weights">${_tmdScaled ? 'scaled ✓' : 'scaled'}</button>
-        </div>
-        <div id="ix-tmd-root"></div>
-      </div>` : ''}
-      <div class="ix-card ix-card-full" style="margin-bottom:14px">
-        <div class="ix-card-header">Time-of-Day Volume
-          <span class="ix-card-hint">15-min intervals</span>
-        </div>
-        <div id="ix-tod-root"></div>
-      </div>
-      ${hasModeData ? `<div class="ix-card ix-card-full">
-        <div class="ix-card-header">Mode Split</div>
-        <div id="ix-mode-root"></div>
-      </div>` : ''}`;
-
-    function wireViewTabs() {
-      container.querySelectorAll('.ix-period-tab').forEach(btn =>
-        btn.addEventListener('click', () => renderIxAnalysis(+btn.dataset.pi)));
-      container.querySelectorAll('[data-pi]').forEach(el =>
-        el.addEventListener('click', () => renderIxAnalysis(+el.dataset.pi)));
-      container.querySelectorAll('.ix-view-tab').forEach(btn =>
-        btn.addEventListener('click', () => renderIxAnalysis(ixAnalysisPeriodIdx, btn.dataset.view)));
-    }
-    wireViewTabs();
-
-    if (tmcInfo.hasTmc) {
-      renderTMDiagram(tmcInfo.flat, 'ix-tmd-root', { scaled: _tmdScaled });
-      document.getElementById('tmd-scale-btn')?.addEventListener('click', () => {
-        _tmdScaled = !_tmdScaled;
-        renderTMDiagram(tmcInfo.flat, 'ix-tmd-root', { scaled: _tmdScaled });
-        const btn = document.getElementById('tmd-scale-btn');
-        if (btn) btn.textContent = _tmdScaled ? 'scaled ✓' : 'scaled';
-      });
-    }
-    renderTimeOfDayChart(chartIntervals, 'ix-tod-root');
-    if (hasModeData) renderModeSplit(vPeriodTotal, grandTotal, 'ix-mode-root');
-    return;
-  }
-  // ── END CHARTS VIEW ─────────────────────────────────────
-
-  // Charts (existing ped volume profile)
-  const volumeSvg = buildVolumeProfileSVG(slotData, crosswalks, intervalMin);
-  const cwBarSvg  = buildCrosswalkBarSVG(xwTotals);
-  const legendHtml = buildChartLegend(crosswalks);
-
-  // PHF (peak hour factor) — standard traffic engineering metric
-  const phf = (slots >= 4 && peakSlot.total > 0)
-    ? (peakHrTotal / (4 * peakSlot.total)).toFixed(2) : null;
-
-  // Crosswalk table rows — with direction-split bar
-  const xwRows = xwTotals.map((xw, i) => `
-    <tr class="ix-tr">
-      <td class="ix-td ix-td-name"><span class="ix-leg-badge" style="background:${CW_COLORS[i%4]}">${xw.assign}</span>${xw.name.replace(/\s*\([NESW] crosswalk\)/,'')}</td>
-      <td class="ix-td ix-td-num">${xw.d0.toLocaleString()}</td><td class="ix-td ix-td-dir">${xw.dir0}</td>
-      <td class="ix-td ix-td-num">${xw.d1.toLocaleString()}</td><td class="ix-td ix-td-dir">${xw.dir1}</td>
-      <td class="ix-td ix-td-num ix-td-bold">${xw.total.toLocaleString()}</td>
-      <td class="ix-td ix-td-pct">${grandTotal > 0 ? Math.round(xw.total/grandTotal*100) : 0}%</td>
-      <td class="ix-td" style="min-width:64px">${dirSplitBar(xw.d0, xw.d1, CW_COLORS[i%4])}</td>
-    </tr>`).join('');
-
-  // Time distribution rows
-  const tmcMaxSlot = Math.max(...tmcSlotTotals, 1);
-  const timeRows = slotData.map((s, si) => {
-    const tmcV = hasTmcData ? tmcSlotTotals[si] : 0;
-    const isPeak = hasTmcData
-      ? si === tmcPeakSlotIdx
-      : (s.total === peakSlot.total && s.time === peakSlot.time);
-    return `
-    <tr class="ix-tr${isPeak ? ' ix-tr-peak' : ''}">
-      <td class="ix-td ix-td-time">${toHHMM(s.time)}–${toHHMM(s.time+intervalMin)}</td>
-      ${hasTmcData
-        ? `<td class="ix-td ix-td-num ix-td-bold">${tmcV > 0 ? tmcV : '<span style="opacity:.35">—</span>'}</td>
-           <td class="ix-td ix-td-bar">${bar(tmcV, tmcMaxSlot)}</td>`
-        : `${s.byCw.map(v => `<td class="ix-td ix-td-num">${v > 0 ? v : '<span style="opacity:.35">—</span>'}</td>`).join('')}
-           <td class="ix-td ix-td-num ix-td-bold">${s.total}</td>
-           <td class="ix-td ix-td-bar">${bar(s.total, maxSlot)}</td>`}
-    </tr>`;
-  }).join('');
-
-  // Period comparison (multi-period only)
-  let compHtml = '';
-  if (snPeriods.length > 1) {
-    const compMax = Math.max(...snPeriods.map(p => {
-      let pPed=0; for(const xw of (p.pedData||[])) for(const sl of xw) pPed+=(sl[0]||0)+(sl[1]||0);
-      if (pPed > 0) return pPed;
-      let t=0;
-      for(const from of Object.values(p.tmcData||{})) for(const arr of Object.values(from)) for(const s of arr) t+=s?.[0]||0;
-      return t;
-    }), 1);
-    const compRows = snPeriods.map((p, pi) => {
-      // Pedestrian total
-      let pPed = 0;
-      for (const xw of (p.pedData||[])) for (const sl of xw) pPed += (sl[0]||0)+(sl[1]||0);
-      // TMC / vehicle total (fallback chain)
-      let pVeh = 0;
-      const pVRaw = (p.vData?.in||[]).reduce((s,r)=>s+r.reduce((a,b)=>a+(b||0),0),0)
-                  + (p.vData?.out||[]).reduce((s,r)=>s+r.reduce((a,b)=>a+(b||0),0),0);
-      if (pVRaw > 0) { pVeh = pVRaw; }
-      else {
-        for (const from of Object.values(p.tmcData||{}))
-          for (const arr of Object.values(from))
-            for (const slot of arr) pVeh += slot?.[0]||0;
-      }
-      const pInt = p.cfg?.intervalMin || 15;
-      const pStart = p.cfg?.startMinutes || 0;
-      // Determine slot count and per-slot totals from best available source
-      const pSlots = (p.pedData||[])[0]?.length || p.vData?.in?.length
-        || Math.max(0, ...Object.values(p.tmcData||{}).flatMap(d=>Object.values(d).map(a=>a.length)));
-      const useTmc = hasTmcData && pVeh > 0 && pPed === 0;
-      const pSlotTotals = Array.from({ length: pSlots }, (_, s) => {
-        if (useTmc) {
-          let t=0;
-          for (const from of Object.values(p.tmcData||{}))
-            for (const arr of Object.values(from))
-              t += arr[s]?.[0]||0;
-          return { time: pStart + s*pInt, total: t };
-        }
-        let t=0; for(const xw of (p.pedData||[])) t+=(xw?.[s]?.[0]||0)+(xw?.[s]?.[1]||0);
-        return { time: pStart + s*pInt, total: t };
-      });
-      const displayTotal = useTmc ? pVeh : pPed;
-      const pk = pSlotTotals.length
-        ? pSlotTotals.reduce((b,s) => s.total > b.total ? s : b, pSlotTotals[0])
-        : { time: pStart, total: 0 };
-      const pPhf = (pSlots >= 4 && pk.total > 0) ? (displayTotal / (4 * pk.total)).toFixed(2) : '—';
-      const unit = useTmc ? 'veh' : 'peds';
-      return `<tr class="ix-tr${pi === periodIdx ? ' ix-tr-active' : ''}">
-        <td class="ix-td ix-td-time" style="cursor:pointer;color:var(--blue-text)" data-pi="${pi}">${p.name}</td>
-        <td class="ix-td ix-td-num ix-td-bold">${displayTotal > 0 ? displayTotal.toLocaleString() : '—'}</td>
-        <td class="ix-td" style="font-size:10px;color:var(--text3)">${unit}</td>
-        <td class="ix-td ix-td-time">${pk.total > 0 ? toHHMM(pk.time)+'–'+toHHMM(pk.time+pInt) : '—'}</td>
-        <td class="ix-td ix-td-num">${pk.total > 0 ? pk.total : '—'}</td>
-        <td class="ix-td ix-td-num">${pPhf}</td>
-        <td class="ix-td ix-td-bar">${bar(displayTotal, compMax)}</td>
-      </tr>`;
-    }).join('');
-    compHtml = `<div class="ix-card">
-      <div class="ix-card-header">Period Comparison</div>
-      <table class="ix-table">
-        <thead><tr>
-          <th class="ix-th">Period</th><th class="ix-th ix-th-r">Total</th><th class="ix-th"></th>
-          <th class="ix-th">Peak 15-min</th><th class="ix-th ix-th-r">Peak Count</th>
-          <th class="ix-th ix-th-r" title="Peak Hour Factor = peak-hour vol ÷ (4 × peak-15-min vol)">PHF</th>
-          <th class="ix-th"></th>
-        </tr></thead>
-        <tbody>${compRows}</tbody>
-      </table>
-    </div>`;
-  }
-
-  // TMC summary card (shown when TMC data exists)
-  const tmcCardHtml = hasTmcData ? `
-    <div class="ix-card">
-      <div class="ix-card-header">Turning Movement Summary
-        <span class="ix-card-hint">motor vehicles · entering</span>
-      </div>
-      <table class="ix-table">
-        <thead><tr>
-          <th class="ix-th">Approach</th>
-          <th class="ix-th">Movements</th>
-          <th class="ix-th ix-th-r">Total</th>
-          <th class="ix-th ix-th-r">%</th>
-        </tr></thead>
-        <tbody>${tmcApproachData.map(a => `<tr class="ix-tr">
-          <td class="ix-td ix-td-name"><span class="ix-leg-badge">${a.leg}</span>${a.leg}B</td>
-          <td class="ix-td" style="font-size:10px;color:var(--text3)">${a.movements.filter(m=>m.total>0).map(m=>`${m.dest}: ${m.total.toLocaleString()}`).join(' · ')}</td>
-          <td class="ix-td ix-td-num ix-td-bold">${a.total.toLocaleString()}</td>
-          <td class="ix-td ix-td-pct">${tmcGrandTotal>0?Math.round(a.total/tmcGrandTotal*100):0}%</td>
-        </tr>`).join('')}</tbody>
-        <tfoot><tr class="ix-tr-total">
-          <td class="ix-td" style="font-weight:600" colspan="2">Total Entering</td>
-          <td class="ix-td ix-td-num ix-td-bold">${tmcGrandTotal.toLocaleString()}</td>
-          <td class="ix-td"></td>
-        </tr></tfoot>
-      </table>
-      <div class="ix-bottom-row">
-        <div class="ix-peak-stats">
-          <div class="ix-peak-item">
-            <span class="ix-peak-label">Peak 15-min</span>
-            <span class="ix-peak-val">${toHHMM(startMin+tmcPeakSlotIdx*intervalMin)}–${toHHMM(startMin+tmcPeakSlotIdx*intervalMin+intervalMin)}</span>
-            <span class="ix-peak-count">${tmcSlotTotals[tmcPeakSlotIdx]||0} vehicles</span>
-          </div>
-          ${slots>=4?`<div class="ix-peak-item">
-            <span class="ix-peak-label">Peak hour</span>
-            <span class="ix-peak-val">${toHHMM(startMin+tmcPeakHrIdx*intervalMin)}–${toHHMM(startMin+tmcPeakHrIdx*intervalMin+60)}</span>
-            <span class="ix-peak-count">${tmcPeakHrTotal} vehicles</span>
-          </div>`:''}
-          <div class="ix-peak-item">
-            <span class="ix-peak-label">Period total</span>
-            <span class="ix-peak-val">${toHHMM(startMin)}–${toHHMM(startMin+cfg.durationMin)}</span>
-            <span class="ix-peak-count">${tmcGrandTotal.toLocaleString()} vehicles</span>
-          </div>
-        </div>
-      </div>
-    </div>` : '';
-
-  const pedCardHtml = `
-    <div class="ix-card">
-      <div class="ix-card-header">Crosswalk Summary
-        ${hasTmcData ? '' : '<span class="ix-card-hint">dark = Dir A · light = Dir B</span>'}
-      </div>
-      ${hasTmcData && grandTotal === 0
-        ? `<div style="padding:14px 0;color:var(--text3);font-size:12px">No pedestrian counts recorded at this intersection.</div>`
-        : `<table class="ix-table">
-          <thead><tr>
-            <th class="ix-th">Crosswalk</th>
-            <th class="ix-th ix-th-r" colspan="2">Dir A</th>
-            <th class="ix-th ix-th-r" colspan="2">Dir B</th>
-            <th class="ix-th ix-th-r">Total</th>
-            <th class="ix-th ix-th-r">%</th>
-            <th class="ix-th ix-th-r">Split</th>
-          </tr></thead>
-          <tbody>${xwRows}</tbody>
-          <tfoot><tr class="ix-tr-total">
-            <td class="ix-td ix-td-name" style="font-weight:600">Total</td>
-            <td class="ix-td ix-td-num">${xwTotals.reduce((a,x)=>a+x.d0,0).toLocaleString()}</td><td class="ix-td"></td>
-            <td class="ix-td ix-td-num">${xwTotals.reduce((a,x)=>a+x.d1,0).toLocaleString()}</td><td class="ix-td"></td>
-            <td class="ix-td ix-td-num ix-td-bold">${grandTotal.toLocaleString()}</td>
-            <td class="ix-td" colspan="2"></td>
-          </tr></tfoot>
-        </table>
-        <div class="ix-bottom-row">
-          <div class="ix-cw-chart">${cwBarSvg}</div>
-          <div class="ix-peak-stats">
-            <div class="ix-peak-item">
-              <span class="ix-peak-label">Peak 15-min</span>
-              <span class="ix-peak-val">${toHHMM(peakSlot.time)}–${toHHMM(peakSlot.time+intervalMin)}</span>
-              <span class="ix-peak-count">${peakSlot.total} peds</span>
-            </div>
-            ${slots >= 4 ? `<div class="ix-peak-item">
-              <span class="ix-peak-label">Peak hour</span>
-              <span class="ix-peak-val">${toHHMM(peakHrStart)}–${toHHMM(peakHrStart+60)}</span>
-              <span class="ix-peak-count">${peakHrTotal} peds</span>
-            </div>` : ''}
-            ${phf ? `<div class="ix-peak-item">
-              <span class="ix-peak-label" title="Peak Hour Factor = peak-hour vol ÷ (4 × peak-15-min vol)">PHF</span>
-              <span class="ix-peak-val">${phf}</span>
-            </div>` : ''}
-            <div class="ix-peak-item">
-              <span class="ix-peak-label">Period total</span>
-              <span class="ix-peak-val">${toHHMM(startMin)}–${toHHMM(startMin+cfg.durationMin)}</span>
-              <span class="ix-peak-count">${grandTotal.toLocaleString()} peds</span>
-            </div>
-          </div>
-        </div>`}
-    </div>`;
-
-  const distCardHtml = `
-    <div class="ix-card">
-      <div class="ix-card-header">15-Minute Distribution</div>
-      <table class="ix-table" style="overflow-x:auto">
-        <thead><tr>
-          <th class="ix-th">Interval</th>
-          ${hasTmcData
-            ? `<th class="ix-th ix-th-r">Total Veh</th><th class="ix-th"></th>`
-            : `${crosswalks.map(xw => `<th class="ix-th ix-th-r">${xw.assign}</th>`).join('')}<th class="ix-th ix-th-r">Total</th><th class="ix-th"></th>`}
-        </tr></thead>
-        <tbody>${timeRows}</tbody>
-        <tfoot><tr class="ix-tr-total">
-          <td class="ix-td" style="font-weight:600">Total</td>
-          ${hasTmcData
-            ? `<td class="ix-td ix-td-num ix-td-bold">${tmcGrandTotal.toLocaleString()}</td><td class="ix-td"></td>`
-            : `${xwTotals.map(x => `<td class="ix-td ix-td-num">${x.total.toLocaleString()}</td>`).join('')}<td class="ix-td ix-td-num ix-td-bold">${grandTotal.toLocaleString()}</td><td class="ix-td"></td>`}
-        </tr></tfoot>
-      </table>
-    </div>`;
-
-  // Only show ped volume profile when there's ped data; for TMC-only it would be a flat line
-  const volumeProfileHtml = (!hasTmcData || grandTotal > 0) ? `
-    <div class="ix-card ix-card-full">
-      <div class="ix-card-header">Volume Profile
-        <span class="ix-card-hint">stacked by crosswalk · ▲ = peak 15-min</span>
-      </div>
-      <div class="ix-chart-wrap">${volumeSvg}</div>
-      ${legendHtml}
-    </div>` : '';
-
-  container.innerHTML = `
-    ${tabsHtml}
-    ${viewTabsHtml}
-    <div class="stat-detail" style="margin-bottom:14px">Totals, peak-hour figures, and per-interval distribution for the selected period. Switch to <strong>Charts</strong> for the turning movement diagram and volume-over-time view; use the period tabs above to compare across periods when more than one exists.</div>
-    <div class="ix-grid">
-      ${tmcCardHtml}
-      ${pedCardHtml}
-      ${distCardHtml}
-    </div>
-    ${volumeProfileHtml}
-    ${compHtml}`;
-
-  container.querySelectorAll('.ix-period-tab').forEach(btn =>
-    btn.addEventListener('click', () => renderIxAnalysis(+btn.dataset.pi)));
-  container.querySelectorAll('[data-pi]').forEach(el =>
-    el.addEventListener('click', () => renderIxAnalysis(+el.dataset.pi)));
-  container.querySelectorAll('.ix-view-tab').forEach(btn =>
-    btn.addEventListener('click', () => renderIxAnalysis(ixAnalysisPeriodIdx, btn.dataset.view)));
 }
 
 function loadIntersectionIntoView(snap) {

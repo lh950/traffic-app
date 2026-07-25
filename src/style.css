@@ -665,6 +665,18 @@ tfoot td:first-child{text-align:left;color:var(--text2)}
 .ix-card-full{margin-top:16px}
 /* bottom row inside crosswalk summary card: mini bar chart + peak stats side by side */
 .ix-bottom-row{display:flex;gap:16px;margin-top:14px;padding-top:14px;border-top:.5px solid var(--border);align-items:flex-start;flex-wrap:wrap}
+
+/* Interval detail — the demoted, collapsed-by-default raw per-interval table
+   (stat cards / chart / data quality take visual priority; this stays out of
+   the way until expanded, per the analyze-screen consolidation). */
+.interval-detail{margin-top:2px}
+.interval-detail-summary{cursor:pointer;font-size:12px;font-weight:500;color:var(--text2);list-style:none;padding:8px 2px;user-select:none}
+.interval-detail-summary::-webkit-details-marker{display:none}
+.interval-detail-summary::before{content:'▸ ';color:var(--text3)}
+.interval-detail[open] .interval-detail-summary::before{content:'▾ '}
+.interval-detail-summary:hover{color:var(--text)}
+.interval-detail-wrap{max-height:420px;overflow:auto;border:.5px solid var(--border);border-radius:var(--r);margin-top:4px}
+.interval-detail-wrap .ix-table thead th{position:sticky;top:0;background:var(--surface);z-index:1}
 .ix-cw-chart{flex:0 0 200px;min-width:0}
 /* volume profile chart container */
 .ix-chart-wrap{overflow-x:auto}
