@@ -143,6 +143,7 @@ Object.assign(window, {
   exportTripgenXLSX: () => exportTripgenXLSX(tripgenEntries, tripgenSiteInfo, projectInfo),
   openHelp, closeHelp, switchHelpTab, openSettings, closeSettings,
   applyMidSettings, checkMsKeys,
+  openContextHelp: () => openHelp(contextualHelpTab()),
   goSetup,
   renderParkingSetupZones, pkSetOcc, renderParkingOccBadge,
   openPrintReport: () => openPrintReport({
@@ -632,6 +633,19 @@ function renderAppSidebar() {
   else if (projectType === 'parking') renderSidebarParking();
 }
 
+// Picks which help-modal tab is most relevant to what's currently on screen, so the
+// sidebar "Help" link (and the header "?" buttons) land on useful content instead of
+// always defaulting to the same tab. Deliberately simple — falls back to 'general'
+// for anything not explicitly mapped (area study, trip gen, parking, QA/QC screens).
+function contextualHelpTab() {
+  if (projectType === 'intersection') {
+    if (_currentScreen === 'setup-screen') return 'setup';
+    if (_currentScreen === 'counter-screen') return mode === 'ped' ? 'ped' : mode === 'turning' ? 'tmc' : 'vehicle';
+    if (_currentScreen === 'ix-analysis-screen') return 'export';
+  }
+  return 'general';
+}
+
 function openWorkspaceTab(tab, idx) {
   _sidebarActiveItem = tab === 'area-ix' ? `area-ix-${idx}` : tab;
   renderAppSidebar();
@@ -660,7 +674,7 @@ function openWorkspaceTab(tab, idx) {
       break;
     }
     case 'export': showExportScreen(); break;
-    case 'help': showHelp(); break;
+    case 'help': openHelp(contextualHelpTab()); break;
     case 'area-hub': showAreaSetup(); break;
     case 'area-summary':
       if (typeof showSummaryScreen === 'function') showSummaryScreen();
@@ -3109,6 +3123,7 @@ function renderExportBuilder() {
 
   if (projectType === 'intersection') {
     container.innerHTML = `
+      <div class="stat-detail" style="margin-bottom:14px;max-width:540px">Exports the active period's count data. The shareable HTML page and project package are self-contained — send either to someone without this app and they can still view the data.</div>
       <div class="setup-card" style="max-width:540px">
         <h3 style="margin:0 0 1.2rem;font-size:15px;font-weight:600">Download files</h3>
         <div style="display:flex;flex-direction:column;gap:10px">
@@ -3218,7 +3233,8 @@ function renderExportBuilder() {
     + previewHeaders.map(h => '<span class="exp-preview-col">' + h + '</span>').join('')
     + '</div></div></div>';
 
-  container.innerHTML = layoutCards
+  container.innerHTML = '<div class="stat-detail" style="margin-bottom:14px">Builds one CSV across every intersection in this study. Choose a layout, then check which fields to include — the column preview and row count below update live as you pick.</div>'
+    + layoutCards
     + '<div class="exp-section">'
     + '<div class="exp-section-title">Fields</div>'
     + locationFields + periodFields + countFields
@@ -4154,6 +4170,7 @@ function renderIxAnalysis(periodIdx, view) {
     container.innerHTML = `
       ${tabsHtml}
       ${viewTabsHtml}
+      <div class="stat-detail" style="margin-bottom:14px">Visual summary of the selected period — turning movement diagram (if TMC data exists), volume by time of day, and mode split. Switch to <strong>Data</strong> for tables and peak-hour figures.</div>
       ${tmcInfo.hasTmc ? `<div class="ix-card ix-card-full" style="margin-bottom:14px">
         <div class="ix-card-header">Turning Movement Diagram
           <span class="ix-card-hint">peak hour</span>

@@ -1,7 +1,25 @@
 import { vPairs, fnames, vGroup, mode } from './state.js';
 import { render } from './counter.js';
 
-export function openHelp() {document.getElementById('help-modal').classList.add('open');}
+// Activates a modal-tab pane + its matching tab button by name, without requiring
+// the button element itself (so callers other than a direct click handler — e.g.
+// openHelp(tab) — can switch tabs too).
+function activateHelpTab(name) {
+  document.querySelectorAll('#help-modal .modal-tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('#help-modal .modal-tab-btn').forEach(b=>b.classList.remove('active'));
+  const panel = document.getElementById('htab-'+name);
+  if (panel) panel.classList.add('active');
+  const btn = [...document.querySelectorAll('#help-modal .modal-tab-btn')]
+    .find(b => b.getAttribute('onclick')?.includes(`'${name}'`));
+  if (btn) btn.classList.add('active');
+}
+
+// tab: optional tab name ('general'|'setup'|'vehicle'|'ped'|'tmc'|'export'). When omitted,
+// the modal opens on whichever tab was last active (previous behavior preserved).
+export function openHelp(tab) {
+  if (tab) activateHelpTab(tab);
+  document.getElementById('help-modal').classList.add('open');
+}
 export function closeHelp(){document.getElementById('help-modal').classList.remove('open');}
 
 export function renderMsKeymaps(){
@@ -125,10 +143,7 @@ export function applyMidSettings(){
 }
 
 export function switchHelpTab(name,btn){
-  document.querySelectorAll('#help-modal .modal-tab').forEach(t=>t.classList.remove('active'));
-  document.querySelectorAll('#help-modal .modal-tab-btn').forEach(b=>b.classList.remove('active'));
-  document.getElementById('htab-'+name).classList.add('active');
-  btn.classList.add('active');
+  activateHelpTab(name);
 }
 
 export function wireHelpKeydown(){
