@@ -1,5 +1,10 @@
 # Changelog
 
+## v3.25.0-alpha.1 — 2026-07-24
+
+### Added
+- **Intersection QA/QC screen** — a new "QA/QC" tab in the intersection-project sidebar (between Count and Analyze), completing the QA/QC rebuild started with Trip Gen. A secondary reviewer picks one of up to four one-hour windows per period (AM Peak / Midday Peak / PM Peak / an optional Additional hour) and recounts every active count type together (vehicle, pedestrian, turning movement) in one bounded session, using a new standalone recount engine (`src/intersectionQaqcCount.js`) rather than the live intersection counter — the live counter autosaves on every keystroke and always renders the full data matrix, neither of which fits a scratch one-hour recount. Scoring reuses Trip Gen's existing `qaqcThresholdPct`/`qaqcPeakHourScore`/`threePeakHourRating` functions unchanged (`src/analysis/data/analyze.js`), scored per vPairs row, per crosswalk, and per TMC approach (a per-approach-total, not movement-by-movement — flagged in the UI and code as a v1 assumption with no confirmed source-methodology precedent). Raw counts, differences, and thresholds are always shown next to the pass/fail badge, never hidden behind it. New `intersectionQaqc` state object persists through project save/load/autosave alongside the existing `qaqc`/`tripgenQaqc` entry.
+
 ## v3.24.0-alpha.2 — 2026-07-24
 
 ### Removed

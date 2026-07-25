@@ -24,6 +24,7 @@ import {
   updateTemplateSuboption, setDiagLeg, setMissingLeg,
   initApproaches, updateDefaultFilenames, wireSetupFilenameInputs, startCounting, goSetup,
   openLegPopover, closeLegPopover, getOpenLeg, wireLegPopoverDismiss,
+  legLabel,
 } from './setup.js';
 import { renderSetupDiagram, updateDiagram, toggleDiagram, toggleTurningDiagram, classifyTurn } from './diagram.js';
 import {
@@ -63,6 +64,10 @@ import {
   resetClassifications as tgResetClassifications, beginEditing as tgBeginEditing,
   beginRecount as tgBeginRecount, defaultClassificationsFor as tgDefaultClassificationsFor,
 } from './tripgenCount.js';
+import {
+  beginIntersectionRecount as ixBeginRecount, wireKeydown as ixQaqcWireKeydown,
+  finishIntersectionRecount as ixFinishRecount, assignRecountKeys as ixAssignRecountKeys,
+} from './intersectionQaqcCount.js';
 
 // ── Count type enabled flags ──
 const enabledModes = { ped: true, vehicle: true, turning: true };
@@ -258,7 +263,7 @@ initApproaches();
 // ═══════════════════════════════════════════
 // SCREEN ROUTER
 // ═══════════════════════════════════════════
-const SCREENS = ['home-screen', 'help-screen', 'area-setup-screen', 'area-import-screen', 'summary-screen', 'export-screen', 'ix-analysis-screen', 'setup-screen', 'counter-screen', 'tripgen-setup-screen', 'tripgen-counter-screen', 'tripgen-qaqc-screen', 'tripgen-distribution-screen', 'analyze-screen', 'parking-setup-screen', 'parking-counter-screen'];
+const SCREENS = ['home-screen', 'help-screen', 'area-setup-screen', 'area-import-screen', 'summary-screen', 'export-screen', 'ix-analysis-screen', 'setup-screen', 'counter-screen', 'intersection-qaqc-screen', 'intersection-qaqc-counter-screen', 'tripgen-setup-screen', 'tripgen-counter-screen', 'tripgen-qaqc-screen', 'tripgen-distribution-screen', 'analyze-screen', 'parking-setup-screen', 'parking-counter-screen'];
 let projectType = null; // 'intersection' | 'area' | 'tripgen' | 'parking' | null
 
 // ── Parking study state ──
@@ -543,6 +548,7 @@ function renderSidebarIntersection() {
       <div class="sidebar-section-label">Intersection</div>
       <button class="sidebar-item" data-ws="setup">Setup</button>
       <button class="sidebar-item" data-ws="count">Count</button>
+      <button class="sidebar-item" data-ws="qaqc">QA/QC</button>
       <button class="sidebar-item" data-ws="analyze">Analyze</button>
       <button class="sidebar-item" data-ws="charts">Charts</button>
     </div>
@@ -632,6 +638,7 @@ function openWorkspaceTab(tab, idx) {
   switch (tab) {
     case 'setup': showScreen('setup-screen'); renderPlannedPeriods(); break;
     case 'count': showScreen('counter-screen'); window.goToCountMode?.(); break;
+    case 'qaqc': showScreen('intersection-qaqc-screen'); renderIntersectionQaqcScreen(); break;
     case 'analyze':
     case 'charts': {
       showScreen('ix-analysis-screen');
@@ -4573,6 +4580,11 @@ function loadProject(proj) {
   });
   Object.assign(intersection, proj.intersection);
   Object.assign(fnames, proj.fnames);
+  Object.assign(intersectionQaqc, proj.intersectionQaqc || {});
+  const ixQaqcReviewerEl = document.getElementById('ix-qaqc-reviewer-name');
+  const ixQaqcDateEl = document.getElementById('ix-qaqc-review-date');
+  if (ixQaqcReviewerEl) ixQaqcReviewerEl.value = proj.intersectionQaqcReviewerName || '';
+  if (ixQaqcDateEl) ixQaqcDateEl.value = proj.intersectionQaqcReviewDate || '';
 
   if (proj.periods) {
     // v2 format — restore periods array
@@ -4663,6 +4675,9 @@ function serializeCurrentProject() {
       vPairs: JSON.parse(JSON.stringify(vPairs)),
       intersection: JSON.parse(JSON.stringify(intersection)),
       fnames: { ...fnames },
+      intersectionQaqc: { ...intersectionQaqc },
+      intersectionQaqcReviewerName: document.getElementById('ix-qaqc-reviewer-name')?.value || '',
+      intersectionQaqcReviewDate: document.getElementById('ix-qaqc-review-date')?.value || '',
       activePeriodIdx,
       plannedPeriods: plannedPeriods.map(p => ({ ...p })),
       periods: periods.map(p => ({
@@ -5317,6 +5332,7 @@ let tgCounterBackTarget = 'tripgen-setup-screen';
 document.getElementById('tg-btn-finish')?.addEventListener('click', () => tgFinishLocation());
 document.getElementById('tg-btn-to-setup')?.addEventListener('click', () => showScreen(tgCounterBackTarget));
 tgWireKeydown();
+ixQaqcWireKeydown();
 
 // ═══════════════════════════════════════════
 // QA/QC — standalone recount flow (separate from Analysis so data entry isn't competing
@@ -5448,6 +5464,291 @@ async function renderQaqcScreen() {
 function toMinFromLabel(t) { const [h, m] = t.split(':').map(Number); return h * 60 + (m || 0); }
 function minToTimeStr(min) { const h = Math.floor(min / 60) % 24, m = min % 60; return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`; }
 function escapeHtmlMain(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+// ═══════════════════════════════════════════
+// INTERSECTION QA/QC — standalone recount flow, parallel to Trip Gen's QA/QC section above
+// but adapted for intersection-project structure: periods instead of days, vPairs rows /
+// crosswalks / TMC approaches instead of trip-gen classifications. See
+// src/intersectionQaqcCount.js for why the recount session is a standalone engine rather
+// than a reuse of the live intersection counter (counter.js) — short version: counter.js
+// autosaves on every keystroke and always renders the full matrix, neither of which fits a
+// bounded scratch recount.
+//
+// Key shape: `${periodIdx}__${windowLabel}__${modeKey}__${rowKey}` — modeKey is
+// 'vehicle'|'ped'|'tmc'; rowKey is the vPairs array index (vehicle), the crosswalk's
+// `assign` leg letter (ped), or the approach's `leg` letter (tmc). Each key's value is
+// { recounts: [{id, cfg, quarters}] } — quarters is an array of per-interval totals for
+// JUST that one row (vehicle/ped: in+out combined; tmc: the row's approach-total). One
+// recount SESSION counts every active row together in one bounded hour (never separate
+// sessions per type), then the result gets fanned out into one intersectionQaqc[key] entry
+// per row below.
+// ═══════════════════════════════════════════
+const intersectionQaqc = {};
+let ixQaqcNextId = 1;
+
+function ixQaqcKey(periodIdx, windowLabel, modeKey, rowKey) {
+  return `${periodIdx}__${windowLabel}__${modeKey}__${rowKey}`;
+}
+
+// Mirrors analyze.js's qaqcThresholdPct exactly — duplicated locally (not imported) because
+// dataAdapter.js only re-wraps qaqcPeakHourScore/threePeakHourRating as async, not this one;
+// it's a pure 3-line band lookup so a local copy is simpler than adding a new async wrapper
+// just to display the threshold number in the report table.
+function ixQaqcThresholdPct(volume) {
+  if (volume >= 75) return 5;
+  if (volume >= 50) return 7.5;
+  return 10;
+}
+
+// Standard AM/Midday/PM search ranges (same convention DEFAULT_PEAK_WINDOWS.weekday uses for
+// trip gen) plus one optional manual-only "Additional hour" — matches the source Excel
+// workbook's 3 official peaks + 1 optional bonus hour. The bonus hour is deliberately left
+// out of the Three Peak Hour rollup below (threePeakHourRating expects exactly 3 scores).
+const IX_QAQC_WINDOWS = [
+  { label: 'AM Peak', searchStartMin: 7 * 60, searchEndMin: 11 * 60, autoSearch: true },
+  { label: 'Midday Peak', searchStartMin: 11 * 60, searchEndMin: 15 * 60, autoSearch: true },
+  { label: 'PM Peak', searchStartMin: 15 * 60, searchEndMin: 19 * 60, autoSearch: true },
+  { label: 'Additional hour', searchStartMin: 0, searchEndMin: 24 * 60, autoSearch: false },
+];
+
+// Returns the {cfg, vData, pedData, tmcData} snapshot for a given period index — the LIVE
+// globals if it's the currently-active period (periods[activePeriodIdx].data is stale until
+// the next switchPeriod/save/serialize), otherwise the period's own stored snapshot.
+function ixPeriodSnapshot(periodIdx) {
+  if (periodIdx === activePeriodIdx) {
+    const slots = Math.max(1, Math.round(cfg.durationMin / cfg.intervalMin));
+    return { cfg: { startMinutes: cfg.startMinutes, intervalMin: cfg.intervalMin, durationMin: cfg.durationMin, slots }, vData, pedData, tmcData };
+  }
+  const p = periods[periodIdx]?.data;
+  if (!p) return null;
+  const slots = Math.max(1, Math.round(p.cfg.durationMin / p.cfg.intervalMin));
+  return { cfg: { ...p.cfg, slots }, vData: p.vData, pedData: p.pedData, tmcData: p.tmcData };
+}
+
+function ixQaqcVehicleIntervals(snap) {
+  return Array.from({ length: snap.cfg.slots }, (_, i) => {
+    const startMin = snap.cfg.startMinutes + i * snap.cfg.intervalMin;
+    const endMin = startMin + snap.cfg.intervalMin;
+    return { start: minToTimeStr(startMin), end: minToTimeStr(endMin), inbound: (snap.vData.in[i] || []).slice(), outbound: (snap.vData.out[i] || []).slice() };
+  });
+}
+
+// Per-row quarter totals (combined in+out for vehicle/ped; approach-total for tmc) for the
+// slot range [startIdx, startIdx+windowSize).
+function ixRowQuarters(snap, modeKey, rowKey, startIdx, windowSize) {
+  const out = [];
+  for (let k = 0; k < windowSize; k++) {
+    const slotIdx = startIdx + k;
+    if (modeKey === 'vehicle') {
+      const i = Number(rowKey);
+      out.push((snap.vData.in[slotIdx]?.[i] || 0) + (snap.vData.out[slotIdx]?.[i] || 0));
+    } else if (modeKey === 'ped') {
+      const xi = intersection.crosswalks.findIndex((cw, idx) => (cw.assign || String(idx)) === rowKey);
+      const pair = (xi >= 0 ? snap.pedData[xi]?.[slotIdx] : null) || [0, 0];
+      out.push((pair[0] || 0) + (pair[1] || 0));
+    } else if (modeKey === 'tmc') {
+      // TMC per-approach-total assumption (v1, unconfirmed against real methodology — no
+      // source-file precedent existed for this, per the task this was built from). Sums
+      // every movement (all destinations, all vehicle types) FROM this one approach leg
+      // into a single total per quarter, rather than scoring movement-by-movement.
+      const legData = (snap.tmcData || {})[rowKey] || {};
+      let total = 0;
+      for (const dest in legData) {
+        const arr = legData[dest][slotIdx] || [];
+        total += arr.reduce((a, b) => a + b, 0);
+      }
+      out.push(total);
+    }
+  }
+  return out;
+}
+
+// Auto-detects which one-hour window within [searchStartMin, searchEndMin) is busiest,
+// preferring vehicle volume (if vehicle mode is active) as the basis — same "primary count's
+// own volume decides everything" principle qaqcThresholdPct already uses for its band.
+async function ixDetectPeakStart(snap, searchStartMin, searchEndMin) {
+  if (enabledModes.vehicle && vPairs.length) {
+    const intervals = ixQaqcVehicleIntervals(snap);
+    const peak = await analysisData.peakHourInWindow(intervals, snap.cfg.intervalMin, searchStartMin, searchEndMin, 'vehicle');
+    if (peak.startIdx >= 0) return snap.cfg.startMinutes + peak.startIdx * snap.cfg.intervalMin;
+  }
+  return searchStartMin;
+}
+
+// Builds the active row groups (one per active count type) for a project — reused by both
+// the report table and the recount-launch flow so they never drift out of sync.
+function ixQaqcActiveRowGroups() {
+  const groups = [];
+  if (enabledModes.vehicle && vPairs.length) {
+    groups.push({ modeKey: 'vehicle', modeLabel: '🚗 Vehicle', rows: vPairs.map((p, i) => ({ rowKey: String(i), label: p.label })) });
+  }
+  if (enabledModes.ped && intersection.crosswalks.length) {
+    groups.push({ modeKey: 'ped', modeLabel: '🚶 Pedestrian', rows: intersection.crosswalks.map((cw, i) => ({ rowKey: cw.assign || String(i), label: cw.name || `${legLabel(cw.assign)} crosswalk` })) });
+  }
+  if (enabledModes.turning) {
+    const counted = intersection.approaches.filter((a) => a.count !== false);
+    if (counted.length) groups.push({ modeKey: 'tmc', modeLabel: '↻ Turning movement', rows: counted.map((a) => ({ rowKey: a.leg, label: `${legLabel(a.leg)} approach` })) });
+  }
+  return groups;
+}
+
+document.getElementById('btn-ix-qaqc-to-count')?.addEventListener('click', () => { showScreen('counter-screen'); window.goToCountMode?.(); });
+document.getElementById('btn-ix-qaqc-to-analyze')?.addEventListener('click', () => openWorkspaceTab('analyze'));
+document.getElementById('ixqaqc-btn-to-qaqc')?.addEventListener('click', () => showScreen('intersection-qaqc-screen'));
+document.getElementById('ixqaqc-btn-finish')?.addEventListener('click', () => ixFinishRecount());
+
+async function beginIxQaqcRecount(cardId) {
+  const sep = cardId.indexOf('__');
+  const periodIdx = Number(cardId.slice(0, sep));
+  const windowLabel = cardId.slice(sep + 2);
+  const w = IX_QAQC_WINDOWS.find((x) => x.label === windowLabel);
+  const period = periods[periodIdx];
+  const snap = ixPeriodSnapshot(periodIdx);
+  if (!w || !period || !snap) return;
+  const windowSize = Math.max(1, Math.round(60 / snap.cfg.intervalMin));
+  const manualInput = document.querySelector(`[data-ixqaqc-manual-start="${cardId}"]`);
+  const startMin = w.autoSearch
+    ? await ixDetectPeakStart(snap, w.searchStartMin, w.searchEndMin)
+    : toMinFromLabel(manualInput?.value || minToTimeStr(snap.cfg.startMinutes));
+  const startIdx = Math.round((startMin - snap.cfg.startMinutes) / snap.cfg.intervalMin);
+  if (startIdx < 0 || startIdx + windowSize > snap.cfg.slots) {
+    alert('This window falls outside the period’s counted time range.');
+    return;
+  }
+
+  const rowGroups = ixQaqcActiveRowGroups();
+  const rowsSpecRaw = { vehicle: [], ped: [], tmc: [] };
+  rowGroups.forEach((grp) => { rowsSpecRaw[grp.modeKey] = grp.rows.map((r) => ({ key: r.rowKey, label: r.label })); });
+  const rowsSpec = ixAssignRecountKeys(rowsSpecRaw);
+
+  const recountCfg = { startMinutes: startMin, intervalMin: snap.cfg.intervalMin, durationMin: 60 };
+  const subEl = document.getElementById('ixqaqc-counter-sub');
+  if (subEl) subEl.textContent = `— ${period.name} / ${windowLabel}`;
+  const started = ixBeginRecount(rowsSpec, recountCfg, (result) => {
+    ['vehicle', 'ped', 'tmc'].forEach((modeKey) => {
+      Object.entries(result[modeKey] || {}).forEach(([rowKey, quarters]) => {
+        const key = ixQaqcKey(periodIdx, windowLabel, modeKey, rowKey);
+        intersectionQaqc[key] = intersectionQaqc[key] || { recounts: [] };
+        intersectionQaqc[key].recounts.push({ id: ixQaqcNextId++, cfg: recountCfg, quarters });
+      });
+    });
+    showScreen('intersection-qaqc-screen');
+    renderIntersectionQaqcScreen();
+    window.scheduleAutosave?.();
+  });
+  if (started) showScreen('intersection-qaqc-counter-screen');
+}
+window.beginIxQaqcRecount = beginIxQaqcRecount;
+
+async function renderIntersectionQaqcScreen() {
+  const root = document.getElementById('intersection-qaqc-list');
+  if (!root) return;
+  if (!periods.length) { root.innerHTML = '<div class="stat-detail">No periods counted yet — start a count from Setup first.</div>'; return; }
+  const rowGroups = ixQaqcActiveRowGroups();
+  if (!rowGroups.length) { root.innerHTML = '<div class="stat-detail">No active count types to QA/QC — enable vehicle, pedestrian, or turning movement counting first.</div>'; return; }
+
+  const cards = [];
+  for (let periodIdx = 0; periodIdx < periods.length; periodIdx++) {
+    const period = periods[periodIdx];
+    const snap = ixPeriodSnapshot(periodIdx);
+    if (!snap) continue;
+    const windowSize = Math.max(1, Math.round(60 / snap.cfg.intervalMin));
+
+    // rowKey -> { AM: score|null, MD: score|null, PM: score|null } for the Three Peak Hour rollup below.
+    const threePeakScores = {}; // `${modeKey}__${rowKey}` -> [scoreOrNull, scoreOrNull, scoreOrNull] (AM/MD/PM order)
+
+    for (const w of IX_QAQC_WINDOWS) {
+      const startMin = w.autoSearch ? await ixDetectPeakStart(snap, w.searchStartMin, w.searchEndMin) : snap.cfg.startMinutes;
+      const startIdx = Math.round((startMin - snap.cfg.startMinutes) / snap.cfg.intervalMin);
+      const inRange = startIdx >= 0 && startIdx + windowSize <= snap.cfg.slots;
+      const cardId = `${periodIdx}__${w.label}`;
+
+      const sectionsHtml = [];
+      for (const grp of rowGroups) {
+        const rowHtml = [];
+        for (const r of grp.rows) {
+          const key = ixQaqcKey(periodIdx, w.label, grp.modeKey, r.rowKey);
+          const recounts = intersectionQaqc[key]?.recounts || [];
+          const latest = recounts[recounts.length - 1];
+          const primaryQuarters = inRange ? ixRowQuarters(snap, grp.modeKey, r.rowKey, startIdx, windowSize) : [];
+          const primaryTotal = primaryQuarters.reduce((a, b) => a + b, 0);
+          let scoreResult = null;
+          if (latest && inRange) scoreResult = await analysisData.qaqcPeakHourScore(primaryQuarters, latest.quarters);
+
+          if (w.label !== 'Additional hour') {
+            const scoreKey = `${grp.modeKey}__${r.rowKey}`;
+            threePeakScores[scoreKey] = threePeakScores[scoreKey] || [];
+            threePeakScores[scoreKey].push(scoreResult && scoreResult.rating !== 'Incomplete' ? scoreResult.score : null);
+          }
+
+          const recountTotal = latest ? latest.quarters.reduce((a, b) => a + b, 0) : null;
+          const diff = recountTotal != null ? recountTotal - primaryTotal : null;
+          const diffPct = recountTotal != null && primaryTotal > 0 ? Math.abs(diff / primaryTotal) * 100 : (recountTotal === 0 && primaryTotal === 0 ? 0 : null);
+          const thresh = ixQaqcThresholdPct(primaryTotal);
+          const resultLabel = !latest
+            ? '<span style="color:var(--text3)">no recount</span>'
+            : (!inRange || scoreResult?.rating === 'Incomplete'
+              ? '<span style="color:var(--text3)">incomplete</span>'
+              : (scoreResult?.overallPass ? '<span style="color:#2a8">pass</span>' : '<span style="color:#c33">fail</span>'));
+          rowHtml.push(`<tr>
+            <td>${escapeHtmlMain(r.label)}</td>
+            <td>${primaryTotal}</td>
+            <td>${recountTotal != null ? recountTotal : '—'}</td>
+            <td>${diff != null ? (diff > 0 ? '+' : '') + diff + (diffPct != null ? ` (${diffPct.toFixed(1)}%)` : '') : '—'}</td>
+            <td>${thresh}%</td>
+            <td>${resultLabel}</td>
+          </tr>`);
+        }
+        sectionsHtml.push(`
+          <div style="margin-bottom:10px">
+            <div style="font-size:12px;font-weight:600;margin-bottom:4px">${grp.modeLabel}${grp.modeKey === 'tmc' ? ' <span style="font-weight:400;color:var(--text3)">(per-approach total — see note below)</span>' : ''}</div>
+            <table class="crosswalk-table" style="margin-bottom:6px">
+              <thead><tr><th>row</th><th>primary total</th><th>recount total</th><th>diff</th><th>threshold</th><th>result</th></tr></thead>
+              <tbody>${rowHtml.join('')}</tbody>
+            </table>
+          </div>`);
+      }
+
+      cards.push(`
+        <div class="card" style="margin-bottom:14px" data-ixqaqc-card="${cardId}">
+          <h3>${escapeHtmlMain(period.name)} — ${escapeHtmlMain(w.label)}</h3>
+          <div class="stat-detail" style="margin-bottom:8px">${inRange ? `Hour: ${minToTimeStr(startMin)} – ${minToTimeStr(startMin + 60)}` : 'This window falls outside this period’s counted time range.'}</div>
+          ${!w.autoSearch ? `<div class="setup-grid" style="margin-bottom:10px;grid-template-columns:1fr"><div class="setup-field"><label>additional-hour start time</label><input type="time" data-ixqaqc-manual-start="${cardId}" value="${minToTimeStr(startMin)}"></div></div>` : ''}
+          ${sectionsHtml.join('')}
+          <button class="btn-primary" data-ixqaqc-begin="${cardId}" ${inRange ? '' : 'disabled'}>begin recount →</button>
+        </div>
+      `);
+    }
+
+    // Three Peak Hour rollup — one 0-15 Good/Borderline/Failed rating per row, per period.
+    const rollupRows = [];
+    for (const grp of rowGroups) {
+      for (const r of grp.rows) {
+        const scoreKey = `${grp.modeKey}__${r.rowKey}`;
+        const scores = threePeakScores[scoreKey] || [null, null, null];
+        const rating = await analysisData.threePeakHourRating(scores);
+        rollupRows.push(`<tr><td>${grp.modeLabel} — ${escapeHtmlMain(r.label)}</td><td>${scores.map((s) => s ?? '—').join(' / ')}</td><td>${rating.total ?? '—'}</td><td>${rating.rating}</td></tr>`);
+      }
+    }
+    if (rollupRows.length) {
+      cards.push(`
+        <div class="card" style="margin-bottom:20px">
+          <h3>${escapeHtmlMain(period.name)} — Three Peak Hour rating</h3>
+          <div class="stat-detail" style="margin-bottom:8px">Rolls up AM / Midday / PM scores (0-5 each) into a 0-15 rating per row. The Additional hour (if recounted) isn't part of this rollup.</div>
+          <table class="crosswalk-table">
+            <thead><tr><th>row</th><th>AM / MD / PM score</th><th>total (0-15)</th><th>rating</th></tr></thead>
+            <tbody>${rollupRows.join('')}</tbody>
+          </table>
+        </div>`);
+    }
+  }
+
+  root.innerHTML = cards.join('') + '<div class="stat-detail" style="margin-top:6px">Turning-movement QA/QC scores each APPROACH as one combined total (summing all its movements and vehicle types together) rather than movement-by-movement — no confirmed source-methodology precedent existed for finer TMC granularity, so this is a reasonable v1 default, not a verified standard.</div>';
+
+  root.querySelectorAll('[data-ixqaqc-begin]:not([disabled])').forEach((el) => {
+    el.addEventListener('click', () => beginIxQaqcRecount(el.dataset.ixqaqcBegin));
+  });
+}
 
 // Parses a pasted tab-separated table into the {types, intervals} shape parseTripGen.js
 // produces. Handles three common paste layouts:

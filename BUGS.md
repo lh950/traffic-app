@@ -8,6 +8,17 @@ Severity levels:
 
 ---
 
+## BUG-015
+**Status:** Fixed (v3.25.0-alpha.1, before ship — caught during manual testing, not by a user)
+**Severity:** Minor
+**Found in:** development of the intersection QA/QC recount engine (v3.25.0-alpha.1), never released
+**Description:** In the new combined vehicle+ped+tmc QA/QC recount session (`src/intersectionQaqcCount.js`), a row could be assigned the physical key `z` for its in/out or count key. Pressing `z` always triggered Undo instead of recording that row's count — `wireKeydown()` checks `z`/`y` for undo/redo before consulting the row keymap, same precedence as every other counter in this app, so a row bound to `z` had a permanently unreachable key.
+**Root cause:** `assignRecountKeys()`'s key pools (`IN_KEY_POOL`/`OUT_KEY_POOL`) included `z` and `y`, which are fine in per-mode pools elsewhere in the app (each mode's own key list is checked in isolation) but not in a combined-session pool that must stay clear of the two keys `wireKeydown` intercepts globally.
+**Fix:** Removed `z`/`y` from both pools; also de-duplicated `-`/`=` which had been double-booked between `OUT_KEY_POOL` and `TMC_KEY_POOL`.
+**Lesson:** Caught only by actually pressing every assigned key in a live browser session (via `preview_start` + simulated `keydown` events) and watching the interval table increment — reading the code alone didn't surface it, since the key assignment and the undo/redo interception live in different functions with no static check tying them together.
+
+---
+
 ## BUG-014
 **Status:** Fixed (v3.23.1-alpha.1)
 **Severity:** Critical

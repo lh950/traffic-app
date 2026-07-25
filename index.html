@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Traffic App v3.24.0-alpha.2</title>
+<title>Traffic App v3.25.0-alpha.1</title>
 <link rel="manifest" href="./manifest.json">
 <meta name="theme-color" content="#131b23">
 <script>
@@ -117,7 +117,7 @@
   <div class="home-inner">
     <div class="home-wordmark">
       <h1>Traffic App</h1>
-      <div class="home-version">v3.24.0-alpha.2</div>
+      <div class="home-version">v3.25.0-alpha.1</div>
       <button id="home-btn-help" title="Help / instructions" style="margin-left:auto;font-size:13px;font-weight:600;color:var(--text3);background:none;border:.5px solid var(--border);border-radius:50%;width:26px;height:26px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">?</button>
     </div>
     <div id="home-resume-banner" style="display:none" class="home-resume-banner"></div>
@@ -184,7 +184,7 @@
     <!-- wordmark -->
     <div style="margin-bottom:2rem">
       <h1 style="font-size:22px;font-weight:500;letter-spacing:-.01em">Traffic App</h1>
-      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v3.24.0-alpha.2</span>
+      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v3.25.0-alpha.1</span>
     </div>
 
     <!-- autosave / resume banner -->
@@ -875,7 +875,7 @@
 
   <header class="counter-header">
     <button id="btn-back-to-project" style="font-size:12px;padding:4px 10px;margin-right:8px">? Project</button>
-    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v3.24.0-alpha.2</span></h1>
+    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v3.25.0-alpha.1</span></h1>
     <div class="hcontrols">
       <div class="mode-toggle" style="display:none">
         <button class="mode-btn active" id="btn-count-mode" onclick="goToCountMode()">count</button>
@@ -1260,6 +1260,67 @@
     <button id="btn-export-back" style="font-size:12px">? Back to summary</button>
   </div>
   <div id="export-builder-content"></div>
+</div>
+
+<!-- = INTERSECTION QA/QC SCREEN — secondary-reviewer one-hour recount + scoring, kept
+     separate from the live counter/analysis screens (same rationale as tripgen-qaqc-screen:
+     recount entry shouldn't compete with count-entry or analysis screen space) = -->
+<div id="intersection-qaqc-screen" class="workspace-screen" style="display:none;min-height:100vh;padding:2rem">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem">
+    <h1 style="font-size:22px;font-weight:500">QA/QC <span style="font-size:14px;font-weight:400;color:var(--text2,#6b6960);margin-left:10px">second-counter recounts</span></h1>
+    <div style="display:flex;gap:8px">
+      <button id="btn-ix-qaqc-to-count" style="font-size:12px">← back to count</button>
+      <button id="btn-ix-qaqc-to-analyze" style="font-size:12px">view analysis →</button>
+    </div>
+  </div>
+  <div class="card" style="margin-bottom:1.2rem">
+    <div class="setup-grid" style="grid-template-columns:1fr 1fr">
+      <div class="setup-field">
+        <label>QA reviewer / second counter name</label>
+        <input type="text" id="ix-qaqc-reviewer-name" placeholder="name of person doing the recount">
+      </div>
+      <div class="setup-field">
+        <label>review date</label>
+        <input type="date" id="ix-qaqc-review-date">
+      </div>
+    </div>
+  </div>
+  <div class="stat-detail" style="margin-bottom:14px">Pick one of the peak-hour windows below and recount ALL active count types together (vehicle, pedestrian, turning movement) for that single hour — this keeps every count type's recount tied to the same real-world 60 minutes. Raw counts and differences are always shown alongside the pass/fail badge below — the badge is a summary, not a substitute for eyeballing the numbers. Vehicle types are scored individually (not grouped), pedestrian is scored per crosswalk, and turning movement is scored per approach (see note in the report below).</div>
+  <div id="intersection-qaqc-list"></div>
+</div>
+
+<!-- = INTERSECTION QA/QC RECOUNT COUNTER — bounded one-hour keyboard-driven recount session,
+     reusing the SAME classifications-not-aggregate principle as the trip-gen recount flow,
+     but as a standalone engine (src/intersectionQaqcCount.js) rather than the live intersection
+     counter — see that file's header comment for why direct counter.js reuse was rejected = -->
+<div id="intersection-qaqc-counter-screen" style="display:none;flex-direction:column;min-height:100vh">
+  <header class="counter-header">
+    <h1>QA/QC recount <span id="ixqaqc-counter-sub"></span></h1>
+    <div class="hcontrols">
+      <div class="interval-badge" id="ixqaqc-cur-interval"></div>
+      <div class="undo-redo">
+        <button title="undo (Z)" id="ixqaqc-btn-undo" disabled>↩</button>
+        <span class="stack-count" id="ixqaqc-undo-count">0</span>
+        <button title="redo (Y)" id="ixqaqc-btn-redo" disabled>↪</button>
+      </div>
+      <button class="btn-blue" id="ixqaqc-btn-finish" title="Finish this recount" style="white-space:nowrap">✓ finish recount</button>
+      <button class="btn-icon" id="ixqaqc-btn-to-qaqc" title="Back" style="font-size:12px">QA/QC</button>
+    </div>
+  </header>
+  <div class="kbd-sticky">
+    <div class="kbd-inner" style="max-height:none">
+      <div class="kbd-grid" id="ixqaqc-kbd-grid"></div>
+    </div>
+  </div>
+  <div class="tables-area">
+    <div class="tables-wrap" style="grid-template-columns:1fr">
+      <div>
+        <div class="table-heading"><h2>counts</h2></div>
+        <div class="tbl-scroll"><table id="ixqaqc-tbl-count"></table></div>
+      </div>
+    </div>
+  </div>
+  <div class="counter-bottom">recount stored in memory — do not refresh — click ✓ finish recount when done</div>
 </div>
 
 <!-- = INTERSECTION DETAIL ANALYSIS = -->
