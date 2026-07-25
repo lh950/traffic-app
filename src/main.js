@@ -1259,7 +1259,7 @@ async function renderAnalyzePeriodContent(root, vehParsed, pedParsed, tmcParsed,
   let activeKind = 'vehicle';
 
   function paintQA() {
-    const qaRoot = document.getElementById('analyze-qa-root');
+    const qaRoot = root.querySelector('#analyze-qa-root');
     if (!qaRoot) return;
     const findings = activeKind === 'vehicle'
       ? runVehicleQA(vehParsed)
@@ -1268,14 +1268,14 @@ async function renderAnalyzePeriodContent(root, vehParsed, pedParsed, tmcParsed,
   }
 
   function paintInterval() {
-    const intervalRoot = document.getElementById('analyze-interval-root');
+    const intervalRoot = root.querySelector('#analyze-interval-root');
     if (!intervalRoot) return;
     renderIntervalDetailSection(intervalRoot, activeKind, vehParsed, pedParsed, tmcParsed);
   }
 
   async function paintSummary() {
     const parsed = activeKind === 'vehicle' ? vehParsed : activeKind === 'ped' ? pedParsed : tmcParsed;
-    await renderSummary(document.getElementById('analyze-summary-root'), activeKind, [{ id: 1, dayLabel: 'Current session', parsed }]);
+    await renderSummary(root.querySelector('#analyze-summary-root'), activeKind, [{ id: 1, dayLabel: 'Current session', parsed }]);
   }
   root.querySelectorAll('.dataset-tab').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -1292,16 +1292,16 @@ async function renderAnalyzePeriodContent(root, vehParsed, pedParsed, tmcParsed,
   paintInterval();
 
   if (hasMotor) {
-    await renderTmcSection(document.getElementById('analyze-tmc-root'), filterTmcParsedByIndices(tmcParsed, motorIdx));
+    await renderTmcSection(root.querySelector('#analyze-tmc-root'), filterTmcParsedByIndices(tmcParsed, motorIdx));
   } else if (hasTmc && !hasBikes) {
-    await renderTmcSection(document.getElementById('analyze-tmc-root'), tmcParsed);
+    await renderTmcSection(root.querySelector('#analyze-tmc-root'), tmcParsed);
   }
   if (hasBikes) {
-    await renderTmcSection(document.getElementById('analyze-bike-root'), filterTmcParsedByIndices(tmcParsed, bikeIdx));
+    await renderTmcSection(root.querySelector('#analyze-bike-root'), filterTmcParsedByIndices(tmcParsed, bikeIdx));
   }
 
 
-  const compareRoot = document.getElementById('analyze-compare-root');
+  const compareRoot = root.querySelector('#analyze-compare-root');
   if (compareRoot && !readOnly) {
     let referenceSnap = null;
     function paintComparison() {
@@ -1342,7 +1342,7 @@ async function renderAnalyzePeriodContent(root, vehParsed, pedParsed, tmcParsed,
   }
 
   if (!readOnly) {
-    document.getElementById('btn-share-report')?.addEventListener('click', () => {
+    root.querySelector('#btn-share-report')?.addEventListener('click', () => {
       exportShareablePage(
         { ...projectInfo, date: periodMeta.date || projectInfo.date, weather: periodMeta.weather || projectInfo.weather, counterName: periodMeta.observer || projectInfo.counterName, studyPurpose: periodMeta.notes || projectInfo.studyPurpose, equipment: periodMeta.equipment },
         intersection, vehParsed, pedParsed, tmcParsed, motorIdx, bikeIdx, hasBikes, cfg?.intervalMin || 15
@@ -1623,6 +1623,12 @@ async function renderIntersectionAnalysis(containerEl = null, snapshotCtx = null
     let vehParsed, pedParsed, tmcParsed;
     if (pData) {
       ({ vehParsed, pedParsed, tmcParsed } = parsedFromPeriod(pData, src.ctx));
+    } else if (src.ctx.readOnly) {
+      // A read-only snapshot with no period data must never fall back to live
+      // counting state — that would silently show an unrelated session's numbers
+      // as if they belonged to this snapshot.
+      root.innerHTML = '<div style="color:var(--text2);font-size:13px;padding:20px 0">No period data available.</div>';
+      return;
     } else {
       vehParsed = liveVehicleParsed();
       pedParsed = livePedParsed();
@@ -3871,296 +3877,6 @@ function exportGISCSV() {
   a.download = (projectInfo.projectName||'study').replace(/[^a-z0-9]/gi,'-') + '-gis-export.csv';
   a.click();
   URL.revokeObjectURL(url);
-}
-
-// ══════════════════════════════════════════════════════
-// STAGE 1 CHARTS  (TMD · Time-of-Day · Mode Split)
-// ══════════════════════════════════════════════════════
-
-/**
- * Convert snapshot period.tmcData → flat { NBL, NBT, NBR, SBL, … WBR }
- * summed over the peak-hour window (4 × intervalMin consecutive slots, max total).
- * Returns { flat, hasTmc, peakHrStart, windowSize }
- */
-function snapshotTmcPeakHour(period) {
-  const td = period.tmcData || {};
-  const intervalMin = period.cfg?.intervalMin || 15;
-  const slots = period.pedData?.[0]?.length || period.vData?.in?.length || 0;
-  if (!slots) return { flat: {}, hasTmc: false };
-
-  const slotTotals = Array.from({ length: slots }, (_, s) => {
-    let t = 0;
-    for (const toLegMap of Object.values(td)) {
-      for (const slotsArr of Object.values(toLegMap)) {
-        t += (slotsArr[s] || []).reduce((a, b) => a + (b || 0), 0);
-      }
-    }
-    return t;
-  });
-
-  const windowSize = Math.max(1, Math.round(60 / intervalMin));
-  let bestStart = 0, bestVol = -Infinity;
-  let ws = slotTotals.slice(0, windowSize).reduce((a, b) => a + b, 0);
-  bestVol = ws;
-  for (let i = 1; i + windowSize <= slots; i++) {
-    ws = ws - slotTotals[i - 1] + slotTotals[i + windowSize - 1];
-    if (ws > bestVol) { bestVol = ws; bestStart = i; }
-  }
-
-  // NBL=N→E, NBT=N→S, NBR=N→W | SBL=S→W, SBT=S→N, SBR=S→E
-  // EBL=E→S, EBT=E→W, EBR=E→N | WBL=W→N, WBT=W→E, WBR=W→S
-  const MOVE_MAP = {
-    N: { E: 'NBL', S: 'NBT', W: 'NBR' },
-    S: { W: 'SBL', N: 'SBT', E: 'SBR' },
-    E: { S: 'EBL', W: 'EBT', N: 'EBR' },
-    W: { N: 'WBL', E: 'WBT', S: 'WBR' },
-  };
-
-  const flat = { NBL:0,NBT:0,NBR:0,SBL:0,SBT:0,SBR:0,EBL:0,EBT:0,EBR:0,WBL:0,WBT:0,WBR:0 };
-  for (let si = bestStart; si < Math.min(bestStart + windowSize, slots); si++) {
-    for (const [fromLeg, toLegMap] of Object.entries(td)) {
-      const moves = MOVE_MAP[fromLeg];
-      if (!moves) continue;
-      for (const [toLeg, slotsArr] of Object.entries(toLegMap)) {
-        const key = moves[toLeg];
-        if (!key) continue;
-        flat[key] += (slotsArr[si] || []).reduce((a, b) => a + (b || 0), 0);
-      }
-    }
-  }
-
-  return { flat, hasTmc: Object.values(flat).some(v => v > 0), peakHrStart: bestStart, windowSize };
-}
-
-/**
- * Classic TMC spider diagram. peakHourData = { NBL, NBT, … WBR }.
- * Renders an SVG into the element with containerId.
- */
-function renderTMDiagram(peakHourData, containerId, options = {}) {
-  const el = document.getElementById(containerId);
-  if (!el) return;
-  const d = peakHourData;
-  const scaled = options.scaled === true;
-
-  const nbTotal = (d.NBL||0)+(d.NBT||0)+(d.NBR||0);
-  const sbTotal = (d.SBL||0)+(d.SBT||0)+(d.SBR||0);
-  const ebTotal = (d.EBL||0)+(d.EBT||0)+(d.EBR||0);
-  const wbTotal = (d.WBL||0)+(d.WBT||0)+(d.WBR||0);
-  const grandTotal = nbTotal + sbTotal + ebTotal + wbTotal;
-  const maxV = Math.max(1, ...Object.values(d).map(v => v||0));
-
-  function sw(v) { return Math.max(1.5, Math.min(11, 1.5 + ((v||0) / maxV) * 9.5)); }
-
-  const COL_L = 'var(--in-text)';
-  const COL_T = 'var(--blue-text)';
-  const COL_R = 'var(--out-text)';
-
-  // Layout constants
-  const W = 520, H = 520, cx = 260, cy = 260;
-  const BH = 52;   // half-box: box from (208,208) to (312,312)
-  const ARM = 108; // arm length from box edge to tip
-  const ARMW = 58; // arm width
-  const LO = 9;    // lane offset from arm centre
-
-  // Box edges
-  const NY = cy - BH, SY = cy + BH, EX = cx + BH, WX = cx - BH;
-  // Arm tips
-  const NT = NY - ARM, ST = SY + ARM, ET = EX + ARM, WT = WX - ARM;
-  // Entry/exit x or y on each arm (at box edge)
-  // NB entry (vehicles from N): east of centre on N arm → (cx+LO, NY)
-  // NB exit  (vehicles leaving to N): west → (cx-LO, NY)
-  const nEnt = [cx + LO, NY],  nExt = [cx - LO, NY];
-  const sEnt = [cx - LO, SY],  sExt = [cx + LO, SY];
-  const eEnt = [EX, cy - LO],  eExt = [EX, cy + LO];
-  const wEnt = [WX, cy + LO],  wExt = [WX, cy - LO];
-
-  // Cubic bezier: pull control points 48% toward intersection centre
-  function bez(ax, ay, bx, by, pull = 0.48) {
-    const c1x = +(ax + (cx - ax) * pull).toFixed(1);
-    const c1y = +(ay + (cy - ay) * pull).toFixed(1);
-    const c2x = +(bx + (cx - bx) * pull).toFixed(1);
-    const c2y = +(by + (cy - by) * pull).toFixed(1);
-    return { path: `M ${ax} ${ay} C ${c1x} ${c1y} ${c2x} ${c2y} ${bx} ${by}`, c1x, c1y, c2x, c2y };
-  }
-
-  // Mid-point of cubic bezier at t=0.5
-  function bezMid(ax, ay, c1x, c1y, c2x, c2y, bx, by) {
-    const t = 0.5, u = 0.5;
-    return [
-      u*u*u*ax + 3*u*u*t*c1x + 3*u*t*t*c2x + t*t*t*bx,
-      u*u*u*ay + 3*u*u*t*c1y + 3*u*t*t*c2y + t*t*t*by,
-    ];
-  }
-
-  function mov(ax, ay, bx, by, col, vol) {
-    if (!vol) return '';
-    const { path, c1x, c1y, c2x, c2y } = bez(ax, ay, bx, by);
-    const [mx, my] = bezMid(ax, ay, c1x, c1y, c2x, c2y, bx, by);
-    const strokeW = scaled ? sw(vol).toFixed(1) : '2.5';
-    return `
-      <path d="${path}" fill="none" stroke="${col}" stroke-width="${strokeW}" stroke-linecap="round" marker-end="url(#tmd-a)" opacity="0.82"/>
-      <text x="${mx.toFixed(1)}" y="${my.toFixed(1)}" text-anchor="middle" dominant-baseline="middle"
-        font-size="10" font-weight="700" fill="${col}"
-        stroke="var(--surface)" stroke-width="2.5" paint-order="stroke">${vol}</text>`;
-  }
-
-  // Road arms
-  const roads = [
-    `<rect x="${cx-ARMW/2}" y="${NT}" width="${ARMW}" height="${NY-NT}" fill="var(--surface3)" stroke="var(--border)" stroke-width=".5"/>`,
-    `<rect x="${cx-ARMW/2}" y="${SY}" width="${ARMW}" height="${ST-SY}" fill="var(--surface3)" stroke="var(--border)" stroke-width=".5"/>`,
-    `<rect x="${EX}" y="${cy-ARMW/2}" width="${ET-EX}" height="${ARMW}" fill="var(--surface3)" stroke="var(--border)" stroke-width=".5"/>`,
-    `<rect x="${WT}" y="${cy-ARMW/2}" width="${WX-WT}" height="${ARMW}" fill="var(--surface3)" stroke="var(--border)" stroke-width=".5"/>`,
-  ].join('');
-
-  const box = `<rect x="${WX}" y="${NY}" width="${BH*2}" height="${BH*2}" fill="var(--surface2)" stroke="var(--border)" stroke-width="1.5"/>`;
-
-  const defs = `<defs>
-    <marker id="tmd-a" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="5" markerHeight="5" orient="auto">
-      <path d="M0 0 L8 3 L0 6 Z" fill="context-stroke"/>
-    </marker>
-  </defs>`;
-
-  const moves = [
-    mov(...nEnt, ...eExt, COL_L, d.NBL||0), // NBL: N→E
-    mov(...nEnt, ...sExt, COL_T, d.NBT||0), // NBT: N→S
-    mov(...nEnt, ...wExt, COL_R, d.NBR||0), // NBR: N→W
-    mov(...sEnt, ...wExt, COL_L, d.SBL||0), // SBL: S→W
-    mov(...sEnt, ...nExt, COL_T, d.SBT||0), // SBT: S→N
-    mov(...sEnt, ...eExt, COL_R, d.SBR||0), // SBR: S→E
-    mov(...eEnt, ...sExt, COL_L, d.EBL||0), // EBL: E→S
-    mov(...eEnt, ...wExt, COL_T, d.EBT||0), // EBT: E→W
-    mov(...eEnt, ...nExt, COL_R, d.EBR||0), // EBR: E→N
-    mov(...wEnt, ...nExt, COL_L, d.WBL||0), // WBL: W→N
-    mov(...wEnt, ...eExt, COL_T, d.WBT||0), // WBT: W→E
-    mov(...wEnt, ...sExt, COL_R, d.WBR||0), // WBR: W→S
-  ].join('');
-
-  const approachTotals = [
-    `<text x="${cx}" y="${NT-14}" text-anchor="middle" font-size="12" font-weight="700" fill="var(--text2)">${nbTotal}</text>`,
-    `<text x="${cx}" y="${ST+20}" text-anchor="middle" font-size="12" font-weight="700" fill="var(--text2)">${sbTotal}</text>`,
-    `<text x="${ET+18}" y="${cy+4}" text-anchor="start" font-size="12" font-weight="700" fill="var(--text2)">${ebTotal}</text>`,
-    `<text x="${WT-18}" y="${cy+4}" text-anchor="end" font-size="12" font-weight="700" fill="var(--text2)">${wbTotal}</text>`,
-  ].join('');
-
-  const dirLabels = [
-    `<text x="${cx}" y="${NT-30}" text-anchor="middle" font-size="14" font-weight="800" fill="var(--text)" font-family="var(--mono)">N</text>`,
-    `<text x="${cx}" y="${ST+37}" text-anchor="middle" font-size="14" font-weight="800" fill="var(--text)" font-family="var(--mono)">S</text>`,
-    `<text x="${ET+36}" y="${cy+5}" text-anchor="start" font-size="14" font-weight="800" fill="var(--text)" font-family="var(--mono)">E</text>`,
-    `<text x="${WT-36}" y="${cy+5}" text-anchor="end" font-size="14" font-weight="800" fill="var(--text)" font-family="var(--mono)">W</text>`,
-  ].join('');
-
-  const centerLabel = grandTotal > 0 ? `
-    <text x="${cx}" y="${cy-8}" text-anchor="middle" font-size="17" font-weight="800" fill="var(--blue-text)">${grandTotal}</text>
-    <text x="${cx}" y="${cy+9}" text-anchor="middle" font-size="9" fill="var(--text3)">peak hr total</text>` : '';
-
-  el.innerHTML = `
-    <div class="tmd-wrap">
-      <svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:520px;display:block;margin:0 auto" xmlns="http://www.w3.org/2000/svg">
-        ${defs}${roads}${box}${moves}${approachTotals}${dirLabels}${centerLabel}
-      </svg>
-      <div class="tmd-legend">
-        <span class="tmd-leg-item"><span class="tmd-swatch" style="background:var(--in-text)"></span>Left</span>
-        <span class="tmd-leg-item"><span class="tmd-swatch" style="background:var(--blue-text)"></span>Through</span>
-        <span class="tmd-leg-item"><span class="tmd-swatch" style="background:var(--out-text)"></span>Right</span>
-        ${scaled ? '<span class="tmd-leg-hint">line weight ∝ volume</span>' : ''}
-      </div>
-    </div>`;
-}
-
-/**
- * Bar chart of volume by 15-min interval.
- * intervals: [{ time, vehicles, peds }]
- */
-function renderTimeOfDayChart(intervals, containerId) {
-  const el = document.getElementById(containerId);
-  if (!el) return;
-  if (!intervals?.length) {
-    el.innerHTML = '<div style="color:var(--text3);font-size:13px;padding:16px 0">No interval data.</div>';
-    return;
-  }
-
-  const W = 900, H = 220, pL = 40, pB = 30, pT = 12, pR = 12;
-  const iW = W - pL - pR, iH = H - pT - pB;
-  const hasVeh = intervals.some(iv => (iv.vehicles||0) > 0);
-  const hasPed = intervals.some(iv => (iv.peds||0) > 0);
-  const maxV = Math.max(1, ...intervals.map(iv => Math.max(iv.vehicles||0, iv.peds||0)));
-  const n = intervals.length;
-  const grpGap = 2;
-  const grpW = Math.max(2, iW / n - grpGap);
-  const dual = hasVeh && hasPed;
-  const barW = dual ? Math.max(1, (grpW - 1) / 2) : Math.max(2, grpW);
-
-  const steps = 4;
-  let grid = '';
-  for (let i = 0; i <= steps; i++) {
-    const y = pT + iH - (i / steps) * iH;
-    const v = Math.round((i / steps) * maxV);
-    grid += `<line class="chart-gridline" x1="${pL}" y1="${y.toFixed(1)}" x2="${W-pR}" y2="${y.toFixed(1)}"/>`;
-    grid += `<text class="chart-axis-label" x="${pL-5}" y="${(y+3).toFixed(1)}" text-anchor="end">${v}</text>`;
-  }
-
-  let bars = '';
-  intervals.forEach((iv, i) => {
-    const gx = pL + i * (grpW + grpGap);
-    const vv = iv.vehicles||0, pv = iv.peds||0;
-    if (dual) {
-      const hv = (vv / maxV) * iH, hp = (pv / maxV) * iH;
-      bars += `<rect class="chart-bar chart-bar-a" x="${gx.toFixed(1)}" y="${(pT+iH-hv).toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(0,hv).toFixed(1)}"><title>${iv.time}: ${vv} vehicles</title></rect>`;
-      bars += `<rect class="chart-bar chart-bar-b" x="${(gx+barW+1).toFixed(1)}" y="${(pT+iH-hp).toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(0,hp).toFixed(1)}"><title>${iv.time}: ${pv} peds</title></rect>`;
-    } else {
-      const v = hasVeh ? vv : pv;
-      const h = (v / maxV) * iH;
-      bars += `<rect class="${hasVeh?'chart-bar chart-bar-a':'chart-bar chart-bar-b'}" x="${gx.toFixed(1)}" y="${(pT+iH-h).toFixed(1)}" width="${grpW.toFixed(1)}" height="${Math.max(0,h).toFixed(1)}"><title>${iv.time}: ${v}</title></rect>`;
-    }
-  });
-
-  const labelSkip = Math.max(1, Math.ceil(n / 14));
-  let xLabels = '';
-  intervals.forEach((iv, i) => {
-    if (i % labelSkip !== 0) return;
-    const x = pL + i * (grpW + grpGap) + grpW / 2;
-    xLabels += `<text class="chart-axis-label" x="${x.toFixed(1)}" y="${H-8}" text-anchor="middle">${iv.time}</text>`;
-  });
-
-  const legend = dual
-    ? `<div class="legend"><span class="legend-item"><span class="legend-swatch" style="background:var(--chart-bar)"></span>Vehicles</span><span class="legend-item"><span class="legend-swatch" style="background:var(--chart-bar2)"></span>Pedestrians</span></div>`
-    : hasVeh
-      ? `<div class="legend"><span class="legend-item"><span class="legend-swatch" style="background:var(--chart-bar)"></span>Vehicles</span></div>`
-      : `<div class="legend"><span class="legend-item"><span class="legend-swatch" style="background:var(--chart-bar2)"></span>Pedestrians</span></div>`;
-
-  el.innerHTML = `<div class="chart-wrap"><svg class="chart-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMinYMin meet">${grid}${bars}${xLabels}</svg></div>${legend}`;
-}
-
-/**
- * Mode split proportional bar + percentage numbers.
- */
-function renderModeSplit(vehicleTotal, pedTotal, containerId) {
-  const el = document.getElementById(containerId);
-  if (!el) return;
-  const total = (vehicleTotal||0) + (pedTotal||0);
-  if (!total) { el.innerHTML = '<div style="color:var(--text3);font-size:13px;padding:12px 0">No data.</div>'; return; }
-  const vPct = Math.round(((vehicleTotal||0) / total) * 100);
-  const pPct = 100 - vPct;
-  el.innerHTML = `
-    <div class="mode-split-wrap">
-      <div class="mode-split-nums">
-        <div class="mode-split-item">
-          <div class="mode-split-pct" style="color:var(--blue-text)">${vPct}%</div>
-          <div class="mode-split-label">Vehicles</div>
-          <div class="mode-split-count">${(vehicleTotal||0).toLocaleString()}</div>
-        </div>
-        <div class="mode-split-vsep"></div>
-        <div class="mode-split-item">
-          <div class="mode-split-pct" style="color:var(--in-text)">${pPct}%</div>
-          <div class="mode-split-label">Pedestrians</div>
-          <div class="mode-split-count">${(pedTotal||0).toLocaleString()}</div>
-        </div>
-      </div>
-      <div class="mode-split-bar">
-        ${vPct > 0 ? `<div class="mode-split-seg" style="width:${vPct}%;background:var(--blue-text)"></div>` : ''}
-        ${pPct > 0 ? `<div class="mode-split-seg" style="width:${pPct}%;background:var(--in-border)"></div>` : ''}
-      </div>
-    </div>`;
 }
 
 // ── Intersection detail analysis (workspace sidebar Analyze/Charts screen) ──

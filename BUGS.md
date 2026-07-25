@@ -8,6 +8,27 @@ Severity levels:
 
 ---
 
+## BUG-017
+**Status:** Fixed (v3.27.0-alpha.2, caught in post-implementation audit before push)
+**Severity:** Major
+**Found in:** v3.27.0-alpha.1 (the analyze/charts consolidation), never released
+**Description:** The workspace sidebar's "Analyze" screen (`ix-analysis-content`) rendered its section headers (Summary, Data Quality, Turning Movements, Interval Detail) but every section body was empty — no stat cards, no chart, no tables — whenever the Count screen's inline "Analysis" pane (`counter-analyze-pane`) for the same project had been visited earlier in the same session.
+**Root cause:** `renderAnalyzePeriodContent()` looked up its section containers via global `document.getElementById('analyze-summary-root')` (and five sibling IDs: `analyze-qa-root`, `analyze-tmc-root`, `analyze-bike-root`, `analyze-interval-root`, `analyze-compare-root`, plus `btn-share-report`). Both `#counter-analyze-pane` and `#ix-analysis-content` build their own copy of this markup with the same ids, and both can exist in the DOM simultaneously (one hidden via `display:none` at the screen level, not removed). `getElementById` always returns the *first* matching element in document order — `#counter-analyze-pane` sits earlier in the DOM than `#ix-analysis-screen`, so once the inline pane had rendered once, every subsequent paint call for the outer Analyze screen silently wrote into the inline pane's hidden, stale copy instead of the visible one.
+**Fix:** Changed every one of those lookups from `document.getElementById(...)` to `root.querySelector('#...')`, where `root` is the pane-specific container already passed into the function — scopes each lookup to the pane actually being rendered, regardless of how many copies of the markup exist elsewhere in the DOM.
+**Lesson:** This is exactly the class of bug that live-testing can miss without an adversarial ordering — the implementing agent verified each of the four analyze contexts worked when tested individually, but visiting the live pane and then the workspace screen *in the same session* is what actually reproduces it. Any future reused-markup-with-fixed-ids pattern across multiple simultaneously-mounted containers should scope lookups to the container, not the document.
+
+---
+
+## BUG-018
+**Status:** Fixed (v3.27.0-alpha.2, caught in post-implementation audit before push)
+**Severity:** Minor
+**Found in:** v3.27.0-alpha.1 (the analyze/charts consolidation), never released
+**Description:** A read-only snapshot with zero periods would silently fall back to rendering the live counting session's data instead of an empty state. Not reproduced against any real project today (every known snapshot-creation path produces at least one period), but a malformed or hand-edited project file could trigger it, and the failure mode is the worst kind — wrong data displayed with confidence, not a visible error.
+**Root cause:** `repaintContent()`'s fallback branch (`else { vehParsed = liveVehicleParsed(); ... }`) didn't check whether the current source was a read-only snapshot before falling back to live state.
+**Fix:** Added an explicit `else if (src.ctx.readOnly)` branch that renders "No period data available" instead of falling through to the live-state parsers.
+
+---
+
 ## BUG-016
 **Status:** Fixed (v3.27.0-alpha.1)
 **Severity:** Cosmetic

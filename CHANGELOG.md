@@ -1,5 +1,12 @@
 # Changelog
 
+## v3.27.0-alpha.2 — 2026-07-25
+
+### Fixed
+- **Workspace Analyze screen rendered empty section bodies (BUG-017)** — after visiting the Count screen's inline Analysis pane, the workspace sidebar's Analyze screen for the same project would show section headers with nothing inside them. Both panes built markup with the same element ids, and global `document.getElementById()` always resolved to the first (hidden, stale) copy. Every lookup in `renderAnalyzePeriodContent()` now scopes to its own pane's container instead.
+- **Read-only snapshot with zero periods could show live-session data (BUG-018)** — an edge case, not reachable via any real project today, but a lossy failure mode if it were. Now shows "No period data available" instead of falling back to live state.
+- Removed ~285 lines of dead code left behind by the v3.27.0-alpha.1 consolidation (`snapshotTmcPeakHour`, `renderTMDiagram`, `renderTimeOfDayChart`, `renderModeSplit` — zero call sites, confirmed before removal).
+
 ## v3.27.0-alpha.1 — 2026-07-25
 
 ### Changed
