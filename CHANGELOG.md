@@ -1,5 +1,19 @@
 # Changelog
 
+## v3.27.0-alpha.1 — 2026-07-25
+
+### Changed
+- **Unified the two "view analysis for an intersection" screens** — `renderIntersectionAnalysis()` (live-state, stat-cards-first design) and the workspace sidebar's `renderIxAnalysis()` (snapshot-based, table-first design) had drifted into visually inconsistent screens reached from different places. Consolidated onto one rendering path, reused across all four contexts: the standalone `#analyze-screen`, the inline Count-screen "Analyze" pane, the workspace sidebar Analyze/Charts screen for a standalone intersection project, and the same screen for an area-study child intersection.
+  - `renderIntersectionAnalysis(containerEl, snapshotCtx)` now takes an optional read-only snapshot context (`{ periods, intersection, vPairs }`); a new `analysisSource()` resolves either that snapshot or the live global counting state into one common shape, so `parsedFromPeriod()`, `renderAnalyzePeriodContent()`, and `renderAllPeriodsView()` no longer duplicate logic per source.
+  - `showIntersectionAnalysis()` (the area-study corridor-chart drill-down entry point) now routes through the same renderer with a snapshot context built from `areaIntersections[idx].snapshot`; a standalone intersection project's workspace-sidebar Analyze screen renders live state directly instead of round-tripping through `serializeIntersectionSnapshot()`, giving it full parity with the Count-screen's inline pane (Export page, Before/After comparison, the "currently counting" period marker).
+  - The "All periods" comparison view — previously only available from the Count-screen's inline pane — now also works from the workspace sidebar Analyze screen, for both standalone and area-study-child intersections.
+  - Added a new "Interval detail" section shared by every context: a `<details>`-collapsed, scroll-bounded table of the full per-interval numbers (vehicle in/out, per-crosswalk pedestrian counts, or TMC entering totals depending on the active dataset tab), demoted out of the primary visual hierarchy (stat cards → chart → data quality → detail tables) but still fully available via its expand toggle — replaces the old `renderIxAnalysis`'s 96-row table that used to dominate the screen by default.
+  - The workspace sidebar's separate "Analyze" and "Charts" nav items were collapsed into a single "Analyze" item — the consolidated screen already interleaves summary stats, chart, and tables together per dataset tab (Vehicle/Pedestrian/Turning movements), so a separate chart-only sub-screen no longer added anything distinct. `openWorkspaceTab('charts')` is kept as an alias of `'analyze'` for safety.
+  - Retired (left defined, no longer called) the bespoke peak-hour turning-movement diagram / time-of-day chart / mode-split donut functions (`renderTMDiagram`, `renderTimeOfDayChart`, `renderModeSplit`, `snapshotTmcPeakHour`) that only backed the old Charts sub-tab — their functionality is superseded by the existing `renderSummary()` volume chart and `renderTmcSection()`'s per-approach diagram, both already proven across two contexts before this change.
+
+### Fixed
+- **Count-screen instruction caption overlapped the workspace sidebar (BUG-016)** — see BUGS.md. The caption's base margin moved from an inline `style` attribute into `src/style.css` so the existing workspace-mode margin-left override rule can actually apply to it.
+
 ## v3.26.0-alpha.1 — 2026-07-25
 
 ### Added
