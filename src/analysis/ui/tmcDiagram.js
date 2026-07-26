@@ -53,7 +53,7 @@ function buildDiagramSVG(approaches, activeApproach, lbl) {
       arrows += `
         <line x1="${startX.toFixed(1)}" y1="${startY.toFixed(1)}" x2="${endX.toFixed(1)}" y2="${endY.toFixed(1)}"
           stroke="${color}" stroke-width="${strokeW.toFixed(1)}" stroke-linecap="round" marker-end="url(#arrowhead)" opacity="0.85"/>
-        <text x="${midX.toFixed(1)}" y="${(midY - 8).toFixed(1)}" text-anchor="middle" font-size="11" font-weight="600" fill="${color}">${d.total} (${d.pctOfApproach.toFixed(0)}%)</text>
+        <text x="${midX.toFixed(1)}" y="${(midY - 8).toFixed(1)}" text-anchor="middle" font-size="11" font-weight="600" fill="${color}">${Math.round(d.total * 10) / 10} (${d.pctOfApproach.toFixed(0)}%)</text>
       `;
     });
   }
