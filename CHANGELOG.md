@@ -1,5 +1,11 @@
 # Changelog
 
+## v3.28.0-alpha.1 — 2026-07-27
+
+### Added
+- **DOT raw-count TMC import now preserves the source file's exact vehicle classes** — previously `parseDotTmcXlsx.js` collapsed every non-bike class (Car/Truck/Bus/etc.) into a single "Motor" bucket, discarding the class-level breakdown that's already sitting in the raw file's `Class` column. The parser now accumulates a dynamic per-class map per interval (`byClass`), tracks the sheet's distinct class names in first-seen order (`classNames`), and sizes `tmcData` slots to match. `tmcSheetToSnapshot()` in `main.js` builds one `vPairs` row per class the file actually contains (e.g. Car/Truck/Bus/Bike), with sequential `tmcKey` letter assignment, instead of hardcoding "Motor"/"Bicycle" labels. Each imported file's own class set drives its own project — no reconciliation across files in a batch.
+- **Interval Detail rows for turning-movement data are now click-to-expand** — each interval row in the TMC "Interval detail" table can be expanded to reveal a per-vehicle-class x per-approach breakdown table (with row and column totals), instead of showing only a single collapsed "Total entering" figure. Works identically for live-counted and imported DOT TMC data since both share the same `tmcParsed` shape.
+
 ## v3.27.0-alpha.2 — 2026-07-25
 
 ### Fixed
