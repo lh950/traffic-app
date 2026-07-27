@@ -272,6 +272,7 @@ export function buildSnapshotFromMapping(mapping, headers, rows) {
     },
     fnames: { vehicle: '', ped: '', tmc: '' },
     activePeriodIdx: 0,
+    intersectionQaqc: {},
     periods: [{
       name: mapping.period_name || 'AM Peak',
       cfg,
