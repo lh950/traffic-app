@@ -71,12 +71,26 @@ function readTmcMeta(sheet, range) {
   return meta;
 }
 
+// Title-case a class label (e.g. "CAR" / "car" -> "Car") while leaving already-mixed-case
+// values (e.g. "SUV/Van/Pickup") looking sensible.
+function titleCaseLabel(raw) {
+  return String(raw).trim().replace(/\w\S*/g, (w) => w[0].toUpperCase() + w.slice(1).toLowerCase());
+}
+
 function parseTmcIntervals(sheet, range, firstDataRow) {
   const XLSX = window.XLSX;
   const intervals = [];
+  const classNames = []; // ordered, first-seen, distinct (title-cased) class labels
   let currentTime = null;
-  let motor = null;
-  let bike = null;
+  let byClass = null; // { className: [12 values] } for the interval currently being accumulated
+
+  function ensureClass(name) {
+    if (!byClass[name]) {
+      byClass[name] = Array(12).fill(0);
+      if (!classNames.includes(name)) classNames.push(name);
+    }
+    return byClass[name];
+  }
 
   for (let r = firstDataRow; r <= range.e.r; r++) {
     const aCell = sheet[XLSX.utils.encode_cell({ r, c: 0 })];
@@ -86,18 +100,18 @@ function parseTmcIntervals(sheet, range, firstDataRow) {
     if (aCell && aCell.v != null && aCell.v !== '') {
       const t = parseTime(aCell.v);
       if (t !== null) {
-        if (currentTime !== null && motor !== null) {
-          intervals.push({ startMin: currentTime, motor, bike: bike || Array(12).fill(0) });
+        if (currentTime !== null && byClass !== null) {
+          intervals.push({ startMin: currentTime, byClass });
         }
         currentTime = t;
-        motor = Array(12).fill(0);
-        bike = Array(12).fill(0);
+        byClass = {};
       }
     }
 
-    if (motor === null || !cCell || !cCell.v) continue;
+    if (byClass === null || !cCell || !cCell.v) continue;
 
-    const cls = String(cCell.v).toLowerCase().trim();
+    const rawCls = String(cCell.v).trim();
+    const cls = rawCls.toLowerCase();
     if (!cls) continue;
 
     const isBike = cls === 'bike' || cls === 'bicycle';
@@ -107,22 +121,24 @@ function parseTmcIntervals(sheet, range, firstDataRow) {
 
     if (!isBike && !isMotor) continue;
 
+    const label = titleCaseLabel(rawCls);
+    const arr = ensureClass(label);
+
     for (let d = 0; d < 12; d++) {
       const cell = sheet[XLSX.utils.encode_cell({ r, c: 3 + d })];
       const v = cell && cell.v != null ? (Number(cell.v) || 0) : 0;
-      if (isBike) bike[d] += v;
-      else motor[d] += v;
+      arr[d] += v;
     }
   }
 
-  if (currentTime !== null && motor !== null) {
-    intervals.push({ startMin: currentTime, motor, bike: bike || Array(12).fill(0) });
+  if (currentTime !== null && byClass !== null) {
+    intervals.push({ startMin: currentTime, byClass });
   }
 
-  return intervals;
+  return { intervals, classNames };
 }
 
-function groupIntoPeriods(intervals, intervalMin) {
+function groupIntoPeriods(intervals, intervalMin, classNames) {
   if (!intervals.length) return [];
 
   const maxGap = intervalMin * 1.5;
@@ -132,14 +148,17 @@ function groupIntoPeriods(intervals, intervalMin) {
     blocks[blocks.length - 1].push(intervals[i]);
   }
 
+  const typeCount = classNames.length;
+  const isBikeClass = (name) => /^(bike|bicycle)$/i.test(name);
+  const hasBikeInClasses = classNames.some(isBikeClass);
+
   return blocks.map(block => {
     const startMin = block[0].startMin;
     const slots = block.length;
     const endMin = block[slots - 1].startMin + intervalMin;
     const name = `${minutesToHHMM(startMin)}–${minutesToHHMM(endMin)}`;
 
-    const hasBike = block.some(iv => iv.bike.some(v => v > 0));
-    const typeCount = hasBike ? 2 : 1;
+    const hasBike = hasBikeInClasses && block.some(iv => classNames.some((cn, ci) => isBikeClass(cn) && (iv.byClass[cn] || []).some(v => v > 0)));
 
     const tmcData = {};
     for (const [from, to] of DIR_MAP) {
@@ -148,8 +167,9 @@ function groupIntoPeriods(intervals, intervalMin) {
     }
     DIR_MAP.forEach(([from, to], dirIdx) => {
       block.forEach((iv, slotIdx) => {
-        tmcData[from][to][slotIdx][0] = iv.motor[dirIdx];
-        if (hasBike) tmcData[from][to][slotIdx][1] = iv.bike[dirIdx];
+        classNames.forEach((cname, ci) => {
+          tmcData[from][to][slotIdx][ci] = (iv.byClass[cname] || Array(12).fill(0))[dirIdx];
+        });
       });
     });
 
@@ -158,6 +178,7 @@ function groupIntoPeriods(intervals, intervalMin) {
       startMin,
       slots,
       hasBike,
+      classNames,
       data: {
         cfg: { startMinutes: startMin, intervalMin, durationMin: slots * intervalMin },
         tmcData,
@@ -207,13 +228,13 @@ export function parseDotTmcXlsx(arrayBuffer) {
     }
     if (dataHeaderRow < 0) continue;
 
-    const intervals = parseTmcIntervals(sheet, range, dataHeaderRow + 1);
+    const { intervals, classNames } = parseTmcIntervals(sheet, range, dataHeaderRow + 1);
     if (!intervals.length) continue;
 
-    const periods = groupIntoPeriods(intervals, meta.intervalMin);
+    const periods = groupIntoPeriods(intervals, meta.intervalMin, classNames);
     if (!periods.length) continue;
 
-    results.push({ sheetName, meta, periods });
+    results.push({ sheetName, meta, periods, classNames });
   }
 
   if (!results.length) {

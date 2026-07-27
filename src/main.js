@@ -2388,12 +2388,22 @@ function renderRawCountSheetPicker(sheets, loadFn = loadRawCountSheet) {
 }
 
 function tmcSheetToSnapshot(sheet) {
-  const { meta, periods: parsedPeriods } = sheet;
+  const { meta, periods: parsedPeriods, classNames } = sheet;
   const locName = [meta.locationNS, meta.locationEW].filter(Boolean).join(' & ') || sheet.sheetName;
   const newIntersection = buildTmcIntersectionFromMeta(meta);
-  const hasBike = parsedPeriods.some(p => p.hasBike);
-  const newVPairs = [{ label:'Motor', def:'', inKey:'', outKey:'', icon:null, tmcKey:'a', includeTmc:true, isBike:false }];
-  if (hasBike) newVPairs.push({ label:'Bicycle', def:'', inKey:'', outKey:'', icon:null, tmcKey:'b', includeTmc:true, isBike:true });
+  // Build one vPairs row per distinct vehicle class the source file actually contains
+  // (Car/Truck/Bus/Bike, etc.), preserving the file's own class set and first-seen order —
+  // rather than collapsing everything non-bike into a single "Motor" bucket.
+  const classes = classNames && classNames.length ? classNames : ['Motor'];
+  const usedKeys = new Set();
+  const newVPairs = classes.map(name => {
+    const key = 'abcdefghijklmnopqrstuvwxyz'.split('').find(c => !usedKeys.has(c)) || '?';
+    usedKeys.add(key);
+    return {
+      label: name, def: '', inKey: '', outKey: '', icon: null,
+      tmcKey: key, includeTmc: true, isBike: /^(bike|bicycle)$/i.test(name),
+    };
+  });
   return {
     version: 2, projectType: 'intersection', mode: 'turning',
     vPairs: newVPairs,
