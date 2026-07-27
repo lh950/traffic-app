@@ -677,6 +677,18 @@ tfoot td:first-child{text-align:left;color:var(--text2)}
 .interval-detail-summary:hover{color:var(--text)}
 .interval-detail-wrap{max-height:420px;overflow:auto;border:.5px solid var(--border);border-radius:var(--r);margin-top:4px}
 .interval-detail-wrap .ix-table thead th{position:sticky;top:0;background:var(--surface);z-index:1}
+/* Per-interval vehicle-class expansion (TMC interval detail rows) */
+.ix-tr-expandable{cursor:pointer}
+.ix-tr-expandable:hover .ix-td{background:var(--surface2)}
+.ix-td-expand{width:18px;padding-right:0}
+.ix-expand-caret{display:inline-block;color:var(--text3);font-size:10px;transition:transform .12s}
+.ix-tr-expanded .ix-expand-caret{transform:rotate(90deg)}
+.ix-detail-row .ix-td{background:var(--surface2)}
+.ix-td-detail-cell{padding:10px 14px}
+.ix-detail-table{width:100%;border-collapse:collapse;font-size:12px}
+.ix-detail-table th,.ix-detail-table td{padding:5px 8px;border-bottom:.5px solid var(--border)}
+.ix-detail-table tbody tr:last-child td{border-bottom:.5px solid var(--border)}
+.ix-detail-table tfoot td{border-top:1px solid var(--border);border-bottom:none;font-weight:600;background:var(--surface3)}
 .ix-cw-chart{flex:0 0 200px;min-width:0}
 /* volume profile chart container */
 .ix-chart-wrap{overflow-x:auto}

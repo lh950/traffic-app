@@ -1396,17 +1396,53 @@ function renderIntervalDetailSection(container, activeKind, vehParsed, pedParsed
       </tr>`).join('');
     count = intervals.length;
   } else {
-    const { intervals, approaches } = tmcParsed;
+    const { intervals, approaches, types = [], legLabels = {} } = tmcParsed;
+    const lbl = (leg) => legLabels[leg] || leg;
     const totals = intervals.map(iv => approaches.reduce((s, a) =>
       s + a.destinations.reduce((s2, d) => s2 + (iv.counts[a.leg]?.[d.leg] || []).reduce((x,y) => x+(y||0), 0), 0), 0));
     const maxT = Math.max(...totals, 1);
     const peakIdx = totals.reduce((bi, v, i) => v > totals[bi] ? i : bi, 0);
-    headCols = '<th class="ix-th">Interval</th><th class="ix-th ix-th-r">Total entering</th><th class="ix-th"></th>';
+    headCols = '<th class="ix-th"></th><th class="ix-th">Interval</th><th class="ix-th ix-th-r">Total entering</th><th class="ix-th"></th>';
+
+    // Per-class × per-approach breakdown for one interval — entering volume, summed
+    // across that approach's movements, for each vehicle class (vPairs row) in tmcParsed.types.
+    const classBreakdownTable = (iv) => {
+      const perClassPerApproach = types.map((t, ti) =>
+        approaches.map(a => a.destinations.reduce((s, d) => s + (iv.counts[a.leg]?.[d.leg]?.[ti] || 0), 0)));
+      const approachTotals = approaches.map((_, ai) => perClassPerApproach.reduce((s, row) => s + row[ai], 0));
+      const grandTotal = approachTotals.reduce((a, b) => a + b, 0);
+      return `
+        <table class="data-table ix-detail-table">
+          <thead><tr>
+            <th>Class</th>
+            ${approaches.map(a => `<th style="text-align:right">${escapeHtmlMain(lbl(a.leg))}</th>`).join('')}
+            <th style="text-align:right">Total</th>
+          </tr></thead>
+          <tbody>
+            ${types.map((t, ti) => `
+              <tr>
+                <td>${escapeHtmlMain(t.label)}${t.isBike ? ' 🚲' : ''}</td>
+                ${perClassPerApproach[ti].map(v => `<td style="text-align:right">${v.toLocaleString()}</td>`).join('')}
+                <td style="text-align:right;font-weight:600">${perClassPerApproach[ti].reduce((a,b)=>a+b,0).toLocaleString()}</td>
+              </tr>`).join('')}
+          </tbody>
+          <tfoot><tr>
+            <td>All classes</td>
+            ${approachTotals.map(v => `<td style="text-align:right">${v.toLocaleString()}</td>`).join('')}
+            <td style="text-align:right">${grandTotal.toLocaleString()}</td>
+          </tr></tfoot>
+        </table>`;
+    };
+
     rows = intervals.map((iv, i) => `
-      <tr class="ix-tr${i === peakIdx ? ' ix-tr-peak' : ''}">
+      <tr class="ix-tr ix-tr-expandable${i === peakIdx ? ' ix-tr-peak' : ''}" data-ix-expand="${i}">
+        <td class="ix-td ix-td-expand"><span class="ix-expand-caret">▸</span></td>
         <td class="ix-td ix-td-time">${iv.start}–${iv.end}</td>
         <td class="ix-td ix-td-num ix-td-bold">${totals[i].toLocaleString()}</td>
         <td class="ix-td ix-td-bar">${intervalBar(totals[i], maxT)}</td>
+      </tr>
+      <tr class="ix-detail-row" data-ix-detail="${i}" style="display:none">
+        <td class="ix-td ix-td-detail-cell" colspan="4">${types.length ? classBreakdownTable(iv) : '<span style="color:var(--text3);font-size:12px">No vehicle-class detail available for this data.</span>'}</td>
       </tr>`).join('');
     count = intervals.length;
   }
@@ -1421,6 +1457,19 @@ function renderIntervalDetailSection(container, activeKind, vehParsed, pedParsed
         </table>
       </div>
     </details>`;
+
+  if (activeKind === 'tmc') {
+    container.querySelectorAll('.ix-tr-expandable').forEach(tr => {
+      tr.addEventListener('click', () => {
+        const idx = tr.dataset.ixExpand;
+        const detail = container.querySelector(`.ix-detail-row[data-ix-detail="${idx}"]`);
+        if (!detail) return;
+        const open = detail.style.display !== 'none';
+        detail.style.display = open ? 'none' : '';
+        tr.classList.toggle('ix-tr-expanded', !open);
+      });
+    });
+  }
 }
 
 // ── Analyze: source-of-truth resolver — live counting state vs. read-only snapshot ──
