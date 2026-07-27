@@ -618,6 +618,8 @@ tfoot td:first-child{text-align:left;color:var(--text2)}
 .sum-td-total{font-weight:600;color:var(--text)}
 .sum-review-btn{font-size:11px;padding:3px 8px;color:var(--blue-text);border-color:var(--blue-border);width:auto}
 .sum-review-btn:hover{background:var(--blue-bg)}
+.sum-qaqc-btn{font-size:11px;padding:3px 8px;color:var(--blue-text);border-color:var(--blue-border);width:auto}
+.sum-qaqc-btn:hover{background:var(--blue-bg)}
 .sum-mini-bar-wrap{display:flex;align-items:center;gap:8px;justify-content:flex-end}
 .sum-mini-bar{height:6px;border-radius:2px;background:var(--blue-border);min-width:2px;flex-shrink:0}
 

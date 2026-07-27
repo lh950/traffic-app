@@ -665,11 +665,17 @@ function openWorkspaceTab(tab, idx) {
       const isIxCount = projectType === 'intersection';
       const backBtn = document.getElementById('btn-ix-analysis-back');
       const openBtn = document.getElementById('btn-ix-open-counter');
+      const qaqcOpenBtn = document.getElementById('btn-ix-qaqc-open');
       if (backBtn) {
         backBtn.style.display = '';
         backBtn.textContent = isIxCount ? '← Count' : '← Summary';
       }
       if (openBtn) openBtn.style.display = isIxCount ? 'none' : '';
+      // Standalone intersection projects already have a dedicated QA/QC sidebar item
+      // (renderSidebarIntersection); this button only exists so area-study children —
+      // which have no such sidebar entry — have a way to reach QA/QC for the specific
+      // intersection currently drilled into (see showIntersectionQaqc()).
+      if (qaqcOpenBtn) qaqcOpenBtn.style.display = isIxCount ? 'none' : '';
       if (isIxCount) {
         const titleEl = document.getElementById('ix-analysis-title');
         const subEl = document.getElementById('ix-analysis-sub');
@@ -1914,6 +1920,9 @@ document.getElementById('btn-ix-open-counter')?.addEventListener('click', () => 
   const snap = areaIntersections[activeIntersectionIdx]?.snapshot;
   if (snap) loadIntersectionIntoView(snap);
 });
+document.getElementById('btn-ix-qaqc-open')?.addEventListener('click', () => {
+  showIntersectionQaqc(activeIntersectionIdx);
+});
 
 document.getElementById('btn-area-begin-review')?.addEventListener('click', () => {
   if (!areaIntersections.length) return;
@@ -2459,6 +2468,7 @@ function tmcSheetToSnapshot(sheet) {
     intersection: newIntersection,
     fnames: { vehicle: locName, ped: locName, tmc: locName },
     activePeriodIdx: 0,
+    intersectionQaqc: {},
     periods: parsedPeriods.map(p => ({
       name: p.name, cfg: p.data.cfg,
       vData: p.data.vData,
@@ -2578,6 +2588,7 @@ function rawCountSheetToSnapshot(sheet) {
     intersection: newIntersection,
     fnames: { vehicle: locName, ped: locName, tmc: locName },
     activePeriodIdx: 0,
+    intersectionQaqc: {},
     periods: parsedPeriods.map(p => ({
       name: p.name, cfg: p.data.cfg,
       vData: p.data.vData,
@@ -2897,12 +2908,21 @@ function buildIntersectionTabs() {
 
 function serializeIntersectionSnapshot() {
   if (periods.length > 0) periods[activePeriodIdx].data = captureActivePeriod();
+  // Preserve any QA/QC recount data already stored for this area-study slot. This
+  // function only ever runs in area-study contexts (see call sites) — the standalone
+  // live `intersectionQaqc` global is a completely separate store (see the big comment
+  // block above its declaration) and must never leak in here. Carrying forward whatever
+  // was already on areaIntersections[activeIntersectionIdx].snapshot stops a routine
+  // re-serialize (autosave, hub tab switch, new sheet import) from wiping out recount
+  // data written directly into that snapshot by the area-study QA/QC screen.
+  const existingQaqc = (activeIntersectionIdx >= 0 && areaIntersections[activeIntersectionIdx]?.snapshot?.intersectionQaqc) || {};
   return {
     version: 2, projectType: 'intersection', mode,
     vPairs: JSON.parse(JSON.stringify(vPairs)),
     intersection: JSON.parse(JSON.stringify(intersection)),
     fnames: { ...fnames },
     activePeriodIdx,
+    intersectionQaqc: existingQaqc,
     periods: periods.map(p => ({
       name: p.name, cfg: p.data.cfg,
       meta: p.data.meta || {},
@@ -3117,7 +3137,7 @@ function renderSummaryContent() {
     if (hasTmcAny) {
       cells += '<td class="sum-td sum-td-num' + (r.totalTmc > 0 ? ' sum-td-has-data' : '') + '">' + (r.totalTmc > 0 ? r.totalTmc.toLocaleString() : tdDash) + '</td>';
     }
-    cells += '<td class="sum-td"><button class="sum-review-btn" data-idx="' + r.i + '">review →</button></td>';
+    cells += '<td class="sum-td"><button class="sum-review-btn" data-idx="' + r.i + '">review →</button> <button class="sum-qaqc-btn" data-idx="' + r.i + '">QA/QC →</button></td>';
     return '<tr class="sum-row' + selCls + '" data-idx="' + r.i + '">' + cells + '</tr>';
   }).join('');
 
@@ -3164,9 +3184,12 @@ function renderSummaryContent() {
   container.querySelectorAll('.sum-review-btn').forEach(btn => {
     btn.addEventListener('click', e => { e.stopPropagation(); showIntersectionAnalysis(+btn.dataset.idx); });
   });
+  container.querySelectorAll('.sum-qaqc-btn').forEach(btn => {
+    btn.addEventListener('click', e => { e.stopPropagation(); showIntersectionQaqc(+btn.dataset.idx); });
+  });
   container.querySelectorAll('tr.sum-row').forEach(row => {
     row.addEventListener('click', e => {
-      if (e.target.closest('.sum-review-btn, .sum-check')) return;
+      if (e.target.closest('.sum-review-btn, .sum-qaqc-btn, .sum-check')) return;
       showIntersectionAnalysis(+row.dataset.idx);
     });
   });
@@ -4018,6 +4041,24 @@ function showIntersectionAnalysis(idx) {
     vPairs: ix.snapshot.vPairs,
   });
 }
+window.showIntersectionAnalysis = showIntersectionAnalysis;
+
+// ── Intersection QA/QC, area-study child entry point ──
+// Mirrors showIntersectionAnalysis() immediately above (same activeIntersectionIdx /
+// sidebar-highlight bookkeeping), but routes into intersection-qaqc-screen with a
+// { areaIdx } snapshotCtx instead of a read-only snapshot literal — QA/QC needs to write
+// new recount data back, not just read, so ixQaqcSource() re-resolves the live
+// areaIntersections[idx].snapshot object on every call rather than working from a copy.
+function showIntersectionQaqc(idx) {
+  activeIntersectionIdx = idx;
+  const ix = areaIntersections[idx];
+  if (!ix?.snapshot) return;
+  _sidebarActiveItem = `area-ix-${idx}`;
+  renderAppSidebar();
+  showScreen('intersection-qaqc-screen');
+  renderIntersectionQaqcScreen({ areaIdx: idx });
+}
+window.showIntersectionQaqc = showIntersectionQaqc;
 
 function loadIntersectionIntoView(snap) {
   setVPairs(snap.vPairs || []);
@@ -5077,15 +5118,47 @@ const IX_QAQC_WINDOWS = [
   { label: 'Additional hour', searchStartMin: 0, searchEndMin: 24 * 60, autoSearch: false },
 ];
 
+// Resolves QA/QC's read/write target — mirrors analysisSource()'s shape (see that
+// function's header comment for the general pattern) but adds a `qaqcStore` (the mutable
+// {key: {recounts:[]}} object a recount session writes into) since, unlike Analyze,
+// QA/QC needs to persist new data, not just read it.
+//
+// snapshotCtx here is deliberately just `{ areaIdx }` rather than a detached data copy —
+// QA/QC has to write back into the SAME live areaIntersections[areaIdx].snapshot object
+// (both its periods, read-only, and its intersectionQaqc store, read+write), so we always
+// re-resolve from the live array rather than caching a snapshot by value.
+function ixQaqcSource(snapshotCtx) {
+  if (snapshotCtx) {
+    const ix = areaIntersections[snapshotCtx.areaIdx];
+    const snap = ix?.snapshot;
+    if (!snap) return null;
+    if (!snap.intersectionQaqc) snap.intersectionQaqc = {};
+    return {
+      periods: (snap.periods || []).map(p => ({ name: p.name, data: p })),
+      activePeriodIdx: -1, // no "currently counting" period in a read-only snapshot
+      ctx: { intersection: snap.intersection || intersection, vPairs: snap.vPairs || vPairs, readOnly: true },
+      qaqcStore: snap.intersectionQaqc,
+      persist() { window.scheduleAutosave?.(); },
+    };
+  }
+  return {
+    periods,
+    activePeriodIdx,
+    ctx: { intersection, vPairs, readOnly: false },
+    qaqcStore: intersectionQaqc,
+    persist() { window.scheduleAutosave?.(); },
+  };
+}
+
 // Returns the {cfg, vData, pedData, tmcData} snapshot for a given period index — the LIVE
 // globals if it's the currently-active period (periods[activePeriodIdx].data is stale until
 // the next switchPeriod/save/serialize), otherwise the period's own stored snapshot.
-function ixPeriodSnapshot(periodIdx) {
-  if (periodIdx === activePeriodIdx) {
+function ixPeriodSnapshot(src, periodIdx) {
+  if (!src.ctx.readOnly && periodIdx === src.activePeriodIdx) {
     const slots = Math.max(1, Math.round(cfg.durationMin / cfg.intervalMin));
     return { cfg: { startMinutes: cfg.startMinutes, intervalMin: cfg.intervalMin, durationMin: cfg.durationMin, slots }, vData, pedData, tmcData };
   }
-  const p = periods[periodIdx]?.data;
+  const p = src.periods[periodIdx]?.data;
   if (!p) return null;
   const slots = Math.max(1, Math.round(p.cfg.durationMin / p.cfg.intervalMin));
   return { cfg: { ...p.cfg, slots }, vData: p.vData, pedData: p.pedData, tmcData: p.tmcData };
@@ -5101,7 +5174,7 @@ function ixQaqcVehicleIntervals(snap) {
 
 // Per-row quarter totals (combined in+out for vehicle/ped; approach-total for tmc) for the
 // slot range [startIdx, startIdx+windowSize).
-function ixRowQuarters(snap, modeKey, rowKey, startIdx, windowSize) {
+function ixRowQuarters(snap, ctxIntersection, modeKey, rowKey, startIdx, windowSize) {
   const out = [];
   for (let k = 0; k < windowSize; k++) {
     const slotIdx = startIdx + k;
@@ -5109,7 +5182,7 @@ function ixRowQuarters(snap, modeKey, rowKey, startIdx, windowSize) {
       const i = Number(rowKey);
       out.push((snap.vData.in[slotIdx]?.[i] || 0) + (snap.vData.out[slotIdx]?.[i] || 0));
     } else if (modeKey === 'ped') {
-      const xi = intersection.crosswalks.findIndex((cw, idx) => (cw.assign || String(idx)) === rowKey);
+      const xi = ctxIntersection.crosswalks.findIndex((cw, idx) => (cw.assign || String(idx)) === rowKey);
       const pair = (xi >= 0 ? snap.pedData[xi]?.[slotIdx] : null) || [0, 0];
       out.push((pair[0] || 0) + (pair[1] || 0));
     } else if (modeKey === 'tmc') {
@@ -5132,8 +5205,8 @@ function ixRowQuarters(snap, modeKey, rowKey, startIdx, windowSize) {
 // Auto-detects which one-hour window within [searchStartMin, searchEndMin) is busiest,
 // preferring vehicle volume (if vehicle mode is active) as the basis — same "primary count's
 // own volume decides everything" principle qaqcThresholdPct already uses for its band.
-async function ixDetectPeakStart(snap, searchStartMin, searchEndMin) {
-  if (enabledModes.vehicle && vPairs.length) {
+async function ixDetectPeakStart(snap, ctxVPairs, searchStartMin, searchEndMin) {
+  if (enabledModes.vehicle && ctxVPairs.length) {
     const intervals = ixQaqcVehicleIntervals(snap);
     const peak = await analysisData.peakHourInWindow(intervals, snap.cfg.intervalMin, searchStartMin, searchEndMin, 'vehicle');
     if (peak.startIdx >= 0) return snap.cfg.startMinutes + peak.startIdx * snap.cfg.intervalMin;
@@ -5142,39 +5215,55 @@ async function ixDetectPeakStart(snap, searchStartMin, searchEndMin) {
 }
 
 // Builds the active row groups (one per active count type) for a project — reused by both
-// the report table and the recount-launch flow so they never drift out of sync.
-function ixQaqcActiveRowGroups() {
+// the report table and the recount-launch flow so they never drift out of sync. `ctx` is
+// ixQaqcSource()'s .ctx ({ intersection, vPairs }) — enabledModes stays a plain global read
+// since it's a whole-project setting shared across every area-study intersection uniformly
+// (saved once at the project level, not per intersection snapshot).
+function ixQaqcActiveRowGroups(ctx) {
   const groups = [];
-  if (enabledModes.vehicle && vPairs.length) {
-    groups.push({ modeKey: 'vehicle', modeLabel: '🚗 Vehicle', rows: vPairs.map((p, i) => ({ rowKey: String(i), label: p.label })) });
+  if (enabledModes.vehicle && ctx.vPairs.length) {
+    groups.push({ modeKey: 'vehicle', modeLabel: '🚗 Vehicle', rows: ctx.vPairs.map((p, i) => ({ rowKey: String(i), label: p.label })) });
   }
-  if (enabledModes.ped && intersection.crosswalks.length) {
-    groups.push({ modeKey: 'ped', modeLabel: '🚶 Pedestrian', rows: intersection.crosswalks.map((cw, i) => ({ rowKey: cw.assign || String(i), label: cw.name || `${legLabel(cw.assign)} crosswalk` })) });
+  if (enabledModes.ped && ctx.intersection.crosswalks.length) {
+    groups.push({ modeKey: 'ped', modeLabel: '🚶 Pedestrian', rows: ctx.intersection.crosswalks.map((cw, i) => ({ rowKey: cw.assign || String(i), label: cw.name || `${legLabel(cw.assign)} crosswalk` })) });
   }
   if (enabledModes.turning) {
-    const counted = intersection.approaches.filter((a) => a.count !== false);
+    const counted = ctx.intersection.approaches.filter((a) => a.count !== false);
     if (counted.length) groups.push({ modeKey: 'tmc', modeLabel: '↻ Turning movement', rows: counted.map((a) => ({ rowKey: a.leg, label: `${legLabel(a.leg)} approach` })) });
   }
   return groups;
 }
 
-document.getElementById('btn-ix-qaqc-to-count')?.addEventListener('click', () => { showScreen('counter-screen'); window.goToCountMode?.(); });
-document.getElementById('btn-ix-qaqc-to-analyze')?.addEventListener('click', () => openWorkspaceTab('analyze'));
+// Which snapshotCtx (null = live/standalone, { areaIdx } = a specific area-study
+// intersection) the QA/QC screen is currently showing — set at the top of every
+// renderIntersectionQaqcScreen() call. Needed by the static top-level button handlers
+// below (registered once, outside any render) and by the recount-finish callback, which
+// re-renders the SAME shared screen after a recount rather than opening a new one.
+let ixQaqcActiveCtx = null;
+
+document.getElementById('btn-ix-qaqc-to-count')?.addEventListener('click', () => {
+  if (ixQaqcActiveCtx) { showIntersectionAnalysis(ixQaqcActiveCtx.areaIdx); return; }
+  showScreen('counter-screen'); window.goToCountMode?.();
+});
+document.getElementById('btn-ix-qaqc-to-analyze')?.addEventListener('click', () => {
+  if (ixQaqcActiveCtx) { showIntersectionAnalysis(ixQaqcActiveCtx.areaIdx); return; }
+  openWorkspaceTab('analyze');
+});
 document.getElementById('ixqaqc-btn-to-qaqc')?.addEventListener('click', () => showScreen('intersection-qaqc-screen'));
 document.getElementById('ixqaqc-btn-finish')?.addEventListener('click', () => ixFinishRecount());
 
-async function beginIxQaqcRecount(cardId) {
+async function beginIxQaqcRecount(cardId, src) {
   const sep = cardId.indexOf('__');
   const periodIdx = Number(cardId.slice(0, sep));
   const windowLabel = cardId.slice(sep + 2);
   const w = IX_QAQC_WINDOWS.find((x) => x.label === windowLabel);
-  const period = periods[periodIdx];
-  const snap = ixPeriodSnapshot(periodIdx);
+  const period = src.periods[periodIdx];
+  const snap = ixPeriodSnapshot(src, periodIdx);
   if (!w || !period || !snap) return;
   const windowSize = Math.max(1, Math.round(60 / snap.cfg.intervalMin));
   const manualInput = document.querySelector(`[data-ixqaqc-manual-start="${cardId}"]`);
   const startMin = w.autoSearch
-    ? await ixDetectPeakStart(snap, w.searchStartMin, w.searchEndMin)
+    ? await ixDetectPeakStart(snap, src.ctx.vPairs, w.searchStartMin, w.searchEndMin)
     : toMinFromLabel(manualInput?.value || minToTimeStr(snap.cfg.startMinutes));
   const startIdx = Math.round((startMin - snap.cfg.startMinutes) / snap.cfg.intervalMin);
   if (startIdx < 0 || startIdx + windowSize > snap.cfg.slots) {
@@ -5182,7 +5271,7 @@ async function beginIxQaqcRecount(cardId) {
     return;
   }
 
-  const rowGroups = ixQaqcActiveRowGroups();
+  const rowGroups = ixQaqcActiveRowGroups(src.ctx);
   const rowsSpecRaw = { vehicle: [], ped: [], tmc: [] };
   rowGroups.forEach((grp) => { rowsSpecRaw[grp.modeKey] = grp.rows.map((r) => ({ key: r.rowKey, label: r.label })); });
   const rowsSpec = ixAssignRecountKeys(rowsSpecRaw);
@@ -5191,32 +5280,45 @@ async function beginIxQaqcRecount(cardId) {
   const subEl = document.getElementById('ixqaqc-counter-sub');
   if (subEl) subEl.textContent = `— ${period.name} / ${windowLabel}`;
   const started = ixBeginRecount(rowsSpec, recountCfg, (result) => {
+    // Write into whichever store src resolved to — the live standalone `intersectionQaqc`
+    // global, or the specific area-study intersection's own snapshot.intersectionQaqc
+    // (mutated in place; src.persist() below then schedules the autosave that flushes
+    // areaIntersections to localStorage the same way any other area-study edit does).
     ['vehicle', 'ped', 'tmc'].forEach((modeKey) => {
       Object.entries(result[modeKey] || {}).forEach(([rowKey, quarters]) => {
         const key = ixQaqcKey(periodIdx, windowLabel, modeKey, rowKey);
-        intersectionQaqc[key] = intersectionQaqc[key] || { recounts: [] };
-        intersectionQaqc[key].recounts.push({ id: ixQaqcNextId++, cfg: recountCfg, quarters });
+        src.qaqcStore[key] = src.qaqcStore[key] || { recounts: [] };
+        src.qaqcStore[key].recounts.push({ id: ixQaqcNextId++, cfg: recountCfg, quarters });
       });
     });
     showScreen('intersection-qaqc-screen');
-    renderIntersectionQaqcScreen();
-    window.scheduleAutosave?.();
+    renderIntersectionQaqcScreen(ixQaqcActiveCtx);
+    src.persist();
   });
   if (started) showScreen('intersection-qaqc-counter-screen');
 }
 window.beginIxQaqcRecount = beginIxQaqcRecount;
 
-async function renderIntersectionQaqcScreen() {
+// snapshotCtx: null (default) renders live/standalone state; { areaIdx } renders (and, on
+// a recount, writes into) that specific area-study intersection's own stored QA/QC data —
+// see ixQaqcSource()'s header comment. Every lookup below is scoped to the freshly-resolved
+// `src`/`root` rather than any cached reference, and this whole function re-derives `src`
+// from scratch on every call (never reuses one from a previous render), so viewing
+// intersection A then B then A again in the same session can never show stale data from
+// a different intersection (the failure mode BUG-017 was caused by).
+async function renderIntersectionQaqcScreen(snapshotCtx = null) {
+  ixQaqcActiveCtx = snapshotCtx;
   const root = document.getElementById('intersection-qaqc-list');
   if (!root) return;
-  if (!periods.length) { root.innerHTML = '<div class="stat-detail">No periods counted yet — start a count from Setup first.</div>'; return; }
-  const rowGroups = ixQaqcActiveRowGroups();
+  const src = ixQaqcSource(snapshotCtx);
+  if (!src || !src.periods.length) { root.innerHTML = '<div class="stat-detail">No periods counted yet — start a count from Setup first.</div>'; return; }
+  const rowGroups = ixQaqcActiveRowGroups(src.ctx);
   if (!rowGroups.length) { root.innerHTML = '<div class="stat-detail">No active count types to QA/QC — enable vehicle, pedestrian, or turning movement counting first.</div>'; return; }
 
   const cards = [];
-  for (let periodIdx = 0; periodIdx < periods.length; periodIdx++) {
-    const period = periods[periodIdx];
-    const snap = ixPeriodSnapshot(periodIdx);
+  for (let periodIdx = 0; periodIdx < src.periods.length; periodIdx++) {
+    const period = src.periods[periodIdx];
+    const snap = ixPeriodSnapshot(src, periodIdx);
     if (!snap) continue;
     const windowSize = Math.max(1, Math.round(60 / snap.cfg.intervalMin));
 
@@ -5224,7 +5326,7 @@ async function renderIntersectionQaqcScreen() {
     const threePeakScores = {}; // `${modeKey}__${rowKey}` -> [scoreOrNull, scoreOrNull, scoreOrNull] (AM/MD/PM order)
 
     for (const w of IX_QAQC_WINDOWS) {
-      const startMin = w.autoSearch ? await ixDetectPeakStart(snap, w.searchStartMin, w.searchEndMin) : snap.cfg.startMinutes;
+      const startMin = w.autoSearch ? await ixDetectPeakStart(snap, src.ctx.vPairs, w.searchStartMin, w.searchEndMin) : snap.cfg.startMinutes;
       const startIdx = Math.round((startMin - snap.cfg.startMinutes) / snap.cfg.intervalMin);
       const inRange = startIdx >= 0 && startIdx + windowSize <= snap.cfg.slots;
       const cardId = `${periodIdx}__${w.label}`;
@@ -5234,9 +5336,9 @@ async function renderIntersectionQaqcScreen() {
         const rowHtml = [];
         for (const r of grp.rows) {
           const key = ixQaqcKey(periodIdx, w.label, grp.modeKey, r.rowKey);
-          const recounts = intersectionQaqc[key]?.recounts || [];
+          const recounts = src.qaqcStore[key]?.recounts || [];
           const latest = recounts[recounts.length - 1];
-          const primaryQuarters = inRange ? ixRowQuarters(snap, grp.modeKey, r.rowKey, startIdx, windowSize) : [];
+          const primaryQuarters = inRange ? ixRowQuarters(snap, src.ctx.intersection, grp.modeKey, r.rowKey, startIdx, windowSize) : [];
           const primaryTotal = primaryQuarters.reduce((a, b) => a + b, 0);
           let scoreResult = null;
           if (latest && inRange) scoreResult = await analysisData.qaqcPeakHourScore(primaryQuarters, latest.quarters);
@@ -5312,7 +5414,7 @@ async function renderIntersectionQaqcScreen() {
   root.innerHTML = cards.join('') + '<div class="stat-detail" style="margin-top:6px">Turning-movement QA/QC scores each APPROACH as one combined total (summing all its movements and vehicle types together) rather than movement-by-movement — no confirmed source-methodology precedent existed for finer TMC granularity, so this is a reasonable v1 default, not a verified standard.</div>';
 
   root.querySelectorAll('[data-ixqaqc-begin]:not([disabled])').forEach((el) => {
-    el.addEventListener('click', () => beginIxQaqcRecount(el.dataset.ixqaqcBegin));
+    el.addEventListener('click', () => beginIxQaqcRecount(el.dataset.ixqaqcBegin, src));
   });
 }
 
