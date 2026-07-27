@@ -8,6 +8,17 @@ Severity levels:
 
 ---
 
+## BUG-019
+**Status:** Fixed (v3.28.0-alpha.2, caught in post-implementation audit before push)
+**Severity:** Major
+**Found in:** v3.28.0-alpha.1 (DOT TMC vehicle-class import), never released
+**Description:** When importing a multi-sheet DOT raw-count file (e.g. separate AM and PM sheets for the same intersection) into an area-wide study, `loadTmcSheet()`'s merge path pushed the second sheet's periods directly into the already-imported intersection's snapshot with no reconciliation against the first sheet's `vPairs`. If two sheets in the same file ever reported a different vehicle-class set or order (not guaranteed by the file format, even though the one sample file checked happened to be consistent), the merged period's `tmcData` columns would silently misalign against the existing `vPairs` labels — e.g. a period's "Truck" counts could end up displayed under the "Bus" label. Wrong data shown with confidence, no error, no crash.
+**Root cause:** `existing.snapshot.periods.push(...newPeriods)` assumed every sheet for the same intersection produces `tmcData` arrays in the same class order as whichever sheet was imported first — an assumption the source file format doesn't guarantee.
+**Fix:** Added `reconcileTmcClasses(existingSnapshot, newSnapshot)` — before merging, extends the existing project's `vPairs` with any class the new sheet has that it doesn't yet (zero-padding every already-merged period's `tmcData` for the new column), then remaps the new sheet's periods into the existing `vPairs`' column order by label match.
+**Verified live:** re-imported the real 2-sheet sample file (PM then AM); AM period showed correct, distinct per-class numbers (Car 116 + Truck 8 + Bus 6 + Bike 1 = 131, matching that interval's total exactly) under the same `vPairs` as the PM period.
+
+---
+
 ## BUG-017
 **Status:** Fixed (v3.27.0-alpha.2, caught in post-implementation audit before push)
 **Severity:** Major

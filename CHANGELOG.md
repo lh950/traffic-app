@@ -1,5 +1,10 @@
 # Changelog
 
+## v3.28.0-alpha.2 — 2026-07-27
+
+### Fixed
+- **Merging multiple DOT TMC sheets into one area-study intersection could silently misalign vehicle classes (BUG-019)** — if two sheets for the same intersection (e.g. AM and PM) ever reported vehicle classes in a different set or order, the merged period's data would display under the wrong class label with no error. Added `reconcileTmcClasses()` to align a newly-merged sheet's classes against the project's existing `vPairs` (extending it and zero-padding prior periods as needed) before merging, instead of assuming positional consistency.
+
 ## v3.28.0-alpha.1 — 2026-07-27
 
 ### Added

@@ -2471,6 +2471,56 @@ function tmcSheetToSnapshot(sheet) {
   };
 }
 
+// Reconcile a newly-imported TMC sheet's vehicle classes (vPairs) against an already-imported
+// area-study intersection's vPairs before merging periods. Different sheets in the same source
+// file (e.g. an AM sheet and a PM sheet) are not guaranteed to report the same class set/order —
+// a naive periods.push() would silently misalign tmcData columns against the existing vPairs
+// labels (e.g. a period's "Truck" numbers ending up under the "Bus" column). Extends
+// existingSnapshot.vPairs with any class the new sheet has that the project doesn't yet
+// (zero-padding every already-merged period for that new column), then returns the new sheet's
+// periods with their tmcData remapped into the existing vPairs' column order.
+function reconcileTmcClasses(existingSnapshot, newSnapshot) {
+  const existingVPairs = existingSnapshot.vPairs;
+  const labelIndex = new Map(existingVPairs.map((p, i) => [p.label.toLowerCase(), i]));
+  const usedKeys = new Set(existingVPairs.map(p => p.tmcKey));
+
+  newSnapshot.vPairs.forEach((np) => {
+    const key = np.label.toLowerCase();
+    if (!labelIndex.has(key)) {
+      const newIdx = existingVPairs.length;
+      const freeKey = 'abcdefghijklmnopqrstuvwxyz'.split('').find(c => !usedKeys.has(c)) || '?';
+      usedKeys.add(freeKey);
+      existingVPairs.push({ ...np, tmcKey: freeKey });
+      labelIndex.set(key, newIdx);
+      existingSnapshot.periods.forEach((p) => {
+        Object.values(p.tmcData || {}).forEach((toMap) => {
+          Object.values(toMap).forEach((slotArr) => {
+            slotArr.forEach((typeArr) => { typeArr[newIdx] = 0; });
+          });
+        });
+      });
+    }
+  });
+
+  const remap = newSnapshot.vPairs.map((np) => labelIndex.get(np.label.toLowerCase()));
+  const finalLen = existingVPairs.length;
+
+  return newSnapshot.periods.map((p) => {
+    const remappedTmcData = {};
+    Object.entries(p.tmcData || {}).forEach(([from, toMap]) => {
+      remappedTmcData[from] = {};
+      Object.entries(toMap).forEach(([to, slotArr]) => {
+        remappedTmcData[from][to] = slotArr.map((typeArr) => {
+          const out = Array(finalLen).fill(0);
+          typeArr.forEach((v, oldIdx) => { out[remap[oldIdx]] = v; });
+          return out;
+        });
+      });
+    });
+    return { ...p, tmcData: remappedTmcData };
+  });
+}
+
 function loadTmcSheet(sheet) {
   if (!sheet.periods || !sheet.periods.length) return;
   const locName = [sheet.meta.locationNS, sheet.meta.locationEW].filter(Boolean).join(' & ') || sheet.sheetName;
@@ -2483,7 +2533,8 @@ function loadTmcSheet(sheet) {
     }
     const existing = areaIntersections.find(ix => ix.name === locName);
     if (existing) {
-      const newPeriods = snapshot.periods.filter(
+      const remappedPeriods = reconcileTmcClasses(existing.snapshot, snapshot);
+      const newPeriods = remappedPeriods.filter(
         np => !existing.snapshot.periods.some(ep => ep.name === np.name)
       );
       existing.snapshot.periods.push(...newPeriods);
