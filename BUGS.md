@@ -8,6 +8,17 @@ Severity levels:
 
 ---
 
+## BUG-022
+**Status:** Fixed (v3.29.0-alpha.2, caught during my own independent audit of the area-study QA/QC feature, after BUG-020/021 had already been fixed)
+**Severity:** Major
+**Found in:** new (`renderIntersectionQaqcScreen()`, added for area-study QA/QC)
+**Description:** `renderIntersectionQaqcScreen(snapshotCtx)` is `async` (it `await`s `ixDetectPeakStart()` per QA/QC window) and unconditionally writes its result to the shared `#intersection-qaqc-list` container at the end (`root.innerHTML = ...`) with no check that it's still the most recently requested render. The screen can be re-entered in quick succession multiple ways — switching straight from one area-study intersection's QA/QC to another (`showIntersectionQaqc`), or finishing a recount (which calls `renderIntersectionQaqcScreen(ixQaqcActiveCtx)` itself). Two overlapping calls race on the same DOM container; whichever resolves *last* wins, regardless of which one was requested last. Reproduced live: finish a recount on intersection A, then immediately (no wait) call `showIntersectionQaqc(1)` for B — B's screen displayed A's primary/recount totals instead of B's own, with no visual indication anything was wrong.
+**Root cause:** No staleness/generation guard on an async render function writing to a shared DOM container — the same failure family as BUG-017 (stale writes to a shared element), but via an async race instead of a duplicate-id collision.
+**Fix:** Added a module-level `_ixQaqcRenderGen` counter, incremented at the top of every `renderIntersectionQaqcScreen()` call; each call captures its own generation number and checks it's still current immediately before every `root.innerHTML` write (the two early-return messages and the final card render). A superseded render silently no-ops instead of overwriting a newer render's DOM.
+**Verified live:** re-ran the same tight-race sequence (recount finish → immediate switch to another intersection's QA/QC, ~10-50ms gap) after the fix — the newer intersection's data always wins regardless of resolve order.
+
+---
+
 ## BUG-021
 **Status:** Fixed (v3.29.0-alpha.1, caught during live verification of the QA/QC area-study feature)
 **Severity:** Critical

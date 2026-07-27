@@ -1,5 +1,10 @@
 # Changelog
 
+## v3.29.0-alpha.2 — 2026-07-27
+
+### Fixed
+- **Rapidly switching an area-study intersection's QA/QC screen (or finishing a recount, which re-renders it) could show the WRONG intersection's data (BUG-022)** — found during an independent audit of the QA/QC area-study feature, beyond the adversarial sequence already tested for BUG-020/021. `renderIntersectionQaqcScreen()` is async and had no guard against two overlapping calls racing on the same DOM container; a slower-resolving stale render could overwrite a faster, newer one. Added a generation counter so a superseded render silently no-ops instead of writing.
+
 ## v3.29.0-alpha.1 — 2026-07-27
 
 ### Added

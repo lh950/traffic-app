@@ -4,6 +4,16 @@ Key decisions, scope constraints, and architectural choices.
 
 ---
 
+## 2026-07-27 — v3.29.0-alpha.2
+
+**Independent audit of the area-study QA/QC work (v3.29.0-alpha.1), before pushing — found a real async render race not caught by the agent's own testing.** Reading the diff directly, `ixQaqcSource()`/`showIntersectionQaqc()`/`flushPendingAutosave()`/`persistAreaStudySnapshotsOnly()` all held up — the design correctly mirrors `analysisSource()` and the BUG-020/021 fixes close the exact race they describe. But `renderIntersectionQaqcScreen()` is `async` (awaits `ixDetectPeakStart()` per QA/QC window) and writes its result to a shared DOM container (`#intersection-qaqc-list`) unconditionally at the end, with nothing checking it's still the most-recently-requested render.
+
+**BUG-022 (Major).** Reproduced live: seeded a 2-intersection area study, opened intersection A's QA/QC, ran a real recount via dispatched keydown events (through the actual recount UI, not a shortcut), clicked finish, then — with no wait — called `showIntersectionQaqc(1)` to jump straight to B. B's screen displayed A's primary/recount totals (80/3) instead of B's own (160/—), because the recount-finish callback's own re-render of A (triggered synchronously by the finish click, `await`s internally) resolved *after* B's newer render had already started, and both write to the same container with no ordering guard. This is the same failure family as BUG-017 (stale writes to a shared element) via an async race instead of a duplicate DOM id.
+
+Fixed with a module-level `_ixQaqcRenderGen` counter: each call to `renderIntersectionQaqcScreen()` captures its own generation number at entry and checks it's still current immediately before every DOM write (the two early-return messages and the final card render) — a superseded render silently no-ops rather than clobbering a newer one. Re-ran the same tight-race sequence after the fix (recount finish → immediate switch, ~10–50ms gap) — the newer intersection's data always wins regardless of which async call happens to resolve first.
+
+**Also verified:** the non-racing path (switching intersections with the render allowed to complete first) shows correct, distinct primary totals for each intersection — confirms the underlying read path (`ixQaqcSource`/`ixPeriodSnapshot`) was never the problem, only the missing staleness guard on the write.
+
 ## 2026-07-27 — v3.29.0-alpha.1
 
 **QA/QC feature parity for area-study intersections — the second half of a two-session gap.** An earlier session closed this gap for Analyze (`renderIntersectionAnalysis(containerEl, snapshotCtx)` — a read-only snapshot ctx or live state, resolved once via `analysisSource()`). QA/QC had no equivalent: it was only reachable from a standalone intersection project's own sidebar, reading and writing a single module-level `intersectionQaqc` global that only ever reflected whichever project was currently loaded live.

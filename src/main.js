@@ -5308,6 +5308,15 @@ function ixQaqcActiveRowGroups(ctx) {
 // below (registered once, outside any render) and by the recount-finish callback, which
 // re-renders the SAME shared screen after a recount rather than opening a new one.
 let ixQaqcActiveCtx = null;
+// Bumped at the top of every renderIntersectionQaqcScreen() call; each call captures its own
+// value and checks it's still current right before writing to the DOM (see that function's
+// final root.innerHTML write). Needed because the function is async (awaits ixDetectPeakStart
+// per window) and the screen has multiple ways to trigger a fresh render in quick succession —
+// switching straight to another area-study intersection's QA/QC, or finishing a recount (which
+// re-renders the same screen). Two overlapping calls racing on the same #intersection-qaqc-list
+// container would otherwise let whichever one resolves LAST win the DOM, even if it started
+// first and is showing a now-superseded intersection/context.
+let _ixQaqcRenderGen = 0;
 
 document.getElementById('btn-ix-qaqc-to-count')?.addEventListener('click', () => {
   if (ixQaqcActiveCtx) { showIntersectionAnalysis(ixQaqcActiveCtx.areaIdx); return; }
@@ -5376,12 +5385,13 @@ window.beginIxQaqcRecount = beginIxQaqcRecount;
 // a different intersection (the failure mode BUG-017 was caused by).
 async function renderIntersectionQaqcScreen(snapshotCtx = null) {
   ixQaqcActiveCtx = snapshotCtx;
+  const myGen = ++_ixQaqcRenderGen;
   const root = document.getElementById('intersection-qaqc-list');
   if (!root) return;
   const src = ixQaqcSource(snapshotCtx);
-  if (!src || !src.periods.length) { root.innerHTML = '<div class="stat-detail">No periods counted yet — start a count from Setup first.</div>'; return; }
+  if (!src || !src.periods.length) { if (myGen === _ixQaqcRenderGen) root.innerHTML = '<div class="stat-detail">No periods counted yet — start a count from Setup first.</div>'; return; }
   const rowGroups = ixQaqcActiveRowGroups(src.ctx);
-  if (!rowGroups.length) { root.innerHTML = '<div class="stat-detail">No active count types to QA/QC — enable vehicle, pedestrian, or turning movement counting first.</div>'; return; }
+  if (!rowGroups.length) { if (myGen === _ixQaqcRenderGen) root.innerHTML = '<div class="stat-detail">No active count types to QA/QC — enable vehicle, pedestrian, or turning movement counting first.</div>'; return; }
 
   const cards = [];
   for (let periodIdx = 0; periodIdx < src.periods.length; periodIdx++) {
@@ -5478,6 +5488,8 @@ async function renderIntersectionQaqcScreen(snapshotCtx = null) {
         </div>`);
     }
   }
+
+  if (myGen !== _ixQaqcRenderGen) return; // a newer render superseded this one while we were awaiting — don't clobber its DOM
 
   root.innerHTML = cards.join('') + '<div class="stat-detail" style="margin-top:6px">Turning-movement QA/QC scores each APPROACH as one combined total (summing all its movements and vehicle types together) rather than movement-by-movement — no confirmed source-methodology precedent existed for finer TMC granularity, so this is a reasonable v1 default, not a verified standard.</div>';
 
