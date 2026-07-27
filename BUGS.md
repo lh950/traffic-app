@@ -8,6 +8,29 @@ Severity levels:
 
 ---
 
+## BUG-021
+**Status:** Fixed (v3.29.0-alpha.1, caught during live verification of the QA/QC area-study feature)
+**Severity:** Critical
+**Found in:** pre-existing (`focus.js`'s `wireKeydown()`), exposed while adding area-study QA/QC
+**Description:** `wireKeydown()` — the document-level keydown listener that drives the LIVE intersection counter (vehicle/ped/turning-movement key-to-count mapping) — had no guard checking whether the live counter screen was actually the visible screen. Every other keyboard-driven module in the app (`intersectionQaqcCount.js`'s own `wireKeydown`, `tripgenCount.js`'s) explicitly checks its own screen's visibility before acting; this one didn't. Result: keystrokes intended for a QA/QC recount session (or any other keyboard-driven modal) were ALSO silently recorded as live counts against whatever project/period happened to be loaded in the live counter at the time — a real, currently-loaded project's count data getting corrupted in the background while the user believed they were only doing a bounded recount.
+**Root cause:** Missing active-screen guard on `document.addEventListener('keydown', ...)` in `focus.js`.
+**Fix:** Added `isLiveCounterScreenActive()` (checks `#counter-screen`'s `style.display`) and an early return at the top of the keydown handler.
+**Found via:** live-testing the new area-study QA/QC recount flow — typed recount keystrokes were showing up as extra live counts on whichever area-study intersection was actually loaded in the counter, corrupting its data. Root-caused by adding a temporary debug hook to inspect live vs. snapshot state side by side after each step.
+**Verified live:** confirmed live counter data is untouched by recount keystrokes in both the area-study and standalone QA/QC flows, after the fix.
+
+---
+
+## BUG-020
+**Status:** Fixed (v3.29.0-alpha.1, caught during live verification of the QA/QC area-study feature)
+**Severity:** Critical
+**Found in:** pre-existing (`showIntersectionAnalysis`/`serializeCurrentProject`), exposed while adding area-study QA/QC's write path
+**Description:** `showIntersectionAnalysis(idx)` (and the new `showIntersectionQaqc(idx)`) reassign the shared `activeIntersectionIdx` global purely for sidebar-highlight bookkeeping when a user drills into a specific area-study intersection — neither one reloads that intersection's data into the live counter globals (`periods`/`vPairs`/`intersection` stay whatever was last loaded live, which can easily be a *different* intersection). `window.scheduleAutosave()`'s area branch (`serializeCurrentProject()`) unconditionally does `areaIntersections[activeIntersectionIdx].snapshot = serializeIntersectionSnapshot()` — re-deriving from the live globals regardless of whether they actually match `activeIntersectionIdx`. Any autosave that fires after the mismatch (a leftover debounced timer from prior live counting, or a keystroke leak — see BUG-021) silently overwrites the WRONG intersection's snapshot with a different intersection's live data. Analyze never wrote anything, so this was harmless there; QA/QC does write, making it reachable and destructive.
+**Root cause:** `activeIntersectionIdx` is overloaded to mean both "which intersection is loaded live in the counter" (its original meaning, e.g. in `switchIntersection()`) and "which intersection the user is currently viewing in a read-only drill-down" (the new meaning `showIntersectionAnalysis`/`showIntersectionQaqc` added) — `serializeCurrentProject()` only knows the first meaning.
+**Fix:** Two-part, both scoped to the QA/QC entry points (not a broader `activeIntersectionIdx` refactor): (1) `flushPendingAutosave()` — synchronously flushes and clears any pending debounced autosave timer, called at the top of `showIntersectionAnalysis`/`showIntersectionQaqc` *before* `activeIntersectionIdx` changes, so any leftover timer fires against the still-correct index/live-state pairing instead of a stale one. (2) QA/QC's own persistence never touches `window.scheduleAutosave()`'s blind re-derivation at all — `persistAreaStudySnapshotsOnly()` flushes the `areaIntersections` array exactly as it stands (the recount already wrote directly into the correct `areaIntersections[idx].snapshot.intersectionQaqc` in place).
+**Verified live:** the task's required adversarial-ordering sequence (QA/QC intersection A → recount → switch to B → confirm independent → switch back to A → confirm A's recount persisted) — reproduced the corruption before the fix (in combination with BUG-021), confirmed clean after both fixes.
+
+---
+
 ## BUG-019
 **Status:** Fixed (v3.28.0-alpha.2, caught in post-implementation audit before push)
 **Severity:** Major

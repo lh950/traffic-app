@@ -1,5 +1,14 @@
 # Changelog
 
+## v3.29.0-alpha.1 — 2026-07-27
+
+### Added
+- **QA/QC recounts reach area-study intersections, not just standalone intersection projects** — closes the feature-parity gap flagged after the Analyze screen consolidation. Every area-study intersection now has its own `intersectionQaqc` store on its snapshot (independent of the standalone-project-only live `intersectionQaqc` global), reachable via a new `showIntersectionQaqc(idx)` entry point (a "QA/QC →" button next to "Open in counter" on the intersection-detail Analyze screen, and a "QA/QC →" button per row on the area-study Summary table). `ixQaqcSource(snapshotCtx)` mirrors `analysisSource()`'s shape but adds a `qaqcStore` + `persist()`, since QA/QC — unlike Analyze — has to write new recount data back, not just read it.
+
+### Fixed
+- **QA/QC recounts against a non-active area-study intersection could silently corrupt a DIFFERENT intersection's snapshot (BUG-020)** — see BUGS.md. Two compounding causes: `showIntersectionAnalysis`/`showIntersectionQaqc` reassign `activeIntersectionIdx` without reloading that intersection's data into the live counter, and a leftover debounced `window.scheduleAutosave()` timer (or a stray keystroke — see BUG-021) could later re-serialize a mismatched live state into the wrong `areaIntersections[idx].snapshot`.
+- **Any keydown, anywhere in the app, also fed into the live intersection counter in the background (BUG-021)** — `focus.js`'s `wireKeydown()` had no active-screen guard at all, unlike every other keyboard-driven module (QA/QC recount, trip-gen recount). Keystrokes meant for a QA/QC recount session (or any other keyboard-driven modal) were silently also recorded as live counts. Found while verifying QA/QC's area-study write path; fixes the same latent risk for the standalone QA/QC flow.
+
 ## v3.28.0-alpha.2 — 2026-07-27
 
 ### Fixed
