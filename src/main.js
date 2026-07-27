@@ -4022,6 +4022,7 @@ function exportGISCSV() {
 // directly, giving it full parity with the Count-screen's inline Analyze pane
 // (Export page, Before/After comparison, "currently counting" period marker, etc).
 function showIntersectionAnalysis(idx) {
+  flushPendingAutosave(); // see flushPendingAutosave()'s header comment — must run before activeIntersectionIdx changes
   activeIntersectionIdx = idx;
   const ix = areaIntersections[idx];
   if (!ix?.snapshot) return;
@@ -4050,6 +4051,7 @@ window.showIntersectionAnalysis = showIntersectionAnalysis;
 // new recount data back, not just read, so ixQaqcSource() re-resolves the live
 // areaIntersections[idx].snapshot object on every call rather than working from a copy.
 function showIntersectionQaqc(idx) {
+  flushPendingAutosave(); // see flushPendingAutosave()'s header comment — must run before activeIntersectionIdx changes
   activeIntersectionIdx = idx;
   const ix = areaIntersections[idx];
   if (!ix?.snapshot) return;
@@ -4351,6 +4353,70 @@ window.scheduleAutosave = function () {
     } catch (_) { setSaveState('', 0); }
   }, 2000);
 };
+
+// Flushes any pending debounced autosave immediately and synchronously. Call this BEFORE
+// reassigning activeIntersectionIdx to point at a different area-study intersection than
+// whatever is actually loaded live in the counter (showIntersectionAnalysis and
+// showIntersectionQaqc both do this — see their comments).
+//
+// Why this matters (found while verifying QA/QC's area-study write path — see BUGS.md):
+// counter.js schedules a 2-second debounced window.scheduleAutosave() on every keystroke.
+// If a user counts intersection A, then within that 2-second window drills into a DIFFERENT
+// area-study intersection B's Analyze or QA/QC screen (which only reassign
+// activeIntersectionIdx for sidebar-highlight bookkeeping — they never reload B's data into
+// the live counter globals), the still-pending timer fires AFTER activeIntersectionIdx has
+// changed to B, using A's live data. serializeCurrentProject()'s area branch then does
+// `areaIntersections[activeIntersectionIdx].snapshot = serializeIntersectionSnapshot()` —
+// silently overwriting B's snapshot with A's live counter state. Flushing the pending timer
+// synchronously (against the CORRECT, still-matching activeIntersectionIdx) before it
+// changes closes that race.
+function flushPendingAutosave() {
+  if (!_autosaveTimer) return;
+  clearTimeout(_autosaveTimer);
+  _autosaveTimer = null;
+  try {
+    const proj = serializeCurrentProject();
+    if (proj) {
+      localStorage.setItem(LS_KEY, JSON.stringify(proj));
+      addToRecents(proj);
+      setSaveState('Saved', 2000);
+    }
+  } catch (_) { setSaveState('', 0); }
+}
+
+// Persists the area-study project as-is, WITHOUT re-deriving
+// areaIntersections[activeIntersectionIdx].snapshot from the live counter globals the way
+// window.scheduleAutosave()/serializeCurrentProject() always does for area projects.
+//
+// Why this exists (found while wiring QA/QC's area-study write path — see BUGS.md): both
+// showIntersectionAnalysis() and showIntersectionQaqc() set activeIntersectionIdx purely for
+// sidebar-highlight bookkeeping when a user drills into a specific area-study intersection —
+// neither one loads that intersection's data into the live counter globals (periods/vPairs/
+// intersection stay whatever was last loaded via loadIntersectionIntoView/switchIntersection,
+// which can easily be a DIFFERENT intersection, or none at all). Analyze never wrote
+// anything, so this mismatch was harmless there. QA/QC does write — a recount finish needs to
+// persist — and naively calling window.scheduleAutosave() here would let its blind
+// `areaIntersections[activeIntersectionIdx].snapshot = serializeIntersectionSnapshot()` step
+// silently clobber a DIFFERENT (or the same, but stale) intersection's snapshot with whatever
+// unrelated intersection happens to be live in the counter. A QA/QC recount already writes its
+// result directly into the correct areaIntersections[idx].snapshot.intersectionQaqc object in
+// place (see ixQaqcSource()), so nothing here needs re-deriving from live state — this just
+// flushes the areaIntersections array exactly as it stands to localStorage.
+function persistAreaStudySnapshotsOnly() {
+  if (projectType !== 'area') { window.scheduleAutosave?.(); return; }
+  setSaveState('Saving…');
+  try {
+    const proj = {
+      version: 2, projectType: 'area', savedAt: new Date().toISOString(), uuid: projectUUID,
+      projectInfo: { ...projectInfo },
+      activeIntersectionIdx,
+      intersections: areaIntersections.map(ix => ({ name: ix.name, snapshot: ix.snapshot, street1: ix.street1 || '', street2: ix.street2 || '', corridor: ix.corridor || '', counterName: ix.counterName || '', lat: ix.lat || '', lng: ix.lng || '' })),
+    };
+    localStorage.setItem(LS_KEY, JSON.stringify(proj));
+    addToRecents(proj);
+    setSaveState('Saved', 2000);
+  } catch (_) { setSaveState('', 0); }
+}
 
 function clearAutosave() { localStorage.removeItem(LS_KEY); }
 
@@ -5138,7 +5204,9 @@ function ixQaqcSource(snapshotCtx) {
       activePeriodIdx: -1, // no "currently counting" period in a read-only snapshot
       ctx: { intersection: snap.intersection || intersection, vPairs: snap.vPairs || vPairs, readOnly: true },
       qaqcStore: snap.intersectionQaqc,
-      persist() { window.scheduleAutosave?.(); },
+      // NOT window.scheduleAutosave() — see persistAreaStudySnapshotsOnly()'s header
+      // comment for why that would risk clobbering a different intersection's snapshot.
+      persist() { persistAreaStudySnapshotsOnly(); },
     };
   }
   return {

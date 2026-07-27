@@ -158,8 +158,22 @@ export function processKey(k){
   }
 }
 
+// True only while the live intersection counter screen is actually the visible screen.
+// Found while wiring area-study QA/QC (see BUGS.md): this listener had no such guard at
+// all, unlike every other keyboard-driven module in the app (intersectionQaqcCount.js's
+// wireKeydown, tripgenCount.js's, etc. — each checks its own screen's isActiveScreen()
+// first). Without it, ANY keydown anywhere in the app — including keystrokes meant for a
+// QA/QC recount session's own counter screen — was ALSO fed into the LIVE counter's
+// vRecord/pedRecord/tmcRecord via processKey() below, silently mutating the live project's
+// real count data in the background while the user believed they were only recounting.
+function isLiveCounterScreenActive(){
+  const el=document.getElementById('counter-screen');
+  return !!el && el.style.display!=='none';
+}
+
 export function wireKeydown(){
   document.addEventListener('keydown',e=>{
+    if(!isLiveCounterScreenActive())return;
     if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'||e.target.tagName==='SELECT')return;
     const k=e.key===';'?';':e.key.toLowerCase();
     // preventDefault here to block browser defaults (scroll, undo, etc.)
