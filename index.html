@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Traffic App v3.29.0-alpha.2</title>
+<title>Traffic App v3.30.0-alpha.1</title>
 <link rel="manifest" href="./manifest.json">
 <meta name="theme-color" content="#131b23">
 <script>
@@ -117,7 +117,7 @@
   <div class="home-inner">
     <div class="home-wordmark">
       <h1>Traffic App</h1>
-      <div class="home-version">v3.29.0-alpha.2</div>
+      <div class="home-version">v3.30.0-alpha.1</div>
       <button id="home-btn-tour" title="Take the tour" style="margin-left:auto;font-size:12px;color:var(--text3);background:none;border:none;cursor:pointer;text-decoration:underline;flex-shrink:0">Take the tour</button>
       <button id="home-btn-help" title="Help / instructions" style="margin-left:12px;font-size:13px;font-weight:600;color:var(--text3);background:none;border:.5px solid var(--border);border-radius:50%;width:26px;height:26px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">?</button>
     </div>
@@ -185,7 +185,7 @@
     <!-- wordmark -->
     <div style="margin-bottom:2rem">
       <h1 style="font-size:22px;font-weight:500;letter-spacing:-.01em">Traffic App</h1>
-      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v3.29.0-alpha.2</span>
+      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v3.30.0-alpha.1</span>
     </div>
 
     <!-- autosave / resume banner -->
@@ -882,7 +882,7 @@
 
   <header class="counter-header">
     <button id="btn-back-to-project" style="font-size:12px;padding:4px 10px;margin-right:8px">? Project</button>
-    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v3.29.0-alpha.2</span></h1>
+    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v3.30.0-alpha.1</span></h1>
     <div class="hcontrols">
       <div class="mode-toggle" style="display:none">
         <button class="mode-btn active" id="btn-count-mode" onclick="goToCountMode()">count</button>
@@ -1273,6 +1273,21 @@
   </div>
   <div class="stat-detail" style="margin-bottom:14px">One row per intersection, totaled across every period counted so far. Click an intersection's name to open it directly for a closer look, or use Export for a combined CSV across the whole study.</div>
   <div id="summary-content"></div>
+</div>
+
+<!-- = STUDY-WIDE AGGREGATE VIEW — combined stat cards / vehicle-class breakdown / data-quality
+     rollup across every intersection in the area study. Not the Summary screen above (that's a
+     sortable per-intersection table + corridor chart); this mirrors the single-intersection
+     Analyze screen's stat-card treatment but at the whole-study level. Read-only. = -->
+<div id="area-aggregate-screen" class="workspace-screen" style="display:none;min-height:100vh;padding:2rem">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem;flex-wrap:wrap;gap:12px">
+    <div>
+      <h1 style="font-size:22px;font-weight:500;letter-spacing:-.01em">Aggregate <span id="area-agg-project-title" style="font-size:14px;font-weight:400;color:var(--text2);margin-left:8px"></span></h1>
+      <div id="area-agg-subtitle" style="font-size:12px;color:var(--text3);margin-top:2px"></div>
+    </div>
+  </div>
+  <div class="stat-detail" style="margin-bottom:14px">Combined totals and a vehicle-class breakdown across every intersection in this study, plus a data-quality rollup showing which intersections are missing data or have failing QA/QC recounts.</div>
+  <div id="area-aggregate-content"></div>
 </div>
 
 <!-- = EXPORT BUILDER = -->

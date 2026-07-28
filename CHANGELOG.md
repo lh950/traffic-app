@@ -1,5 +1,10 @@
 # Changelog
 
+## v3.30.0-alpha.1 — 2026-07-27
+
+### Added
+- **Study-wide Aggregate view for area studies** — a new "Aggregate" sidebar item alongside Summary, combining every intersection's data into one read-only screen: stat cards (intersections, total vehicle/pedestrian/TMC volume, data completeness, QA/QC coverage), a vehicle-class breakdown table aggregated by class LABEL across intersections (not array position — different intersections/imported files can carry different `vPairs` sets), and a per-intersection data-quality table (periods, total volume, QA/QC pass/fail/incomplete status) with "review →" / "QA/QC →" buttons reusing the existing `showIntersectionAnalysis()` / `showIntersectionQaqc()` drill-down entry points. Mirrors the single-intersection Analyze screen's `.stat-card` / `.card-grid` visual language (already defined in `analysis/style.css`, not a new class system). Async render path (QA/QC coverage scoring awaits per existing recount) is generation-counter-guarded the same way `renderIntersectionQaqcScreen()` is (BUG-022's fix), verified live with an adversarial rapid-re-trigger test.
+
 ## v3.29.0-alpha.2 — 2026-07-27
 
 ### Fixed

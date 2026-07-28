@@ -266,7 +266,7 @@ initApproaches();
 // ═══════════════════════════════════════════
 // SCREEN ROUTER
 // ═══════════════════════════════════════════
-const SCREENS = ['home-screen', 'help-screen', 'area-setup-screen', 'area-import-screen', 'summary-screen', 'export-screen', 'ix-analysis-screen', 'setup-screen', 'counter-screen', 'intersection-qaqc-screen', 'intersection-qaqc-counter-screen', 'tripgen-setup-screen', 'tripgen-counter-screen', 'tripgen-qaqc-screen', 'tripgen-distribution-screen', 'analyze-screen', 'parking-setup-screen', 'parking-counter-screen'];
+const SCREENS = ['home-screen', 'help-screen', 'area-setup-screen', 'area-import-screen', 'summary-screen', 'area-aggregate-screen', 'export-screen', 'ix-analysis-screen', 'setup-screen', 'counter-screen', 'intersection-qaqc-screen', 'intersection-qaqc-counter-screen', 'tripgen-setup-screen', 'tripgen-counter-screen', 'tripgen-qaqc-screen', 'tripgen-distribution-screen', 'analyze-screen', 'parking-setup-screen', 'parking-counter-screen'];
 let projectType = null; // 'intersection' | 'area' | 'tripgen' | 'parking' | null
 
 // ── Parking study state ──
@@ -576,6 +576,7 @@ function renderSidebarArea() {
       <div class="sidebar-section-label">Study</div>
       <button class="sidebar-item" data-ws="area-hub">Project info</button>
       <button class="sidebar-item" data-ws="area-summary">Summary</button>
+      <button class="sidebar-item" data-ws="area-aggregate">Aggregate</button>
       <button class="sidebar-item" data-ws="area-import">Import CSV</button>
       <button class="sidebar-item" data-ws="area-export">Export</button>
     </div>
@@ -695,6 +696,7 @@ function openWorkspaceTab(tab, idx) {
     case 'area-summary':
       if (typeof showSummaryScreen === 'function') showSummaryScreen();
       break;
+    case 'area-aggregate': showAreaAggregateScreen(); break;
     case 'area-import': showImportScreen(); break;
     case 'area-export': showExportScreen(); break;
     case 'area-ix':
@@ -3229,6 +3231,302 @@ function renderSummaryContent() {
   document.getElementById('sum-view-alldata')?.addEventListener('click', () => { sumState.view = 'alldata'; renderSummaryContent(); });
   document.getElementById('sum-view-corridor')?.addEventListener('click', () => { sumState.view = 'corridor'; renderSummaryContent(); });
 }
+
+// ═══════════════════════════════════════════
+// AREA-WIDE STUDY AGGREGATE ANALYZE VIEW
+// ═══════════════════════════════════════════
+// Study-wide roll-up across every intersection in an area study — stat cards, a
+// vehicle-class breakdown, and a data-completeness / QA-QC-coverage table, mirroring
+// the visual language of the single-intersection Analyze screen (.stat-card / .card-grid,
+// defined in analysis/style.css and already used by renderSummary() — NOT a new class
+// system) rather than the Summary screen's sortable table. This is explicitly NOT a
+// replacement for Summary — Summary is a per-intersection roll-up table + corridor
+// chart; this view answers "how did the whole study go" in one glance. Read-only: never
+// writes to any snapshot, and any drill-down reuses the existing showIntersectionAnalysis
+// / showIntersectionQaqc entry points rather than hand-rolling navigation (see BUG-020's
+// header comment for why hand-rolled drill-down navigation is exactly the risky pattern
+// to avoid here).
+//
+// Vehicle-class aggregation is done by matching vPairs[i].LABEL across intersections,
+// never by array index — different intersections/imported files can have different
+// vPairs orderings or sets (see reconcileTmcClasses()'s header comment and BUG-019 in
+// BUGS.md for the exact silent-misalignment failure mode this avoids).
+
+function showAreaAggregateScreen() {
+  const titleEl = document.getElementById('area-agg-project-title');
+  const subEl = document.getElementById('area-agg-subtitle');
+  if (titleEl) titleEl.textContent = projectInfo.projectName || 'Untitled project';
+  if (subEl) subEl.textContent = [projectInfo.companyName, projectInfo.studyPurpose].filter(Boolean).join(' · ');
+  _sidebarActiveItem = 'area-aggregate';
+  renderAppSidebar();
+  showScreen('area-aggregate-screen');
+  renderAreaAggregateContent();
+}
+window.showAreaAggregateScreen = showAreaAggregateScreen;
+
+// Per-vPairs-label totals across every intersection's every period. Returns an array of
+// { label, isBike, total, intersections: Set<name> }, sorted by caller. Matches BY LABEL,
+// not by array position — see this section's header comment.
+function aggregateVehicleClassTotals() {
+  const byLabel = new Map();
+  const touch = (label, isBike, amount, ixName) => {
+    if (!byLabel.has(label)) byLabel.set(label, { label, isBike: false, total: 0, intersections: new Set() });
+    const entry = byLabel.get(label);
+    entry.total += amount;
+    if (amount > 0) entry.intersections.add(ixName);
+    if (isBike) entry.isBike = true; // sticky — one intersection's row marking it bike is enough
+  };
+  for (const ix of areaIntersections) {
+    const snap = ix.snapshot;
+    if (!snap) continue;
+    const vp = snap.vPairs || [];
+    for (const p of (snap.periods || [])) {
+      const vehTotal = (p.vData?.in || []).reduce((s, r) => s + r.reduce((a, b) => a + (b || 0), 0), 0)
+                      + (p.vData?.out || []).reduce((s, r) => s + r.reduce((a, b) => a + (b || 0), 0), 0);
+      if (vehTotal > 0) {
+        vp.forEach((cls, i) => {
+          const inSum = (p.vData.in || []).reduce((s, r) => s + (r[i] || 0), 0);
+          const outSum = (p.vData.out || []).reduce((s, r) => s + (r[i] || 0), 0);
+          if (inSum + outSum > 0) touch(cls.label, !!cls.isBike, inSum + outSum, ix.name);
+        });
+      } else {
+        // TMC mode — tmcData[from][to][slot] is an array indexed by vPairs position, same
+        // shape reconcileTmcClasses() aligns across sheets during import (BUG-019).
+        for (const fromLeg of Object.values(p.tmcData || {})) {
+          for (const slots of Object.values(fromLeg)) {
+            for (const slot of slots) {
+              (slot || []).forEach((v, i) => {
+                if (!v || !vp[i]) return;
+                touch(vp[i].label, !!vp[i].isBike, v, ix.name);
+              });
+            }
+          }
+        }
+      }
+    }
+  }
+  return [...byLabel.values()];
+}
+
+// Lightweight QA/QC coverage rollup for one area-study intersection — NOT a re-run of the
+// full per-window peak-detection pipeline renderIntersectionQaqcScreen() uses (that would
+// mean re-running async peak search across every period × window × row for every
+// intersection just to paint a summary count, which doesn't scale and isn't needed for a
+// coverage rollup). Instead it scores exactly the recounts that already exist, reusing
+// each recount's own already-resolved cfg.startMinutes (captured once, at recount time)
+// as the window instead of re-detecting it, then reuses the same
+// analysisData.qaqcPeakHourScore() the standalone QA/QC screen and Trip Gen QA/QC use.
+// Read-only — never writes.
+async function ixQaqcCoverageForIntersection(ix) {
+  const snap = ix.snapshot;
+  const store = snap?.intersectionQaqc;
+  if (!store || !Object.keys(store).length) return { total: 0, pass: 0, fail: 0, incomplete: 0 };
+  let total = 0, pass = 0, fail = 0, incomplete = 0;
+  for (const [key, entry] of Object.entries(store)) {
+    const recounts = entry?.recounts || [];
+    if (!recounts.length) continue;
+    const latest = recounts[recounts.length - 1];
+    const parts = key.split('__');
+    const periodIdx = Number(parts[0]);
+    const modeKey = parts[2];
+    const rowKey = parts.slice(3).join('__');
+    const p = snap.periods?.[periodIdx];
+    total++;
+    if (!p || !latest?.cfg) { incomplete++; continue; }
+    const intervalMin = p.cfg.intervalMin;
+    const windowSize = Math.max(1, Math.round((latest.cfg.durationMin || 60) / intervalMin));
+    const startIdx = Math.round((latest.cfg.startMinutes - p.cfg.startMinutes) / intervalMin);
+    if (startIdx < 0) { incomplete++; continue; }
+    const primaryQuarters = ixRowQuarters(
+      { vData: p.vData, pedData: p.pedData, tmcData: p.tmcData },
+      snap.intersection, modeKey, rowKey, startIdx, windowSize
+    );
+    const scoreResult = await analysisData.qaqcPeakHourScore(primaryQuarters, latest.quarters);
+    if (scoreResult.rating === 'Incomplete') incomplete++;
+    else if (scoreResult.overallPass) pass++;
+    else fail++;
+  }
+  return { total, pass, fail, incomplete };
+}
+
+// Vehicle-mode-only volume for one intersection snapshot — deliberately NOT sumVehicle()
+// (defined above, used by the Summary screen). sumVehicle()'s TMC-mode fallback only reads
+// tmcData's class-INDEX-0 slot ("derive motor volume (index 0)"), a leftover from the old
+// two-bucket [motor,bike] model that predates v3.28's multi-class TMC import — for a study
+// with Car/Truck/Bus/Bike classes it silently counts only Car, undercounting (or, if Car
+// itself is zero but other classes have data, wrongly zero-flagging an intersection that
+// actually has data). Reusing that here would carry the same undercount into this new
+// view's "Total vehicle volume" stat and its zero-count data-quality flag. Fixing
+// sumVehicle() itself is out of scope (Summary screen behavior, not touched by this task);
+// this aggregate view instead keeps "vehicle volume" strictly to vData (vehicle-mode
+// counting) and lets sumTmc() (which already sums every class correctly, no index picking)
+// cover turning-movement volume separately — see DEVLOG for the v3.30.0-alpha.1 entry.
+function sumVehicleModeOnly(snap) {
+  let total = 0;
+  for (const p of (snap.periods || [])) {
+    if (!p.vData?.in) continue;
+    total += (p.vData.in || []).reduce((s, r) => s + r.reduce((a, b) => a + (b || 0), 0), 0)
+           + (p.vData.out || []).reduce((s, r) => s + r.reduce((a, b) => a + (b || 0), 0), 0);
+  }
+  return total;
+}
+
+// Bumped at the top of every renderAreaAggregateContent() call; each call captures its own
+// value and checks it's still current right before writing to the DOM. This render is
+// async (ixQaqcCoverageForIntersection above awaits a score per existing recount) and the
+// screen can be re-triggered in quick succession (re-opening the sidebar item, or any
+// future caller), so a slower, now-superseded call could otherwise win the shared
+// #area-aggregate-content container over a newer one — the exact BUG-022 failure mode.
+let _areaAggRenderGen = 0;
+
+async function renderAreaAggregateContent() {
+  const myGen = ++_areaAggRenderGen;
+  const container = document.getElementById('area-aggregate-content');
+  if (!container) return;
+
+  if (!areaIntersections.length) {
+    if (myGen === _areaAggRenderGen) container.innerHTML = '<div style="color:var(--text2);font-size:13px;padding:20px 0">No intersections loaded.</div>';
+    return;
+  }
+
+  const rowsWithSnap = areaIntersections.map((ix, i) => ({ ix, i, snap: ix.snapshot })).filter(r => r.snap);
+  if (!rowsWithSnap.length) {
+    if (myGen === _areaAggRenderGen) container.innerHTML = '<div style="color:var(--text2);font-size:13px;padding:20px 0">No count data yet — add intersections with data to see the study-wide rollup.</div>';
+    return;
+  }
+
+  const totalPeriods = rowsWithSnap.reduce((s, r) => s + (r.snap.periods?.length || 0), 0);
+  const totalVeh = rowsWithSnap.reduce((s, r) => s + sumVehicleModeOnly(r.snap), 0);
+  const totalPed = rowsWithSnap.reduce((s, r) => s + sumPed(r.snap), 0);
+  const totalTmc = rowsWithSnap.reduce((s, r) => s + sumTmc(r.snap), 0);
+  const noDataRows = rowsWithSnap.filter(r => sumVehicleModeOnly(r.snap) + sumPed(r.snap) + sumTmc(r.snap) === 0);
+  const missingPeriodRows = noDataRows.filter(r => !(r.snap.periods?.length));
+  const zeroButCountedRows = noDataRows.length - missingPeriodRows.length;
+
+  // QA/QC coverage — computed once per intersection, sequentially (small N, bounded by
+  // however many recounts actually exist), before the first DOM write below.
+  const qaqcCoverage = [];
+  for (const r of rowsWithSnap) {
+    qaqcCoverage.push({ ...r, coverage: await ixQaqcCoverageForIntersection(r.ix) });
+  }
+  // Staleness guard — see BUG-022 in BUGS.md and this function's generation-counter
+  // comment above. Bail before any DOM write if a newer call already superseded this one.
+  if (myGen !== _areaAggRenderGen) return;
+
+  const reviewedRows = qaqcCoverage.filter(r => r.coverage.total > 0);
+  const failingRows = qaqcCoverage.filter(r => r.coverage.fail > 0);
+
+  const classTotals = aggregateVehicleClassTotals().sort((a, b) => b.total - a.total);
+  const classGrandTotal = classTotals.reduce((a, c) => a + c.total, 0);
+  const maxClassTotal = Math.max(1, ...classTotals.map(c => c.total));
+
+  const fmt = n => n.toLocaleString();
+
+  const statCards = `
+    <div class="card-grid" style="margin-bottom:14px">
+      <div class="stat-card accent">
+        <div class="stat-label">Intersections</div>
+        <div class="stat-value">${fmt(rowsWithSnap.length)}</div>
+        <div class="stat-detail">${fmt(totalPeriods)} period${totalPeriods !== 1 ? 's' : ''} counted total</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Total vehicle volume</div>
+        <div class="stat-value">${fmt(totalVeh)}</div>
+        <div class="stat-detail">In + out, all periods</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Total pedestrian volume</div>
+        <div class="stat-value">${fmt(totalPed)}</div>
+        <div class="stat-detail">All crosswalks, all periods</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Total TMC volume</div>
+        <div class="stat-value">${fmt(totalTmc)}</div>
+        <div class="stat-detail">All approaches, all periods</div>
+      </div>
+    </div>
+    <div class="card-grid" style="margin-bottom:14px">
+      <div class="stat-card${noDataRows.length ? ' accent' : ''}">
+        <div class="stat-label">Data completeness</div>
+        <div class="stat-value">${fmt(rowsWithSnap.length - noDataRows.length)}<span class="unit">/ ${fmt(rowsWithSnap.length)}</span></div>
+        <div class="stat-detail">${noDataRows.length
+          ? [missingPeriodRows.length ? `${fmt(missingPeriodRows.length)} missing periods` : null, zeroButCountedRows ? `${fmt(zeroButCountedRows)} zero counts` : null].filter(Boolean).join(', ')
+          : 'All intersections have data'}</div>
+      </div>
+      <div class="stat-card${failingRows.length ? ' accent' : ''}">
+        <div class="stat-label">QA/QC coverage</div>
+        <div class="stat-value">${fmt(reviewedRows.length)}<span class="unit">/ ${fmt(rowsWithSnap.length)}</span></div>
+        <div class="stat-detail">${failingRows.length
+          ? `${fmt(failingRows.length)} intersection${failingRows.length !== 1 ? 's' : ''} with a failing recount`
+          : reviewedRows.length ? 'No failing recounts on file' : 'No QA/QC recounts on file yet'}</div>
+      </div>
+    </div>`;
+
+  const classRows = classTotals.map(c => `
+    <tr>
+      <td>${escapeHtmlMain(c.label)}${c.isBike ? ' 🚲' : ''}</td>
+      <td style="text-align:right">${fmt(c.total)}</td>
+      <td style="text-align:right">${classGrandTotal > 0 ? Math.round((c.total / classGrandTotal) * 100) : 0}%</td>
+      <td>${intervalBar(c.total, maxClassTotal, 140)}</td>
+      <td style="text-align:right">${fmt(c.intersections.size)} / ${fmt(rowsWithSnap.length)}</td>
+    </tr>`).join('');
+
+  const classSection = classTotals.length ? `
+    <div class="card" style="margin-bottom:14px">
+      <div class="section-head" style="margin-bottom:10px"><h2 style="font-size:14px;font-weight:600;margin:0">Vehicle class breakdown</h2></div>
+      <div class="stat-detail" style="margin-bottom:10px">Aggregated by class label across every intersection — matched by name, not by position, so intersections with different vehicle-class sets (e.g. one file with just Car/Bike, another with Car/Truck/Bus/Bike) combine correctly.</div>
+      <div style="overflow-x:auto">
+        <table class="data-table">
+          <thead><tr><th>Class</th><th style="text-align:right">Total volume</th><th style="text-align:right">% of total</th><th></th><th style="text-align:right">Intersections</th></tr></thead>
+          <tbody>${classRows}</tbody>
+        </table>
+      </div>
+    </div>` : '';
+
+  const completenessRows = qaqcCoverage.map(r => {
+    const periodsCount = r.snap.periods?.length || 0;
+    const vol = sumVehicleModeOnly(r.snap) + sumPed(r.snap) + sumTmc(r.snap);
+    const isZero = vol === 0;
+    const qaBadge = r.coverage.total === 0
+      ? '<span class="tag">Not reviewed</span>'
+      : r.coverage.fail > 0
+        ? `<span class="tag badge-fail">${r.coverage.fail} failing</span>`
+        : r.coverage.incomplete > 0 && r.coverage.pass === 0
+          ? '<span class="tag badge-caution">Incomplete</span>'
+          : `<span class="tag badge-pass">${r.coverage.pass}/${r.coverage.total} pass</span>`;
+    return `
+      <tr>
+        <td>${escapeHtmlMain(r.ix.name || `Intersection ${r.i + 1}`)}</td>
+        <td style="text-align:right">${fmt(periodsCount)}</td>
+        <td style="text-align:right${isZero ? ';color:var(--bad-text)' : ''}">${isZero ? 'Zero counts' : fmt(vol)}</td>
+        <td>${qaBadge}</td>
+        <td><button class="sum-review-btn" data-idx="${r.i}">review →</button> <button class="sum-qaqc-btn" data-idx="${r.i}">QA/QC →</button></td>
+      </tr>`;
+  }).join('');
+
+  const completenessSection = `
+    <div class="card">
+      <div class="section-head" style="margin-bottom:10px"><h2 style="font-size:14px;font-weight:600;margin:0">Data quality by intersection</h2></div>
+      <div class="stat-detail" style="margin-bottom:10px">Which intersections have data, and their QA/QC recount status. "review →" opens that intersection's own Analyze screen; "QA/QC →" opens its recount screen — the same drill-down used everywhere else in the app.</div>
+      <div style="overflow-x:auto">
+        <table class="data-table">
+          <thead><tr><th>Intersection</th><th style="text-align:right">Periods</th><th style="text-align:right">Total volume</th><th>QA/QC</th><th></th></tr></thead>
+          <tbody>${completenessRows}</tbody>
+        </table>
+      </div>
+    </div>`;
+
+  if (myGen !== _areaAggRenderGen) return; // final staleness guard immediately before the DOM write
+  container.innerHTML = statCards + classSection + completenessSection;
+
+  container.querySelectorAll('.sum-review-btn').forEach(btn => {
+    btn.addEventListener('click', e => { e.stopPropagation(); showIntersectionAnalysis(+btn.dataset.idx); });
+  });
+  container.querySelectorAll('.sum-qaqc-btn').forEach(btn => {
+    btn.addEventListener('click', e => { e.stopPropagation(); showIntersectionQaqc(+btn.dataset.idx); });
+  });
+}
+window.renderAreaAggregateContent = renderAreaAggregateContent;
 
 function renderCorridorView(allRows, corridors) {
   const container = document.getElementById('summary-content');
