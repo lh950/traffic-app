@@ -1,5 +1,10 @@
 # Changelog
 
+## v3.32.0-alpha.2 — 2026-08-11
+
+### Fixed
+- **UTDF export had north/south and east/west turning-movement volumes silently swapped (BUG-023)** — found during an independent audit of the new UTDF export, before pushing. UTDF/Synchro labels columns by direction of travel (NB/SB/EB/WB), not by which physical leg a vehicle entered from; this app's own `parseDotTmcXlsx.js` already documents the correct convention ("SB = vehicle entered from North", etc.) but the new exporter assumed leg-name-matches-column-name. Fixed the leg-to-column mapping and verified against hand-derived expected values across all four directions. See `BUGS.md`.
+
 ## v3.32.0-alpha.1 — 2026-08-11
 
 ### Added

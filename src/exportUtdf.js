@@ -59,12 +59,34 @@
 // import a generated file into Synchro (or PTV Vistro, which documents the
 // same format) against a matching intersection and confirm the 12 movement
 // volumes land in the correct NBL/NBT/NBR/etc. cells for the correct interval.
+//
+// FIXED DURING AUDIT (v3.32.0-alpha.2, before this feature was pushed): the
+// original UTDF_LEG_ORDER mapped this app's leg N straight to the NB column
+// (and S→SB, E→EB, W→WB) — i.e. by physical leg position. UTDF/Synchro
+// actually labels by direction of travel, and this app's own DOT-TMC parser
+// (parseDotTmcXlsx.js, traced from real NYC DOT files) already documents the
+// correct convention: leg N is a SOUTHBOUND movement (entered from the
+// north), leg S is NORTHBOUND, leg E is WESTBOUND, leg W is EASTBOUND. Every
+// UTDF file this exporter produced before the fix had NB/SB and EB/WB
+// silently swapped. See BUGS.md (BUG-023) and CARDINAL_TO_UTDF/UTDF_LEG_ORDER
+// below for the corrected mapping.
 
 import { cfg, vPairs, intersection, tmcData, periodMeta } from './state.js';
 import { classifyTurn } from './diagram.js';
 
-const CARDINAL_TO_UTDF = { N:'NB', S:'SB', E:'EB', W:'WB' };
-const UTDF_LEG_ORDER = ['N','S','E','W'];
+// UTDF/Synchro labels movements by the direction the vehicle is TRAVELING, not by which
+// physical leg it entered from — same convention parseDotTmcXlsx.js already established
+// from real NYC DOT files ("SB = vehicle entered from North; EB = from West; NB = from
+// South; WB = from East", see that file's DIR_MAP comment). So this app's "leg N" (vehicles
+// entering FROM the north, heading south) is a SOUTHBOUND movement, not northbound — the
+// mapping below is inverted from what the leg names look like at a glance. Confirmed via
+// classifyTurn()'s own heading math: approach leg N has heading (bA+180)%360 = 180° = due
+// south.
+const CARDINAL_TO_UTDF = { S:'NB', N:'SB', W:'EB', E:'WB' };
+// Order to iterate this app's legs in so that the L,T,R triplets land under the header's
+// NBL,NBT,NBR,SBL,SBT,SBR,EBL,EBT,EBR,WBL,WBT,WBR columns in the correct direction — see
+// CARDINAL_TO_UTDF above for why 'S' (not 'N') comes first.
+const UTDF_LEG_ORDER = ['S','N','W','E'];
 const MVMT_ORDER = ['L','T','R'];
 
 function pad2(n){ return String(n).padStart(2,'0'); }

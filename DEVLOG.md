@@ -4,6 +4,16 @@ Key decisions, scope constraints, and architectural choices.
 
 ---
 
+## 2026-08-11 — v3.32.0-alpha.2 (audit note)
+
+**Independent audit of the UTDF export, before pushing — found a real, serious directional bug the build agent's own verification couldn't have caught.** The build agent researched UTDF's file structure and header layout carefully (cross-referenced against PTV Vistro's own import documentation) and verified its output by hand-computing expected NBL/NBT/NBR/etc. values — but it computed those expected values using the same code's own leg-to-column assumption, so the check was circular and couldn't surface a systematic directional error.
+
+Reading `exportUtdf.js` directly raised the question: UTDF/Synchro labels columns as NB/SB/EB/WB, meaning direction of travel — does this app's leg naming ("leg N") mean "the leg positioned north" or "the northbound movement"? This app's own `parseDotTmcXlsx.js` (shipped in v3.28.0, traced from real NYC DOT files) already answers this unambiguously: "SB = vehicle entered from North; EB = from West; NB = from South; WB = from East" — i.e. leg N is a SOUTHBOUND movement. Cross-checked against `classifyTurn()`'s own bearing math (leg N's direction-of-travel heading computes to 180°, due south) — same answer from a second, independent angle. The new exporter's `UTDF_LEG_ORDER = ['N','S','E','W']` mapped leg N straight into the NB column position, which is backwards — confirmed as **BUG-023 (Critical)**.
+
+Fixed the leg ordering (`['S','N','W','E']`) and the (otherwise-unused, but now also corrected for documentation accuracy) `CARDINAL_TO_UTDF` constant. Verified live: used the exposed `window.__loadProject()` test hook plus an intercepted `URL.createObjectURL` to capture the real exported UTDF text without triggering an actual file download, first with a single N→E movement (confirmed it lands in SBR, not NBR), then with one through-movement on each of the four legs simultaneously (N→S=3, S→N=5, E→W=9, W→E=11) — the exported row read exactly `NBT=5, SBT=3, EBT=11, WBT=9`, matching the hand-derived expectation for all four directions at once, not just the one direction the first test happened to touch.
+
+**Lesson for future export/interchange work:** when a new format has an established real-world labeling convention (compass/cardinal directions, especially), check it against this app's OWN prior art for the same convention (here, `parseDotTmcXlsx.js`) before trusting external documentation alone — external docs confirmed the column *names* correctly but said nothing about how this app's own internal leg-naming should map onto them, which is exactly where the bug was.
+
 ## 2026-08-11 — v3.32.0-alpha.1
 
 **UTDF export for turning-movement counts — researched the real format before writing any code, per the task's explicit instruction not to guess.** UTDF (Universal Traffic Data Format) is Trafficware/Synchro's own interchange format; getting the field layout wrong means a file that silently fails or garbles data on import, the worst kind of bug for an export feature. Went in assuming I'd need to flag this as unverified best-effort — ended up with moderate-to-good confidence after cross-checking multiple independent sources, documented below.

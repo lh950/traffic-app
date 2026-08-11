@@ -8,6 +8,17 @@ Severity levels:
 
 ---
 
+## BUG-023
+**Status:** Fixed (v3.32.0-alpha.2, caught during my own independent audit of the new UTDF export feature, before it was pushed)
+**Severity:** Critical
+**Found in:** new (`exportUtdf.js`, added for Synchro UTDF export)
+**Description:** UTDF/Synchro labels turning-movement columns (NBL/NBT/NBR, SBL/SBT/SBR, EBL/EBT/EBR, WBL/WBT/WBR) by the direction a vehicle is TRAVELING, not by which physical leg it entered from — this app's own `parseDotTmcXlsx.js` (traced from real NYC DOT files) already documents the correct convention: "SB = vehicle entered from North; EB = from West; NB = from South; WB = from East". The original `exportUtdf.js` mapped this app's leg N straight to the UTDF NB column (and S→SB, E→EB, W→WB) — i.e. by physical leg position, which is backwards. Confirmed independently via `classifyTurn()`'s own bearing math (approach leg N's direction-of-travel heading computes to 180°, due south). Every UTDF file the feature produced before this fix had north/south and east/west turning-movement volumes silently swapped — exactly the kind of "garbled Synchro import" the feature's own build brief warned against, and not something the implementing agent's own verification could have caught since it hand-computed its "expected" values using the same (incorrect) directional assumption as the code, rather than against the app's own already-established DOT-TMC convention.
+**Root cause:** `UTDF_LEG_ORDER` (and the unused `CARDINAL_TO_UTDF` constant) assumed leg-name-matches-UTDF-label, without cross-checking against the direction-of-travel convention this app had already established elsewhere for the same NB/SB/EB/WB labels.
+**Fix:** `UTDF_LEG_ORDER` changed from `['N','S','E','W']` to `['S','N','W','E']` so each leg's L/T/R triplet lands under the correct direction-of-travel column; `CARDINAL_TO_UTDF` corrected to `{ S:'NB', N:'SB', W:'EB', E:'WB' }` for documentation accuracy (this constant isn't otherwise used in the export logic).
+**Verified live:** seeded single-movement fixtures via `window.__loadProject()` and captured the exported UTDF text (intercepting `URL.createObjectURL`) — confirmed a leg-N right turn lands in SBR (not NBR), and a 4-direction fixture (N→S=3, S→N=5, E→W=9, W→E=11, all through movements) produced exactly `NBT=5, SBT=3, EBT=11, WBT=9` — matching the hand-derived expectation for every direction, not just one.
+
+---
+
 ## BUG-022
 **Status:** Fixed (v3.29.0-alpha.2, caught during my own independent audit of the area-study QA/QC feature, after BUG-020/021 had already been fixed)
 **Severity:** Major
