@@ -48,6 +48,7 @@ import { parseDotTmcXlsx, buildTmcIntersectionFromMeta } from './parseDotTmcXlsx
 import { parseCSV, detectColumnsLocally, mapColumnsWithClaude, buildSnapshotFromMapping, saveLearnedMappings, saveImportTemplate, loadImportTemplates, deleteImportTemplate, findMatchingTemplate, LS_API_KEY } from './importCsv.js';
 import * as analysisData from './analysis/ui/dataAdapter.js';
 import { renderSummary } from './analysis/ui/summary.js';
+import { renderStackedBarChart } from './analysis/ui/charts.js';
 import { renderTmcSection } from './analysis/ui/tmcDiagram.js';
 import { openPrintReport } from './printReport.js';
 import { runTmcQA, runVehicleQA, renderQASection } from './qa.js';
@@ -1229,6 +1230,127 @@ function filterTmcParsedByIndices(parsed, indices) {
   };
 }
 
+// ── Analyze: vehicle-class stacked bar chart ─────────────────────────────────
+// New, additive alongside the existing "volume by interval" chart in
+// analysis/ui/summary.js (which shows in/out totals, no class breakdown) — this one
+// stacks each bar into its vPairs classes (Car/Truck/Bus/Bike/etc). Three groupings:
+//   'bin'    — this period's own 15-min intervals (or whatever the native interval is)
+//   'hourly' — this period's intervals rolled up to the hour
+//   'day'    — across every period on this intersection, grouped by meta.date (only
+//              meaningful for multi-day studies; single-day studies just get one bar)
+//   'period' — across every period on this intersection, one bar per period name
+//              (AM Peak / Midday Peak / PM Peak / etc)
+// 'bin'/'hourly' only use the currently-viewed period's own vehParsed (adjacent periods
+// aren't contiguous in time, so stacking them into one time-of-day axis would be
+// misleading); 'day'/'period' use `allPeriods`, built by the caller from every period on
+// this intersection. All four groupings match vehicle classes BY LABEL, not array
+// position — see aggregateVehicleClassTotals()'s header comment and BUG-019/BUG-020 in
+// BUGS.md for why: different periods/files can carry different vPairs orderings or sets.
+
+function classSeriesFromVehParsed(vehParsed, mode) {
+  const { types, intervals } = vehParsed;
+  if (!types.length || !intervals.length) return { labels: [], series: [] };
+
+  if (mode === 'hourly') {
+    const order = [];
+    const buckets = new Map(); // hour label -> per-class totals array
+    intervals.forEach((iv) => {
+      const key = `${(iv.start || '00:00').split(':')[0]}:00`;
+      if (!buckets.has(key)) { buckets.set(key, types.map(() => 0)); order.push(key); }
+      const arr = buckets.get(key);
+      types.forEach((_, ci) => { arr[ci] += (iv.inbound[ci] || 0) + (iv.outbound[ci] || 0); });
+    });
+    return {
+      labels: order,
+      series: types.map((label, ci) => ({ label, values: order.map((k) => buckets.get(k)[ci]) })),
+    };
+  }
+
+  return {
+    labels: intervals.map((iv) => iv.label || `${iv.start}–${iv.end}`),
+    series: types.map((label, ci) => ({
+      label,
+      values: intervals.map((iv) => (iv.inbound[ci] || 0) + (iv.outbound[ci] || 0)),
+    })),
+  };
+}
+
+function classSeriesAcrossPeriods(allPeriods, mode) {
+  const groupTotals = new Map(); // group key -> Map(class label -> total)
+  const groupOrderRaw = [];
+  allPeriods.forEach((p, idx) => {
+    const key = mode === 'period' ? (p.name || `Period ${idx + 1}`) : (p.meta?.date || 'No date');
+    if (!groupTotals.has(key)) { groupTotals.set(key, new Map()); groupOrderRaw.push(key); }
+    const classMap = groupTotals.get(key);
+    const { types = [], intervals = [] } = p.vehParsed || {};
+    types.forEach((label, ci) => {
+      const sum = intervals.reduce((s, iv) => s + (iv.inbound[ci] || 0) + (iv.outbound[ci] || 0), 0);
+      classMap.set(label, (classMap.get(label) || 0) + sum);
+    });
+  });
+  const groupOrder = mode === 'day'
+    ? [...groupOrderRaw].sort((a, b) => (a === 'No date' ? 1 : b === 'No date' ? -1 : a.localeCompare(b)))
+    : groupOrderRaw;
+  // Union of class labels across every group, matched by label (not index) — see this
+  // section's header comment.
+  const labelTotals = new Map();
+  groupOrder.forEach((key) => {
+    for (const [label, val] of groupTotals.get(key)) labelTotals.set(label, (labelTotals.get(label) || 0) + val);
+  });
+  const classLabels = [...labelTotals.keys()];
+  return {
+    labels: groupOrder,
+    series: classLabels.map((label) => ({
+      label,
+      values: groupOrder.map((key) => groupTotals.get(key).get(label) || 0),
+    })),
+  };
+}
+
+const CLASS_CHART_GROUPINGS = [
+  { key: 'bin', label: '15-min interval' },
+  { key: 'hourly', label: 'Hourly' },
+  { key: 'day', label: 'Day' },
+  { key: 'period', label: 'Study period' },
+];
+
+// `container` is scoped to the pane that called renderAnalyzePeriodContent (each analyze
+// pane gets its own root, per BUG-017 — no ids shared across simultaneously-mounted
+// panes), and this whole section is rebuilt fresh every time that pane repaints, so the
+// `grouping` toggle state below lives only as long as this one render call.
+function renderVehicleClassStackedSection(container, { vehParsed, allPeriods }) {
+  let grouping = 'bin';
+
+  function paint() {
+    const chartRoot = container.querySelector('.vcls-chart-root');
+    if (!chartRoot) return;
+    const { labels, series } = (grouping === 'bin' || grouping === 'hourly')
+      ? classSeriesFromVehParsed(vehParsed, grouping)
+      : classSeriesAcrossPeriods(allPeriods, grouping);
+    if (!labels.length || !series.length) {
+      chartRoot.innerHTML = '<div style="color:var(--text2);font-size:13px;padding:10px 0">No vehicle-class data available for this grouping.</div>';
+      return;
+    }
+    chartRoot.innerHTML = renderStackedBarChart({ labels, series });
+  }
+
+  container.innerHTML = `
+    <div class="vcls-toolbar dataset-tabs no-print" style="margin-bottom:12px">
+      ${CLASS_CHART_GROUPINGS.map((g, i) => `<button class="dataset-tab vcls-grp-btn${i === 0 ? ' active' : ''}" data-grp="${g.key}">${g.label}</button>`).join('')}
+    </div>
+    <div class="vcls-chart-root"></div>
+  `;
+  container.querySelectorAll('.vcls-grp-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      container.querySelectorAll('.vcls-grp-btn').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      grouping = btn.dataset.grp;
+      paint();
+    });
+  });
+  paint();
+}
+
 // ── Analyze: single-period content ───────────────────────────────────────────
 // `ctx` optionally carries { intersection, vPairs, readOnly } — see parsedFromPeriod
 // above. When readOnly (area-study snapshot view), the live-state-only features
@@ -1256,6 +1378,7 @@ async function renderAnalyzePeriodContent(root, vehParsed, pedParsed, tmcParsed,
       <button class="dataset-tab" id="btn-share-report" style="border-left:.5px solid var(--border)">↓ Export page</button>`}
     </div>
     <div class="section"><div class="section-head"><h2>Summary</h2></div><div id="analyze-summary-root"></div></div>
+    <div class="section"><div class="section-head"><h2>Volume by vehicle class</h2></div><div id="analyze-classchart-root"></div></div>
     <div class="section"><div class="section-head"><h2>Data quality</h2></div><div id="analyze-qa-root"></div></div>
     ${hasMotor ? `<div class="section"><div class="section-head"><h2>Turning movements${hasBikes ? ' — motor vehicles' : ''}</h2></div><div id="analyze-tmc-root"></div></div>` : ''}
     ${hasBikes ? `<div class="section"><div class="section-head"><h2>Turning movements — bicycles</h2></div><div id="analyze-bike-root"></div></div>` : ''}
@@ -1298,6 +1421,13 @@ async function renderAnalyzePeriodContent(root, vehParsed, pedParsed, tmcParsed,
   await paintSummary();
   paintQA();
   paintInterval();
+  const classChartRoot = root.querySelector('#analyze-classchart-root');
+  if (classChartRoot) {
+    renderVehicleClassStackedSection(classChartRoot, {
+      vehParsed,
+      allPeriods: ctx.allPeriods && ctx.allPeriods.length ? ctx.allPeriods : [{ name: 'Current session', meta: {}, vehParsed }],
+    });
+  }
 
   if (hasMotor) {
     await renderTmcSection(root.querySelector('#analyze-tmc-root'), filterTmcParsedByIndices(tmcParsed, motorIdx));
@@ -1691,7 +1821,17 @@ async function renderIntersectionAnalysis(containerEl = null, snapshotCtx = null
       pedParsed = livePedParsed();
       tmcParsed = liveTmcParsed();
     }
-    await renderAnalyzePeriodContent(root, vehParsed, pedParsed, tmcParsed, src.ctx);
+    // Per-period vehicle-class data for every period on this intersection (not just the
+    // one currently in view) — needed by the "by day" / "by study period" groupings of
+    // the vehicle-class stacked chart below, which compare across periods rather than
+    // across intervals within one period. Built from src.periods, which captureActive()
+    // already refreshed for the live-counting case at the top of this function.
+    const allPeriods = src.periods.map((p) => ({
+      name: p.name,
+      meta: p.data?.meta || {},
+      vehParsed: p.data ? parsedFromPeriod(p.data, src.ctx).vehParsed : vehParsed,
+    }));
+    await renderAnalyzePeriodContent(root, vehParsed, pedParsed, tmcParsed, { ...src.ctx, allPeriods });
   }
 
   buildPeriodBar();
@@ -3308,6 +3448,49 @@ function aggregateVehicleClassTotals() {
   return [...byLabel.values()];
 }
 
+// Same per-vPairs-label aggregation as aggregateVehicleClassTotals() above, but keeps the
+// breakdown PER INTERSECTION instead of collapsing across the whole study — feeds the
+// Aggregate view's stacked-by-class chart (x-axis = intersection, segments = vehicle
+// class). Same by-label, not by-array-position, discipline; see that function's header
+// comment and BUG-019/BUG-020 in BUGS.md.
+function aggregateVehicleClassTotalsByIntersection() {
+  const perIx = []; // [{ ixName, byLabel: Map(label -> total) }]
+  for (const ix of areaIntersections) {
+    const snap = ix.snapshot;
+    if (!snap) continue;
+    const vp = snap.vPairs || [];
+    const byLabel = new Map();
+    const touch = (label, amount) => { if (amount) byLabel.set(label, (byLabel.get(label) || 0) + amount); };
+    for (const p of (snap.periods || [])) {
+      const vehTotal = (p.vData?.in || []).reduce((s, r) => s + r.reduce((a, b) => a + (b || 0), 0), 0)
+                      + (p.vData?.out || []).reduce((s, r) => s + r.reduce((a, b) => a + (b || 0), 0), 0);
+      if (vehTotal > 0) {
+        vp.forEach((cls, i) => {
+          const inSum = (p.vData.in || []).reduce((s, r) => s + (r[i] || 0), 0);
+          const outSum = (p.vData.out || []).reduce((s, r) => s + (r[i] || 0), 0);
+          touch(cls.label, inSum + outSum);
+        });
+      } else {
+        for (const fromLeg of Object.values(p.tmcData || {})) {
+          for (const slots of Object.values(fromLeg)) {
+            for (const slot of slots) {
+              (slot || []).forEach((v, i) => { if (v && vp[i]) touch(vp[i].label, v); });
+            }
+          }
+        }
+      }
+    }
+    if (byLabel.size) perIx.push({ ixName: ix.name || 'Intersection', byLabel });
+  }
+  const labelTotals = new Map();
+  perIx.forEach(({ byLabel }) => { for (const [l, v] of byLabel) labelTotals.set(l, (labelTotals.get(l) || 0) + v); });
+  const classLabels = [...labelTotals.keys()].sort((a, b) => labelTotals.get(b) - labelTotals.get(a));
+  return {
+    labels: perIx.map((r) => r.ixName),
+    series: classLabels.map((label) => ({ label, values: perIx.map((r) => r.byLabel.get(label) || 0) })),
+  };
+}
+
 // Lightweight QA/QC coverage rollup for one area-study intersection — NOT a re-run of the
 // full per-window peak-detection pipeline renderIntersectionQaqcScreen() uses (that would
 // mean re-running async peak search across every period × window × row for every
@@ -3483,6 +3666,16 @@ async function renderAreaAggregateContent() {
       </div>
     </div>` : '';
 
+  // Stacked-by-class chart, x-axis = intersection — same source data as classSection
+  // above, just kept per-intersection instead of collapsed into study-wide totals.
+  const classByIx = aggregateVehicleClassTotalsByIntersection();
+  const classChartSection = classByIx.labels.length ? `
+    <div class="card" style="margin-bottom:14px">
+      <div class="section-head" style="margin-bottom:10px"><h2 style="font-size:14px;font-weight:600;margin:0">Vehicle volume by intersection</h2></div>
+      <div class="stat-detail" style="margin-bottom:10px">Each bar is one intersection's total vehicle volume, stacked by class — matched by label across intersections, same as the table above.</div>
+      ${renderStackedBarChart({ labels: classByIx.labels, series: classByIx.series })}
+    </div>` : '';
+
   const completenessRows = qaqcCoverage.map(r => {
     const periodsCount = r.snap.periods?.length || 0;
     const vol = sumVehicleModeOnly(r.snap) + sumPed(r.snap) + sumTmc(r.snap);
@@ -3517,7 +3710,7 @@ async function renderAreaAggregateContent() {
     </div>`;
 
   if (myGen !== _areaAggRenderGen) return; // final staleness guard immediately before the DOM write
-  container.innerHTML = statCards + classSection + completenessSection;
+  container.innerHTML = statCards + classSection + classChartSection + completenessSection;
 
   container.querySelectorAll('.sum-review-btn').forEach(btn => {
     btn.addEventListener('click', e => { e.stopPropagation(); showIntersectionAnalysis(+btn.dataset.idx); });

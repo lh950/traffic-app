@@ -168,6 +168,82 @@ export function renderMultiSeriesBarChart({ labels, series, width = 900, height 
   `;
 }
 
+// Stacked bars — one bar per label, with `series` segments stacked vertically inside
+// each bar (e.g. per-vehicle-class volume within a time interval / day / study period).
+// `series` is [{label, values}], values parallel to `labels`. Colors cycle through the
+// same palette as renderMultiSeriesBarChart so a class keeps a consistent color whether
+// it's shown grouped or stacked elsewhere in the app.
+export function renderStackedBarChart({ labels, series, width = 900, height = 260 }) {
+  const padL = 44, padB = 46, padT = 10, padR = 10;
+  const innerW = width - padL - padR;
+  const innerH = height - padT - padB;
+  const n = labels.length;
+  const totals = labels.map((_, i) => series.reduce((s, ser) => s + (ser.values[i] || 0), 0));
+  const max = Math.max(1, ...totals);
+  const barGap = Math.max(2, innerW / n * 0.15);
+  const barW = Math.max(1, innerW / n - barGap);
+
+  const gridLines = [];
+  const steps = 4;
+  for (let i = 0; i <= steps; i++) {
+    const y = padT + innerH - (i / steps) * innerH;
+    const val = Math.round((i / steps) * max);
+    gridLines.push(
+      `<line class="chart-gridline" x1="${padL}" y1="${y}" x2="${width - padR}" y2="${y}" />` +
+      `<text class="chart-axis-label" x="${padL - 6}" y="${y + 3}" text-anchor="end">${val}</text>`
+    );
+  }
+
+  const bars = labels.map((label, i) => {
+    const x = padL + i * (barW + barGap);
+    let yCursor = padT + innerH;
+    return series.map((s, si) => {
+      const v = s.values[i] || 0;
+      const h = (v / max) * innerH;
+      const y = yCursor - h;
+      yCursor = y;
+      const color = `var(${SERIES_COLOR_VARS[si % SERIES_COLOR_VARS.length]})`;
+      if (v <= 0) return '';
+      return `<rect class="chart-bar chart-bar-stack" style="fill:${color}" x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${barW.toFixed(2)}" height="${Math.max(0, h).toFixed(2)}"><title>${escapeAttr(label)} — ${escapeAttr(s.label)}: ${v.toLocaleString()}</title></rect>`;
+    }).join('');
+  }).join('');
+
+  const totalLabels = labels.map((label, i) => {
+    if (totals[i] <= 0) return '';
+    const x = padL + i * (barW + barGap) + barW / 2;
+    const y = padT + innerH - (totals[i] / max) * innerH - 4;
+    return `<text class="chart-axis-label" x="${x.toFixed(2)}" y="${Math.max(10, y).toFixed(2)}" text-anchor="middle">${totals[i].toLocaleString()}</text>`;
+  }).join('');
+
+  // X labels get more room than the other charts (rotated when there isn't room to sit
+  // flat) since this chart's labels are often multi-word (period names, dates) rather
+  // than short interval-start times.
+  const labelEvery = Math.max(1, Math.ceil(n / 16));
+  const xLabels = labels.map((l, i) => {
+    if (i % labelEvery !== 0) return '';
+    const x = padL + i * (barW + barGap) + barW / 2;
+    const y = height - padB + 14;
+    return `<text class="chart-axis-label" x="${x.toFixed(2)}" y="${y.toFixed(2)}" text-anchor="end" transform="rotate(-40 ${x.toFixed(2)} ${y.toFixed(2)})">${escapeAttr(l)}</text>`;
+  }).join('');
+
+  const legend = series.map((s, si) => {
+    const color = `var(${SERIES_COLOR_VARS[si % SERIES_COLOR_VARS.length]})`;
+    return `<span class="legend-item"><span class="legend-swatch" style="background:${color}"></span>${escapeAttr(s.label)}</span>`;
+  }).join('');
+
+  return `
+    <div class="chart-wrap">
+      <svg class="chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMinYMin meet">
+        ${gridLines.join('')}
+        ${bars}
+        ${totalLabels}
+        ${xLabels}
+      </svg>
+    </div>
+    <div class="legend">${legend}</div>
+  `;
+}
+
 function escapeAttr(s) {
   return String(s).replace(/"/g, '&quot;');
 }

@@ -1,5 +1,11 @@
 # Changelog
 
+## v3.31.0-alpha.1 — 2026-08-11
+
+### Added
+- **Stacked bar chart — vehicle volume by class, switchable between four groupings** — new, additive alongside the existing "volume by interval" chart (`analysis/ui/summary.js`, in/out totals only, unchanged). Lives in a new "Volume by vehicle class" section on the single-intersection Analyze screen (`renderVehicleClassStackedSection()` in `main.js`), with a toolbar to switch the x-axis grouping: 15-min interval, hourly rollup, day (for multi-day studies, grouped by each period's `meta.date`), and study period (one bar per AM Peak / Midday Peak / PM Peak / etc). Every grouping matches vehicle classes BY LABEL, not array position, same discipline as `aggregateVehicleClassTotals()` — periods/files with different `vPairs` sets combine correctly instead of silently misaligning (BUG-019/BUG-020 territory). New `renderStackedBarChart()` added to `analysis/ui/charts.js` alongside the existing bar/grouped-bar/multi-series-bar chart helpers, sharing their color palette and CSS classes.
+- **Study-wide Aggregate view gets a matching stacked-by-intersection chart** — "Vehicle volume by intersection" card, one bar per intersection stacked by vehicle class, using a new `aggregateVehicleClassTotalsByIntersection()` (same by-label aggregation as `aggregateVehicleClassTotals()`, just kept per-intersection instead of collapsed into study-wide totals).
+
 ## v3.30.0-alpha.1 — 2026-07-27
 
 ### Added
