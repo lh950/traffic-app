@@ -4,6 +4,16 @@ Key decisions, scope constraints, and architectural choices.
 
 ---
 
+## 2026-08-11 — v3.31.0-alpha.1 (audit note)
+
+**Independent audit of the stacked bar chart, before pushing.** Read the full diff directly: `renderStackedBarChart()`, `classSeriesFromVehParsed()`, `classSeriesAcrossPeriods()`, and `aggregateVehicleClassTotalsByIntersection()` all held up — by-label aggregation throughout, container-scoped rendering (no BUG-017-class id reuse), and the new Aggregate-view addition sits safely before the existing `_areaAggRenderGen` staleness guard's final write (no new `await` introduced, so BUG-022's fix still covers it).
+
+Live-verified with a fabricated 3-period, 2-intersection study (mismatched vPairs: Car/Truck/Bike vs. Car/Bus, two periods on the same date + one on a different date) and hand-checked every number: single-intersection chart's four groupings (15-min interval: 26/interval; day: 176 + 40; study period: 104/72/40) and the Aggregate view's new "Vehicle volume by intersection" chart (216 + 72 = 288, matching the stat card) all matched by-hand totals exactly. Rapid re-trigger of the Aggregate screen (3x back-to-back) still resolved to correct data.
+
+One red herring worth recording: my first test fixture omitted `destinations` on each approach (a field I'd forgotten is always populated by `setup.js`, used throughout the analyze pipeline via `parsedFromPeriod()`) and threw a real, reproducible `TypeError` — but confirmed via `git grep` that every real approach the app itself creates always has this field, so it's a test-fixture gap, not a shipped bug. Also hit a second false alarm mid-audit: reusing the same long-lived browser tab across many reload cycles left a stale JS realm that kept re-writing an old broken fixture back into `localStorage` regardless of what was freshly seeded — resolved by opening a fresh tab. Neither is an app defect; noting both so a future audit doesn't re-chase the same dead ends.
+
+No code changes were needed — committing pushed as-is.
+
 ## 2026-08-11 — v3.31.0-alpha.1
 
 **Stage 7 opener — stacked bar chart, checked against scope first.** Pure data visualization, no engineering-analysis judgment involved (no LOS/warrant logic), so no scope debate needed — went straight to reading the existing chart code.
