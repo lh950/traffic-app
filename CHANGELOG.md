@@ -1,5 +1,10 @@
 # Changelog
 
+## v3.32.0-alpha.1 — 2026-08-11
+
+### Added
+- **UTDF export for turning-movement counts, for direct import into Synchro** — new `.csv ↓ Turning-movement volumes (UTDF for Synchro)` button on the single-intersection Export screen, alongside the existing CSV/XLSX exports. Writes a genuine UTDF `[Volume]` section (`src/exportUtdf.js`), not a relabeled version of the existing generic CSV export: `[Volume]` section marker, `DATE,TIME,INTID,NBL,NBT,NBR,SBL,SBT,SBR,EBL,EBT,EBR,WBL,WBT,WBR` header row, one row per count interval in the active period. Format researched against PTV Vistro's UTDF import documentation (Vistro must round-trip real Synchro UTDF files, so its documented column layout is a strong secondary source) — see DEVLOG for the full confidence breakdown of what's confirmed vs. best-effort. Motor-vehicle classes only are summed per movement (bicycle volumes excluded — no confirmed UTDF bike-volume column layout found), matching the existing `motorOrigIdx`/`bikeOrigIdx` precedent in `exportCSV()`. Only cardinal N/E/S/W approach legs map to UTDF's fixed 12-column layout; a 5-way intersection's diagonal leg has no corresponding column and its movements are dropped with a surfaced warning rather than silently misattributed to an adjacent leg. Export is per-active-period (not per-project), matching how the existing CSV/XLSX "Count data (active period)" exports already work and matching UTDF's real-world one-peak-hour-per-file usage pattern. **Not yet round-trip validated against a real Synchro import** — flagged explicitly in-code and here.
+
 ## v3.31.0-alpha.1 — 2026-08-11
 
 ### Added

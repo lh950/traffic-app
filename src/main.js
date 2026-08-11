@@ -36,6 +36,7 @@ import {
 } from './focus.js';
 import { exportCSV, getCSVText, confirmReset } from './export.js';
 import { exportXLSX, getXLSXBlob, exportTripgenXLSX } from './exportXlsx.js';
+import { exportUTDF } from './exportUtdf.js';
 import {
   openHelp, closeHelp, switchHelpTab, openSettings, closeSettings,
   applyMidSettings, checkMsKeys, wireHelpKeydown,
@@ -141,7 +142,7 @@ Object.assign(window, {
   setDiagLeg, setMissingLeg, updateDiagram, toggleDiagram, toggleTurningDiagram,
   setMode, render, buildKbd, updateCfgFields, vGroupPrev, vGroupNext,
   toggleFocusMode, cycleFocus, setFocusTarget, undo, redo,
-  exportCSV, exportXLSX, confirmReset,
+  exportCSV, exportXLSX, exportUTDF, confirmReset,
   exportTripgenXLSX: () => exportTripgenXLSX(tripgenEntries, tripgenSiteInfo, projectInfo),
   openHelp, closeHelp, switchHelpTab, openSettings, closeSettings,
   applyMidSettings, checkMsKeys,
@@ -3910,12 +3911,19 @@ function renderExportBuilder() {
           <button class="btn-primary" id="btn-ix-export-xlsx" style="text-align:left">.xlsx ↓ &nbsp; Count data (active period)</button>
           <button class="btn-primary" id="btn-ix-export-page" style="text-align:left">↓ HTML &nbsp; Shareable report page</button>
           <div style="border-top:1px solid var(--border);margin:4px 0"></div>
+          <button class="btn-primary" id="btn-ix-export-utdf" style="text-align:left">.csv ↓ &nbsp; Turning-movement volumes (UTDF for Synchro)</button>
+          <p style="margin:0;font-size:12px;color:var(--text3)">Turning-movement volumes for the active period, in Synchro's UTDF layout (best-effort — see DEVLOG for confidence notes; only N/E/S/W legs and motor-vehicle classes are included).</p>
+          <div style="border-top:1px solid var(--border);margin:4px 0"></div>
           <button class="btn-primary" id="btn-ix-export-package" style="text-align:left">⬇ Export project package (.zip)</button>
           <p style="margin:0;font-size:12px;color:var(--text3)">ZIP contains the CSV, Excel workbook, shareable HTML page, and a project JSON for re-import.</p>
         </div>
       </div>`;
     document.getElementById('btn-ix-export-csv')?.addEventListener('click', () => exportCSV());
     document.getElementById('btn-ix-export-xlsx')?.addEventListener('click', () => exportXLSX());
+    document.getElementById('btn-ix-export-utdf')?.addEventListener('click', () => {
+      const warnings = exportUTDF();
+      if (warnings && warnings.length) alert('UTDF export finished with warnings:\n\n' + warnings.join('\n'));
+    });
     document.getElementById('btn-ix-export-page')?.addEventListener('click', () => {
       exportShareablePage(
         { ...projectInfo, date: periodMeta.date || projectInfo.date, weather: periodMeta.weather || projectInfo.weather, counterName: periodMeta.observer || projectInfo.counterName, studyPurpose: periodMeta.notes || projectInfo.studyPurpose, equipment: periodMeta.equipment },
