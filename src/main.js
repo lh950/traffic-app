@@ -3670,6 +3670,159 @@ function sumVehicleModeOnly(snap) {
   return total;
 }
 
+// ═══════════════════════════════════════════
+// FIXED-WINDOW REPORT (study-wide, user-chosen clock-time window)
+// ═══════════════════════════════════════════
+// Different from ixDetectPeakStart()/peakHourInWindow() (which auto-DETECT each
+// intersection's own busiest hour independently). Here the window is fixed by the user
+// (e.g. "8:30–9:30") and every intersection is reported for exactly that clock-time span —
+// fills the gap StreetLight Insight's own TMC tool has no way to answer (a common "network
+// peak hour" across a group of intersections). Purely a reporting sum over already-counted
+// interval data — no peak/warrant/LOS judgment involved.
+//
+// Module-level (not persisted — this is a live report control, not project state) so the
+// picker survives re-renders of the Aggregate view without resetting to the default.
+let fixedWindowStartMin = 8 * 60 + 30;   // 8:30
+let fixedWindowEndMin = 9 * 60 + 30;     // 9:30
+
+// Per-intersection sum for [startMin, endMin) — matches by-LABEL (vp[i].label), same
+// discipline as aggregateVehicleClassTotalsByIntersection() above (see BUG-019/020).
+// Picks whichever of this intersection's periods actually CONTAINS the window; if none do,
+// returns { noData: true } rather than a silent zero (multi-period intersections where only
+// one period — AM, PM, or a single long period — happens to cover the requested clock time).
+// Never assumes vData/pedData/tmcData are populated (BUG-025 lesson from the StreetLight
+// comparison feature) — presence is checked per data type before summing.
+function fixedWindowForIntersection(snap, startMin, endMin) {
+  const vp = snap.vPairs || [];
+  const periods = snap.periods || [];
+  let period = null;
+  for (const p of periods) {
+    const cfg = p.cfg;
+    if (!cfg || cfg.startMinutes == null || !cfg.intervalMin) continue;
+    const slots = Math.max(1, Math.round((cfg.durationMin || 0) / cfg.intervalMin));
+    const pEnd = cfg.startMinutes + slots * cfg.intervalMin;
+    if (cfg.startMinutes <= startMin && pEnd >= endMin) { period = p; break; }
+  }
+  if (!period) return { noData: true };
+
+  const cfg = period.cfg;
+  const slots = Math.max(1, Math.round((cfg.durationMin || 0) / cfg.intervalMin));
+  const startIdx = Math.round((startMin - cfg.startMinutes) / cfg.intervalMin);
+  const windowSize = Math.max(1, Math.round((endMin - startMin) / cfg.intervalMin));
+  if (startIdx < 0 || startIdx + windowSize > slots) return { noData: true };
+
+  const hasVehData = vp.length > 0 && !!(period.vData?.in?.length);
+  let vehTotal = 0;
+  const vehByLabel = new Map();
+  if (hasVehData) {
+    vp.forEach((cls, i) => {
+      let sum = 0;
+      for (let k = 0; k < windowSize; k++) {
+        const slotIdx = startIdx + k;
+        sum += (period.vData.in[slotIdx]?.[i] || 0) + (period.vData.out[slotIdx]?.[i] || 0);
+      }
+      if (sum) vehByLabel.set(cls.label, (vehByLabel.get(cls.label) || 0) + sum);
+      vehTotal += sum;
+    });
+  }
+
+  const hasPedData = !!(period.pedData?.length);
+  let pedTotal = 0;
+  if (hasPedData) {
+    for (const cwSlots of period.pedData) {
+      for (let k = 0; k < windowSize; k++) {
+        const pair = cwSlots?.[startIdx + k] || [0, 0];
+        pedTotal += (pair[0] || 0) + (pair[1] || 0);
+      }
+    }
+  }
+
+  const hasTmcData = !!(period.tmcData && Object.keys(period.tmcData).length);
+  let tmcTotal = 0;
+  const tmcByLabel = new Map();
+  if (hasTmcData) {
+    for (const fromLeg in period.tmcData) {
+      const legData = period.tmcData[fromLeg];
+      for (const destLeg in legData) {
+        const slotArr = legData[destLeg] || [];
+        for (let k = 0; k < windowSize; k++) {
+          const arr = slotArr[startIdx + k] || [];
+          arr.forEach((v, i) => {
+            if (!v) return;
+            tmcTotal += v;
+            if (vp[i]) tmcByLabel.set(vp[i].label, (tmcByLabel.get(vp[i].label) || 0) + v);
+          });
+        }
+      }
+    }
+  }
+
+  return { noData: false, periodName: period.name, hasVehData, hasPedData, hasTmcData, vehTotal, pedTotal, tmcTotal, vehByLabel, tmcByLabel };
+}
+
+// Renders just the results table for the current picker values — kept separate from the
+// full renderAreaAggregateContent() so changing the window re-sums instantly without
+// re-running the (async, per-recount) QA/QC coverage rollup for every intersection.
+function fixedWindowTableHtml(startMin, endMin) {
+  const fmt = n => n.toLocaleString();
+  if (endMin <= startMin) {
+    return '<div class="stat-detail" style="color:var(--bad-text)">End time must be after start time.</div>';
+  }
+  if (!areaIntersections.length) {
+    return '<div class="stat-detail">No intersections loaded.</div>';
+  }
+  const rows = areaIntersections.map((ix, i) => {
+    const snap = ix.snapshot;
+    const name = escapeHtmlMain(ix.name || `Intersection ${i + 1}`);
+    if (!snap) return `<tr><td>${name}</td><td colspan="4" style="color:var(--text3)">No count data.</td></tr>`;
+    const r = fixedWindowForIntersection(snap, startMin, endMin);
+    if (r.noData) {
+      return `<tr><td>${name}</td><td colspan="4" style="color:var(--text3)">No data for this window — no counted period covers ${minToTimeStr(startMin)}–${minToTimeStr(endMin)}.</td></tr>`;
+    }
+    return `<tr>
+      <td>${name}</td>
+      <td style="color:var(--text3)">${escapeHtmlMain(r.periodName || '')}</td>
+      <td style="text-align:right">${r.hasVehData ? fmt(r.vehTotal) : '—'}</td>
+      <td style="text-align:right">${r.hasPedData ? fmt(r.pedTotal) : '—'}</td>
+      <td style="text-align:right">${r.hasTmcData ? fmt(r.tmcTotal) : '—'}</td>
+    </tr>`;
+  }).join('');
+  return `
+    <div style="overflow-x:auto">
+      <table class="data-table">
+        <thead><tr><th>Intersection</th><th>Period used</th><th style="text-align:right">Vehicle</th><th style="text-align:right">Pedestrian</th><th style="text-align:right">TMC</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
+function fixedWindowSectionHtml() {
+  return `
+    <div class="card" style="margin-bottom:14px">
+      <div class="section-head" style="margin-bottom:10px"><h2 style="font-size:14px;font-weight:600;margin:0">Fixed-window report</h2></div>
+      <div class="stat-detail" style="margin-bottom:10px">Pick one clock-time window and see every intersection's volume for exactly that window — not each intersection's own detected peak hour. Useful for a common "network peak hour" across the whole study, something StreetLight Insight's own TMC tool can't produce.</div>
+      <div class="setup-grid" style="margin-bottom:10px;grid-template-columns:repeat(2,minmax(120px,160px))">
+        <div class="setup-field"><label>window start</label><input type="time" id="fixedwin-start" value="${minToTimeStr(fixedWindowStartMin)}"></div>
+        <div class="setup-field"><label>window end</label><input type="time" id="fixedwin-end" value="${minToTimeStr(fixedWindowEndMin)}"></div>
+      </div>
+      <div id="fixedwin-table-wrap">${fixedWindowTableHtml(fixedWindowStartMin, fixedWindowEndMin)}</div>
+    </div>`;
+}
+
+function wireFixedWindowInputs() {
+  const startEl = document.getElementById('fixedwin-start');
+  const endEl = document.getElementById('fixedwin-end');
+  const wrap = document.getElementById('fixedwin-table-wrap');
+  if (!startEl || !endEl || !wrap) return;
+  const refresh = () => {
+    fixedWindowStartMin = toMinFromLabel(startEl.value || minToTimeStr(fixedWindowStartMin));
+    fixedWindowEndMin = toMinFromLabel(endEl.value || minToTimeStr(fixedWindowEndMin));
+    wrap.innerHTML = fixedWindowTableHtml(fixedWindowStartMin, fixedWindowEndMin);
+  };
+  startEl.addEventListener('input', refresh);
+  endEl.addEventListener('input', refresh);
+}
+
 // Bumped at the top of every renderAreaAggregateContent() call; each call captures its own
 // value and checks it's still current right before writing to the DOM. This render is
 // async (ixQaqcCoverageForIntersection above awaits a score per existing recount) and the
@@ -3825,8 +3978,10 @@ async function renderAreaAggregateContent() {
       </div>
     </div>`;
 
+  const fixedWindowSection = fixedWindowSectionHtml();
+
   if (myGen !== _areaAggRenderGen) return; // final staleness guard immediately before the DOM write
-  container.innerHTML = statCards + classSection + classChartSection + completenessSection;
+  container.innerHTML = statCards + classSection + classChartSection + fixedWindowSection + completenessSection;
 
   container.querySelectorAll('.sum-review-btn').forEach(btn => {
     btn.addEventListener('click', e => { e.stopPropagation(); showIntersectionAnalysis(+btn.dataset.idx); });
@@ -3834,6 +3989,7 @@ async function renderAreaAggregateContent() {
   container.querySelectorAll('.sum-qaqc-btn').forEach(btn => {
     btn.addEventListener('click', e => { e.stopPropagation(); showIntersectionQaqc(+btn.dataset.idx); });
   });
+  wireFixedWindowInputs();
 }
 window.renderAreaAggregateContent = renderAreaAggregateContent;
 
