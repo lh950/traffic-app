@@ -1,5 +1,15 @@
 # Changelog
 
+## v3.33.0-alpha.1 — 2026-08-12
+
+### Added
+- **Optional latitude/longitude fields for standalone intersection projects** — groundwork only (data capture, no matching/linking/fingerprinting logic). Area-study intersections already had this; standalone single-intersection projects had no location field at all. Two new optional text inputs on the Setup screen's "intersection" tab (`ix-lat-inp`/`ix-lng-inp`, bound to a new `intersection.lat`/`intersection.lng` in `state.js`), saved/loaded/serialized the same way every other field on `intersection` already is (the object is serialized wholesale, so no separate persistence code was needed). Hidden for area-study child intersections, which already have their own lat/lng fields on the hub row — showing both would create two disconnected entry points for the same intersection.
+- **"% of peak hour" column in Interval Detail tables** — each interval row (vehicle, pedestrian, and turning-movement datasets) now shows what share of the study's detected peak hour that interval represents, alongside its existing raw total. Reuses the same rolling-hour peak detection (`analysisData.peakHour()`) already driving the Summary section's "Peak hour" stat card for the period being viewed — no new peak-detection logic. Intervals outside the detected peak-hour window show an em dash rather than a percentage against a different, non-peak hour, so every non-dash figure in the column sums to ~100% within the peak hour's own rows.
+- **Day-of-week grouping and labeling for the vehicle-class stacked bar chart** — new "Day of week" option (`dow`) alongside the existing 15-min interval / hourly / day / study period groupings, collapsing every period across a multi-day (or multi-week) study onto one bar per weekday (Mon..Sun), useful for spotting a weekday pattern that spans several weeks. Reuses `classSeriesAcrossPeriods()`'s existing by-label vehicle-class aggregation — only the grouping-key function changed (weekday name instead of calendar date), so the BUG-019/BUG-020-class by-label discipline carries over unchanged. Every place a period's date was already shown as a label (the "day" grouping's bar labels, and the "All periods" summary table's Date row) now shows the weekday alongside it (e.g. "Tue 8/11" instead of just "8/11"), derived from the existing `meta.date` string rather than stored separately.
+
+### Fixed
+- **Setup screen's street-name fields didn't redisplay after a project load/resume, and threw on every keystroke (BUG-024)** — found while adding the new lat/lng fields to the same part of the setup screen. See BUGS.md. `renderLegConfig()` now syncs `street1-inp`/`street2-inp`/`street3-inp`/`ix-lat-inp`/`ix-lng-inp` from state on every setup-screen entry, and `updateDefaultFilenames` (called by all three street-name inputs' `oninput` handlers) is now actually exposed on `window`, where those inline handlers run.
+
 ## v3.32.0-alpha.2 — 2026-08-11
 
 ### Fixed

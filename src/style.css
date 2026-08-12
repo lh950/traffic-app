@@ -874,6 +874,9 @@ tfoot td:first-child{text-align:left;color:var(--text2)}
 #app-back-btn:hover{background:var(--surface2);color:var(--text)}
 body.workspace-mode #app-back-btn{display:none!important}
 
+/* Area-study child intersections use the hub row's own lat/lng fields instead */
+body.project-type-area #ix-latlng-wrap{display:none!important}
+
 /* Push all workspace screens to the right when sidebar is visible */
 body.workspace-mode #home-screen,
 body.workspace-mode #landing-screen { display:none!important; }

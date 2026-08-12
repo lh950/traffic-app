@@ -49,6 +49,8 @@ export let intersection = {
   street1: '',      // N-S street name
   street2: '',      // E-W street name
   street3: '',      // diagonal street name (t5)
+  lat: '',          // optional latitude (free text — no format enforced, groundwork for future GIS use)
+  lng: '',          // optional longitude
   legLabels: {},    // {leg: customLabel}
   oneWay: {},       // {leg: true} — one-way-out: vehicles exit via this leg; no approach, remains valid destination
   oneWayIn: {},     // {leg: true} — one-way-in: vehicles enter from this leg; has approach, excluded from others' destinations

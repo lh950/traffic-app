@@ -137,6 +137,7 @@ Object.assign(window, {
   setIntervalLen, updateDerived, updateVCount, applyVPreset,
   checkVKeys, checkPKeys, setLegLabel, toggleLegCrosswalk, toggleLegApproach, toggleLegOneWay, toggleLegOneWayIn,
   updateCrosswalkField, toggleApproachDestUnified, toggleApproachCount, renderLegConfig,
+  updateDefaultFilenames,
   checkTmcKeys, addBikeToVPairs, addAllVPairsToTmc, renderVPairsList,
   openLegPopover, closeLegPopover, getOpenLeg,
   setDiagLeg, setMissingLeg, updateDiagram, toggleDiagram, toggleTurningDiagram,
@@ -517,6 +518,11 @@ function enterWorkspace() {
   if (!projectUUID) projectUUID = crypto.randomUUID();
   document.body.classList.add('workspace-mode');
   document.getElementById('app-sidebar')?.classList.add('visible');
+  // Area-study child intersections already have their own lat/lng fields on the hub
+  // row (areaIntersections[i].lat/lng) — the new intersection.lat/lng setup fields are
+  // only meaningful for standalone intersection projects, so hide them for area studies
+  // to avoid two disconnected lat/lng entry points for the same intersection.
+  document.body.classList.toggle('project-type-area', projectType === 'area');
 }
 
 function exitWorkspace() {
@@ -1231,20 +1237,46 @@ function filterTmcParsedByIndices(parsed, indices) {
   };
 }
 
+// Safe 'YYYY-MM-DD' -> weekday parsing. Deliberately NOT `new Date(dateStr)` — passing a
+// plain date string to the Date constructor parses it as UTC midnight, which shifts to the
+// PREVIOUS calendar day once rendered in any timezone west of UTC (all of the US). Splitting
+// into y/m/d and constructing via `new Date(y, m-1, d)` uses local-time components instead,
+// so the weekday always matches the date as printed. Verified by hand against a real
+// calendar: 2026-08-11 -> Tuesday (not Monday/Wednesday off-by-one). Same style of pitfall
+// as BUG-023 (direction convention trusted without checking against a concrete example).
+const WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+function weekdayShort(dateStr) {
+  if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return '';
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return WEEKDAY_SHORT[new Date(y, m - 1, d).getDay()];
+}
+// "Tue 8/11" style — weekday + M/D, no leading zeros, no year. Falls back to the raw string
+// (or '') if it isn't a plain YYYY-MM-DD, e.g. missing/malformed dates.
+function dateLabelWithWeekday(dateStr) {
+  const wd = weekdayShort(dateStr);
+  if (!wd) return dateStr || '';
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return `${wd} ${m}/${d}`;
+}
+
 // ── Analyze: vehicle-class stacked bar chart ─────────────────────────────────
 // New, additive alongside the existing "volume by interval" chart in
 // analysis/ui/summary.js (which shows in/out totals, no class breakdown) — this one
-// stacks each bar into its vPairs classes (Car/Truck/Bus/Bike/etc). Three groupings:
+// stacks each bar into its vPairs classes (Car/Truck/Bus/Bike/etc). Five groupings:
 //   'bin'    — this period's own 15-min intervals (or whatever the native interval is)
 //   'hourly' — this period's intervals rolled up to the hour
-//   'day'    — across every period on this intersection, grouped by meta.date (only
-//              meaningful for multi-day studies; single-day studies just get one bar)
+//   'day'    — across every period on this intersection, one bar per distinct meta.date
+//              (only meaningful for multi-day studies; single-day studies just get one bar)
+//   'dow'    — across every period on this intersection, one bar per weekday (Mon..Sun),
+//              COLLAPSING every date that falls on that weekday — e.g. a study spanning
+//              three weeks puts all its Tuesdays in one bar. Distinct from 'day', which
+//              keeps every calendar date separate.
 //   'period' — across every period on this intersection, one bar per period name
 //              (AM Peak / Midday Peak / PM Peak / etc)
 // 'bin'/'hourly' only use the currently-viewed period's own vehParsed (adjacent periods
 // aren't contiguous in time, so stacking them into one time-of-day axis would be
-// misleading); 'day'/'period' use `allPeriods`, built by the caller from every period on
-// this intersection. All four groupings match vehicle classes BY LABEL, not array
+// misleading); 'day'/'dow'/'period' use `allPeriods`, built by the caller from every period
+// on this intersection. All five groupings match vehicle classes BY LABEL, not array
 // position — see aggregateVehicleClassTotals()'s header comment and BUG-019/BUG-020 in
 // BUGS.md for why: different periods/files can carry different vPairs orderings or sets.
 
@@ -1276,12 +1308,29 @@ function classSeriesFromVehParsed(vehParsed, mode) {
   };
 }
 
+// 'day' groups by calendar date (one bar per distinct meta.date — a multi-week study gets
+// one bar per day it was counted); 'dow' groups by weekday name instead, COLLAPSING every
+// period across the whole study onto 7 buckets (Mon..Sun) regardless of which calendar date
+// or week they fall on — useful for spotting a weekday pattern across a study spanning
+// several weeks. Both reuse the same by-label class aggregation below (BUG-019/BUG-020
+// discipline — see this section's header comment); only the grouping key function differs.
 function classSeriesAcrossPeriods(allPeriods, mode) {
   const groupTotals = new Map(); // group key -> Map(class label -> total)
   const groupOrderRaw = [];
+  const groupLabels = new Map(); // group key -> display label (may differ from the key itself, e.g. 'day' shows the weekday alongside the date)
   allPeriods.forEach((p, idx) => {
-    const key = mode === 'period' ? (p.name || `Period ${idx + 1}`) : (p.meta?.date || 'No date');
-    if (!groupTotals.has(key)) { groupTotals.set(key, new Map()); groupOrderRaw.push(key); }
+    let key, groupLabel;
+    if (mode === 'period') {
+      key = p.name || `Period ${idx + 1}`;
+      groupLabel = key;
+    } else if (mode === 'dow') {
+      key = weekdayShort(p.meta?.date) || 'No date';
+      groupLabel = key;
+    } else { // 'day'
+      key = p.meta?.date || 'No date';
+      groupLabel = key === 'No date' ? key : dateLabelWithWeekday(key);
+    }
+    if (!groupTotals.has(key)) { groupTotals.set(key, new Map()); groupOrderRaw.push(key); groupLabels.set(key, groupLabel); }
     const classMap = groupTotals.get(key);
     const { types = [], intervals = [] } = p.vehParsed || {};
     types.forEach((label, ci) => {
@@ -1289,9 +1338,15 @@ function classSeriesAcrossPeriods(allPeriods, mode) {
       classMap.set(label, (classMap.get(label) || 0) + sum);
     });
   });
-  const groupOrder = mode === 'day'
-    ? [...groupOrderRaw].sort((a, b) => (a === 'No date' ? 1 : b === 'No date' ? -1 : a.localeCompare(b)))
-    : groupOrderRaw;
+  let groupOrder;
+  if (mode === 'day') {
+    groupOrder = [...groupOrderRaw].sort((a, b) => (a === 'No date' ? 1 : b === 'No date' ? -1 : a.localeCompare(b)));
+  } else if (mode === 'dow') {
+    const dowRank = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6, 'No date': 7 };
+    groupOrder = [...groupOrderRaw].sort((a, b) => (dowRank[a] ?? 8) - (dowRank[b] ?? 8));
+  } else {
+    groupOrder = groupOrderRaw;
+  }
   // Union of class labels across every group, matched by label (not index) — see this
   // section's header comment.
   const labelTotals = new Map();
@@ -1300,7 +1355,7 @@ function classSeriesAcrossPeriods(allPeriods, mode) {
   });
   const classLabels = [...labelTotals.keys()];
   return {
-    labels: groupOrder,
+    labels: groupOrder.map((key) => groupLabels.get(key)),
     series: classLabels.map((label) => ({
       label,
       values: groupOrder.map((key) => groupTotals.get(key).get(label) || 0),
@@ -1312,6 +1367,7 @@ const CLASS_CHART_GROUPINGS = [
   { key: 'bin', label: '15-min interval' },
   { key: 'hourly', label: 'Hourly' },
   { key: 'day', label: 'Day' },
+  { key: 'dow', label: 'Day of week' },
   { key: 'period', label: 'Study period' },
 ];
 
@@ -1389,6 +1445,13 @@ async function renderAnalyzePeriodContent(root, vehParsed, pedParsed, tmcParsed,
   `;
 
   let activeKind = 'vehicle';
+  // renderIntervalDetailSection is async (it awaits analysisData.peakHour for the new
+  // "% of peak hour" column) and writes into a container shared across dataset-tab
+  // switches — a generation guard stops a slow-resolving stale paint (e.g. rapid
+  // vehicle→ped→tmc clicking) from overwriting a newer one's DOM, same discipline as
+  // BUG-022's fix. Scoped to this closure/root, not module-level, since a fresh one of
+  // these closures is created per renderAnalyzePeriodContent() call anyway.
+  let _intervalPaintGen = 0;
 
   function paintQA() {
     const qaRoot = root.querySelector('#analyze-qa-root');
@@ -1399,10 +1462,14 @@ async function renderAnalyzePeriodContent(root, vehParsed, pedParsed, tmcParsed,
     renderQASection(qaRoot, findings);
   }
 
-  function paintInterval() {
+  async function paintInterval() {
+    const gen = ++_intervalPaintGen;
     const intervalRoot = root.querySelector('#analyze-interval-root');
     if (!intervalRoot) return;
-    renderIntervalDetailSection(intervalRoot, activeKind, vehParsed, pedParsed, tmcParsed);
+    const kind = activeKind;
+    const html = await buildIntervalDetailMarkup(kind, vehParsed, pedParsed, tmcParsed);
+    if (gen !== _intervalPaintGen) return; // a newer paint started while this one awaited — don't overwrite it
+    renderIntervalDetailSection(intervalRoot, kind, html);
   }
 
   async function paintSummary() {
@@ -1500,7 +1567,21 @@ function intervalBar(val, max, w = 84) {
   const px = max > 0 ? Math.max(2, Math.round((val / max) * w)) : 2;
   return `<div class="ix-bar-wrap"><div class="ix-bar" style="width:${px}px"></div></div>`;
 }
-function renderIntervalDetailSection(container, activeKind, vehParsed, pedParsed, tmcParsed) {
+// Builds the "% of peak hour" cell text for interval i, given the study's already-detected
+// peak-hour window (from analysisData.peakHour — the same rolling-hour search the Summary
+// section's "Peak hour" stat card already uses for this period, per BUGS.md discipline
+// against inventing a second peak-detection algorithm). Intervals outside the window show
+// an em dash rather than a percentage against a different (non-peak) hour — keeps the
+// column unambiguous: every non-dash figure sums to ~100% across the peak hour's own rows.
+function pctOfPeakCell(i, totals, peak) {
+  if (!peak || peak.startIdx < 0 || i < peak.startIdx || i > peak.endIdx || !peak.volume) return '—';
+  return `${Math.round((totals[i] / peak.volume) * 1000) / 10}%`;
+}
+
+// Pure — computes the markup string without touching the DOM, so callers can await it
+// and check a staleness guard before writing (see paintInterval() in
+// renderAnalyzePeriodContent()).
+async function buildIntervalDetailMarkup(activeKind, vehParsed, pedParsed, tmcParsed) {
   let headCols, rows, count;
 
   if (activeKind === 'vehicle') {
@@ -1510,13 +1591,15 @@ function renderIntervalDetailSection(container, activeKind, vehParsed, pedParsed
     const totals = intervals.map((_, i) => inTotals[i] + outTotals[i]);
     const maxT = Math.max(...totals, 1);
     const peakIdx = totals.reduce((bi, v, i) => v > totals[bi] ? i : bi, 0);
-    headCols = '<th class="ix-th">Interval</th><th class="ix-th ix-th-r">In</th><th class="ix-th ix-th-r">Out</th><th class="ix-th ix-th-r">Total</th><th class="ix-th"></th>';
+    const peak = await analysisData.peakHour(intervals, inferIntervalMinutes(intervals), 'vehicle');
+    headCols = '<th class="ix-th">Interval</th><th class="ix-th ix-th-r">In</th><th class="ix-th ix-th-r">Out</th><th class="ix-th ix-th-r">Total</th><th class="ix-th ix-th-r">% of peak hour</th><th class="ix-th"></th>';
     rows = intervals.map((iv, i) => `
       <tr class="ix-tr${i === peakIdx ? ' ix-tr-peak' : ''}">
         <td class="ix-td ix-td-time">${iv.start}–${iv.end}</td>
         <td class="ix-td ix-td-num">${inTotals[i].toLocaleString()}</td>
         <td class="ix-td ix-td-num">${outTotals[i].toLocaleString()}</td>
         <td class="ix-td ix-td-num ix-td-bold">${totals[i].toLocaleString()}</td>
+        <td class="ix-td ix-td-num">${pctOfPeakCell(i, totals, peak)}</td>
         <td class="ix-td ix-td-bar">${intervalBar(totals[i], maxT)}</td>
       </tr>`).join('');
     count = intervals.length;
@@ -1525,12 +1608,14 @@ function renderIntervalDetailSection(container, activeKind, vehParsed, pedParsed
     const totals = intervals.map(iv => iv.counts.reduce((s, pair) => s + (pair[0]||0) + (pair[1]||0), 0));
     const maxT = Math.max(...totals, 1);
     const peakIdx = totals.reduce((bi, v, i) => v > totals[bi] ? i : bi, 0);
-    headCols = `<th class="ix-th">Interval</th>${crosswalks.map(c => `<th class="ix-th ix-th-r">${c.name}</th>`).join('')}<th class="ix-th ix-th-r">Total</th><th class="ix-th"></th>`;
+    const peak = await analysisData.peakHour(intervals, inferIntervalMinutes(intervals), 'ped');
+    headCols = `<th class="ix-th">Interval</th>${crosswalks.map(c => `<th class="ix-th ix-th-r">${c.name}</th>`).join('')}<th class="ix-th ix-th-r">Total</th><th class="ix-th ix-th-r">% of peak hour</th><th class="ix-th"></th>`;
     rows = intervals.map((iv, i) => `
       <tr class="ix-tr${i === peakIdx ? ' ix-tr-peak' : ''}">
         <td class="ix-td ix-td-time">${iv.start}–${iv.end}</td>
         ${crosswalks.map((_, xi) => `<td class="ix-td ix-td-num">${((iv.counts[xi]?.[0]||0) + (iv.counts[xi]?.[1]||0)).toLocaleString()}</td>`).join('')}
         <td class="ix-td ix-td-num ix-td-bold">${totals[i].toLocaleString()}</td>
+        <td class="ix-td ix-td-num">${pctOfPeakCell(i, totals, peak)}</td>
         <td class="ix-td ix-td-bar">${intervalBar(totals[i], maxT)}</td>
       </tr>`).join('');
     count = intervals.length;
@@ -1541,7 +1626,8 @@ function renderIntervalDetailSection(container, activeKind, vehParsed, pedParsed
       s + a.destinations.reduce((s2, d) => s2 + (iv.counts[a.leg]?.[d.leg] || []).reduce((x,y) => x+(y||0), 0), 0), 0));
     const maxT = Math.max(...totals, 1);
     const peakIdx = totals.reduce((bi, v, i) => v > totals[bi] ? i : bi, 0);
-    headCols = '<th class="ix-th"></th><th class="ix-th">Interval</th><th class="ix-th ix-th-r">Total entering</th><th class="ix-th"></th>';
+    const peak = await analysisData.peakHour(intervals, inferIntervalMinutes(intervals), 'tmc');
+    headCols = '<th class="ix-th"></th><th class="ix-th">Interval</th><th class="ix-th ix-th-r">Total entering</th><th class="ix-th ix-th-r">% of peak hour</th><th class="ix-th"></th>';
 
     // Per-class × per-approach breakdown for one interval — entering volume, summed
     // across that approach's movements, for each vehicle class (vPairs row) in tmcParsed.types.
@@ -1578,15 +1664,16 @@ function renderIntervalDetailSection(container, activeKind, vehParsed, pedParsed
         <td class="ix-td ix-td-expand"><span class="ix-expand-caret">▸</span></td>
         <td class="ix-td ix-td-time">${iv.start}–${iv.end}</td>
         <td class="ix-td ix-td-num ix-td-bold">${totals[i].toLocaleString()}</td>
+        <td class="ix-td ix-td-num">${pctOfPeakCell(i, totals, peak)}</td>
         <td class="ix-td ix-td-bar">${intervalBar(totals[i], maxT)}</td>
       </tr>
       <tr class="ix-detail-row" data-ix-detail="${i}" style="display:none">
-        <td class="ix-td ix-td-detail-cell" colspan="4">${types.length ? classBreakdownTable(iv) : '<span style="color:var(--text3);font-size:12px">No vehicle-class detail available for this data.</span>'}</td>
+        <td class="ix-td ix-td-detail-cell" colspan="5">${types.length ? classBreakdownTable(iv) : '<span style="color:var(--text3);font-size:12px">No vehicle-class detail available for this data.</span>'}</td>
       </tr>`).join('');
     count = intervals.length;
   }
 
-  container.innerHTML = `
+  return `
     <details class="interval-detail">
       <summary class="interval-detail-summary">Show all ${count} interval${count !== 1 ? 's' : ''}</summary>
       <div class="interval-detail-wrap">
@@ -1596,7 +1683,13 @@ function renderIntervalDetailSection(container, activeKind, vehParsed, pedParsed
         </table>
       </div>
     </details>`;
+}
 
+// Writes buildIntervalDetailMarkup()'s output into `container` and wires the tmc
+// expand/collapse click handlers. Kept separate from the (pure, awaitable) builder above
+// so callers can insert a staleness check between "finished computing" and "write to DOM".
+function renderIntervalDetailSection(container, activeKind, html) {
+  container.innerHTML = html;
   if (activeKind === 'tmc') {
     container.querySelectorAll('.ix-tr-expandable').forEach(tr => {
       tr.addEventListener('click', () => {
@@ -1693,7 +1786,7 @@ function renderAllPeriodsView(root, src) {
   const header = `<tr><th></th>${cols.map(c => `<th><div class="ap-period-name">${c.name}</div><div class="ap-period-range">${c.timeRange}</div></th>`).join('')}</tr>`;
 
   const rows = [
-    ['Date',           cols.map(c => c.date || '—')],
+    ['Date',           cols.map(c => c.date ? dateLabelWithWeekday(c.date) : '—')],
     ['Weather',        cols.map(c => c.weather || '—')],
     ['Vehicle in',     cols.map(c => c.vehIn.toLocaleString())],
     ['Vehicle out',    cols.map(c => c.vehOut.toLocaleString())],

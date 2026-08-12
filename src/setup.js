@@ -362,7 +362,22 @@ export function renderLegConfig(){
   // show/hide street3 field
   const s3=document.getElementById('street3-field');
   if(s3)s3.style.display=tpl.id==='t5'?'block':'none';
+  syncIntersectionLocationFields();
   renderLegPopoverContent(tpl);
+}
+
+// Street/lat/lng inputs are plain oninput="intersection.X=this.value" handlers with no
+// reverse sync — nothing previously re-populated their .value from state on reload/project
+// load, so re-entering Setup after a resume/load showed blank fields even though the
+// underlying data was intact (found while adding lat/lng; same gap existed for street1/2/3
+// already — see BUG-024). renderLegConfig() runs on every setup-screen (re)entry and after
+// every project load, so syncing here covers all paths without a new call site.
+export function syncIntersectionLocationFields(){
+  const s1=document.getElementById('street1-inp'); if(s1) s1.value=intersection.street1||'';
+  const s2=document.getElementById('street2-inp'); if(s2) s2.value=intersection.street2||'';
+  const s3=document.getElementById('street3-inp'); if(s3) s3.value=intersection.street3||'';
+  const lat=document.getElementById('ix-lat-inp'); if(lat) lat.value=intersection.lat||'';
+  const lng=document.getElementById('ix-lng-inp'); if(lng) lng.value=intersection.lng||'';
 }
 
 function renderLegPopoverContent(tpl){

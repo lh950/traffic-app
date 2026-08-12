@@ -8,6 +8,19 @@ Severity levels:
 
 ---
 
+## BUG-024
+**Status:** Fixed (v3.33.0-alpha.1, found while adding the new lat/lng setup fields)
+**Severity:** Minor (data was never lost — only the setup screen's display of it — but two compounding issues, one of which threw on every keystroke)
+**Found in:** pre-existing (`street1-inp`/`street2-inp`/`street3-inp`), exposed while adding the analogous `ix-lat-inp`/`ix-lng-inp` fields for standalone intersection projects
+**Description:** Two separate bugs in the same corner of setup.js/index.html:
+1. `renderLegConfig()` — which runs on every setup-screen (re)entry and after every project load/resume — never set `street1-inp`/`street2-inp`/`street3-inp`'s `.value` from `intersection.street1/street2/street3`. The underlying state was always saved and restored correctly (`intersection` is serialized/restored wholesale), but re-opening Setup after a resume or project load showed blank street-name fields even though the data was intact. Reproduced live: typed "Main St"/"Oak Ave", started counting (triggers autosave), reloaded the page, resumed, opened Setup → both fields showed empty while `window.intersection.street1` still held `"Main St"`.
+2. Independently, every one of those three inputs' `oninput` handler calls `updateDefaultFilenames()` (`intersection.street1=this.value;updateDefaultFilenames();renderLegConfig()`), but `updateDefaultFilenames` was never added to the `Object.assign(window, {...})` block in `main.js` that exposes module-scoped functions to these inline HTML handlers. Every keystroke in any of the three street-name fields threw `ReferenceError: updateDefaultFilenames is not defined` — and because the handler is one sequential statement list, the error also aborted the `renderLegConfig()` call right after it, so the leg diagram/labels silently stopped live-updating on every keystroke too.
+**Root cause:** (1) no re-sync path existed from state back to these specific DOM inputs; (2) a function used by an inline `oninput=` handler was imported into `main.js`'s module scope but never re-exported onto `window`, where inline handlers actually run.
+**Fix:** Added `syncIntersectionLocationFields()` in `setup.js`, called at the top of `renderLegConfig()`, which sets `street1-inp`/`street2-inp`/`street3-inp` and the new `ix-lat-inp`/`ix-lng-inp` `.value` from `intersection`'s current state — covers every load/resume/re-entry path for free since `renderLegConfig()` already runs on all of them. Added `updateDefaultFilenames` to the `Object.assign(window, {...})` exposure list in `main.js`.
+**Verified live:** typed into `street1-inp` in a fresh tab — no console error, leg diagram updates immediately. Set street1/street2/lat/lng, started counting (autosave), reloaded, resumed, opened Setup → all four fields showed the correct restored values.
+
+---
+
 ## BUG-023
 **Status:** Fixed (v3.32.0-alpha.2, caught during my own independent audit of the new UTDF export feature, before it was pushed)
 **Severity:** Critical
