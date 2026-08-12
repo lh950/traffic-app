@@ -1,5 +1,10 @@
 # Changelog
 
+## v3.35.0-alpha.2 — 2026-08-12
+
+### Fixed
+- **Loading a standalone intersection project could show a stale QA/QC recount left over from a PREVIOUSLY loaded, unrelated project (BUG-027)** — found during a single end-of-batch audit covering today's four features together (lat/lng + %-of-peak-hour + day-of-week, StreetLight comparison import, fixed-window report). `loadProject()` restored `intersectionQaqc` via `Object.assign` with no reset first, so a project with fewer (or zero) recount keys than whatever was already loaded kept the old project's entries. Fixed by clearing the store before restoring, mirroring the reset-then-restore pattern the new `streetlightComparison` code already used correctly. See `BUGS.md`.
+
 ## v3.35.0-alpha.1 — 2026-08-12
 
 ### Added

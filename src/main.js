@@ -4959,9 +4959,15 @@ function loadProject(proj) {
   });
   Object.assign(intersection, proj.intersection);
   Object.assign(fnames, proj.fnames);
+  // Reset first — Object.assign alone only overwrites keys present in proj.intersectionQaqc,
+  // so loading a project with no QA/QC data of its own (or fewer recount keys than whatever
+  // was already loaded) left stale recount entries from the PREVIOUS project visible on this
+  // one's QA/QC screen. Found during audit (BUG-027): loaded a project with a recount, then a
+  // second project with none, and the second project's QA/QC screen still showed the first
+  // project's recount total. Same fix shape as streetlightComparison below, which already
+  // did this correctly when it was added.
+  for (const k in intersectionQaqc) delete intersectionQaqc[k];
   Object.assign(intersectionQaqc, proj.intersectionQaqc || {});
-  // Reset first (unlike intersectionQaqc above) so switching between projects in the same
-  // session can't leak a previously-loaded project's StreetLight import into a new one.
   streetlightComparison.blocks = {}; streetlightComparison.sourceFileName = null; streetlightComparison.importedAt = null;
   Object.assign(streetlightComparison, proj.streetlightComparison || {});
   const ixQaqcReviewerEl = document.getElementById('ix-qaqc-reviewer-name');

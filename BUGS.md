@@ -8,6 +8,17 @@ Severity levels:
 
 ---
 
+## BUG-027
+**Status:** Fixed (v3.35.0-alpha.2, caught during my own end-of-batch independent audit — pre-existing, exposed by comparing against the new streetlightComparison code added in the same batch)
+**Severity:** Major
+**Found in:** pre-existing (`loadProject()`'s `intersectionQaqc` restore, shipped with area-study QA/QC in v3.29.0-alpha.1)
+**Description:** `loadProject()` restored the standalone-project QA/QC store via `Object.assign(intersectionQaqc, proj.intersectionQaqc || {})` with no reset first. `Object.assign` only overwrites keys present in the source object — loading a project with fewer (or zero) QA/QC recount keys than whatever was already in memory from a *previously* loaded project left the old project's recount entries stranded in the live `intersectionQaqc` global. Reproduced live: loaded Project A (one vehicle-class recount, quarters summing to 20), opened its QA/QC screen (correctly showed the recount), then loaded Project B (a different, unrelated project with no QA/QC data of its own) and opened ITS QA/QC screen — it showed Project A's stale recount total (20) as if it were Project B's own, instead of "no recount."
+**Root cause:** No reset-before-restore on a live global object that a later `Object.assign` only partially overwrites — the same shape of bug the streetlightComparison code (added in this same batch of work) explicitly avoided by resetting first, but the pre-existing `intersectionQaqc` line right next to it wasn't touched at the time and kept the old behavior.
+**Fix:** Clear every key from `intersectionQaqc` (`for (const k in intersectionQaqc) delete intersectionQaqc[k]`) immediately before `Object.assign`-ing in the new project's data, mirroring `streetlightComparison`'s reset-then-restore pattern directly above it in the same function.
+**Verified live:** re-ran the same two-project sequence (Project A with a recount → Project B without) after the fix — Project B's QA/QC screen correctly shows "no recount" instead of Project A's leaked total.
+
+---
+
 ## BUG-026
 **Status:** Fixed (v3.34.0-alpha.1, caught during required live verification of the new StreetLight comparison feature, before push)
 **Severity:** Minor (wrong-but-plausible-looking output, not a crash — the app never signaled anything was off)
