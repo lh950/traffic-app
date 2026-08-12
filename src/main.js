@@ -46,6 +46,7 @@ import { maybeShowWalkthroughOnce, wireWalkthrough } from './walkthrough.js';
 import { parseTmcCsv } from './parseTmcCsv.js';
 import { parseRawCountXlsx, buildIntersectionFromMeta } from './parseRawCountXlsx.js';
 import { parseDotTmcXlsx, buildTmcIntersectionFromMeta } from './parseDotTmcXlsx.js';
+import { parseStreetlightXlsx } from './parseStreetlightXlsx.js';
 import { parseCSV, detectColumnsLocally, mapColumnsWithClaude, buildSnapshotFromMapping, saveLearnedMappings, saveImportTemplate, loadImportTemplates, deleteImportTemplate, findMatchingTemplate, LS_API_KEY } from './importCsv.js';
 import * as analysisData from './analysis/ui/dataAdapter.js';
 import { renderSummary } from './analysis/ui/summary.js';
@@ -269,7 +270,7 @@ initApproaches();
 // ═══════════════════════════════════════════
 // SCREEN ROUTER
 // ═══════════════════════════════════════════
-const SCREENS = ['home-screen', 'help-screen', 'area-setup-screen', 'area-import-screen', 'summary-screen', 'area-aggregate-screen', 'export-screen', 'ix-analysis-screen', 'setup-screen', 'counter-screen', 'intersection-qaqc-screen', 'intersection-qaqc-counter-screen', 'tripgen-setup-screen', 'tripgen-counter-screen', 'tripgen-qaqc-screen', 'tripgen-distribution-screen', 'analyze-screen', 'parking-setup-screen', 'parking-counter-screen'];
+const SCREENS = ['home-screen', 'help-screen', 'area-setup-screen', 'area-import-screen', 'summary-screen', 'area-aggregate-screen', 'export-screen', 'ix-analysis-screen', 'setup-screen', 'counter-screen', 'intersection-qaqc-screen', 'intersection-qaqc-counter-screen', 'streetlight-compare-screen', 'tripgen-setup-screen', 'tripgen-counter-screen', 'tripgen-qaqc-screen', 'tripgen-distribution-screen', 'analyze-screen', 'parking-setup-screen', 'parking-counter-screen'];
 let projectType = null; // 'intersection' | 'area' | 'tripgen' | 'parking' | null
 
 // ── Parking study state ──
@@ -562,6 +563,7 @@ function renderSidebarIntersection() {
       <button class="sidebar-item" data-ws="count">Count</button>
       <button class="sidebar-item" data-ws="qaqc">QA/QC</button>
       <button class="sidebar-item" data-ws="analyze">Analyze</button>
+      <button class="sidebar-item" data-ws="streetlight">StreetLight</button>
     </div>
     <div class="sidebar-divider"></div>
     <div class="sidebar-section">
@@ -664,6 +666,7 @@ function openWorkspaceTab(tab, idx) {
     case 'setup': showScreen('setup-screen'); renderPlannedPeriods(); break;
     case 'count': showScreen('counter-screen'); window.goToCountMode?.(); break;
     case 'qaqc': showScreen('intersection-qaqc-screen'); renderIntersectionQaqcScreen(); break;
+    case 'streetlight': showScreen('streetlight-compare-screen'); renderStreetlightCompareScreen(); break;
     // 'charts' kept as an alias of 'analyze' — the two nav items were consolidated
     // into a single screen (see renderSidebarIntersection); both used to open the
     // same ix-analysis-screen with different default sub-tabs, which no longer exist
@@ -675,6 +678,7 @@ function openWorkspaceTab(tab, idx) {
       const backBtn = document.getElementById('btn-ix-analysis-back');
       const openBtn = document.getElementById('btn-ix-open-counter');
       const qaqcOpenBtn = document.getElementById('btn-ix-qaqc-open');
+      const slOpenBtn = document.getElementById('btn-ix-sl-open');
       if (backBtn) {
         backBtn.style.display = '';
         backBtn.textContent = isIxCount ? '← Count' : '← Summary';
@@ -685,6 +689,9 @@ function openWorkspaceTab(tab, idx) {
       // which have no such sidebar entry — have a way to reach QA/QC for the specific
       // intersection currently drilled into (see showIntersectionQaqc()).
       if (qaqcOpenBtn) qaqcOpenBtn.style.display = isIxCount ? 'none' : '';
+      // Same rationale as qaqcOpenBtn immediately above, for the StreetLight comparison
+      // screen — standalone intersections reach it via their own sidebar item instead.
+      if (slOpenBtn) slOpenBtn.style.display = isIxCount ? 'none' : '';
       if (isIxCount) {
         const titleEl = document.getElementById('ix-analysis-title');
         const subEl = document.getElementById('ix-analysis-sub');
@@ -2159,6 +2166,16 @@ document.getElementById('btn-ix-open-counter')?.addEventListener('click', () => 
 document.getElementById('btn-ix-qaqc-open')?.addEventListener('click', () => {
   showIntersectionQaqc(activeIntersectionIdx);
 });
+document.getElementById('btn-ix-sl-open')?.addEventListener('click', () => {
+  // Unlike showIntersectionQaqc(), this never reassigns activeIntersectionIdx — it's only
+  // reachable from ix-analysis-screen, which already has the right intersection loaded as
+  // the "currently drilled into" one, so no flushPendingAutosave()/sidebar-highlight
+  // bookkeeping is needed here (see showIntersectionQaqc()'s header comment for when that
+  // IS needed — an actual idx change).
+  _sidebarActiveItem = `area-ix-${activeIntersectionIdx}`;
+  showScreen('streetlight-compare-screen');
+  renderStreetlightCompareScreen({ areaIdx: activeIntersectionIdx });
+});
 
 document.getElementById('btn-area-begin-review')?.addEventListener('click', () => {
   if (!areaIntersections.length) return;
@@ -3152,6 +3169,10 @@ function serializeIntersectionSnapshot() {
   // re-serialize (autosave, hub tab switch, new sheet import) from wiping out recount
   // data written directly into that snapshot by the area-study QA/QC screen.
   const existingQaqc = (activeIntersectionIdx >= 0 && areaIntersections[activeIntersectionIdx]?.snapshot?.intersectionQaqc) || {};
+  // Same carry-forward rationale as existingQaqc immediately above, for the StreetLight
+  // comparison bucket (see streetlightComparison's header comment) — a routine re-serialize
+  // must never wipe out an already-imported StreetLight file's data.
+  const existingSl = (activeIntersectionIdx >= 0 && areaIntersections[activeIntersectionIdx]?.snapshot?.streetlightComparison) || {};
   return {
     version: 2, projectType: 'intersection', mode,
     vPairs: JSON.parse(JSON.stringify(vPairs)),
@@ -3159,6 +3180,7 @@ function serializeIntersectionSnapshot() {
     fnames: { ...fnames },
     activePeriodIdx,
     intersectionQaqc: existingQaqc,
+    streetlightComparison: existingSl,
     periods: periods.map(p => ({
       name: p.name, cfg: p.data.cfg,
       meta: p.data.meta || {},
@@ -4782,6 +4804,10 @@ function loadProject(proj) {
   Object.assign(intersection, proj.intersection);
   Object.assign(fnames, proj.fnames);
   Object.assign(intersectionQaqc, proj.intersectionQaqc || {});
+  // Reset first (unlike intersectionQaqc above) so switching between projects in the same
+  // session can't leak a previously-loaded project's StreetLight import into a new one.
+  streetlightComparison.blocks = {}; streetlightComparison.sourceFileName = null; streetlightComparison.importedAt = null;
+  Object.assign(streetlightComparison, proj.streetlightComparison || {});
   const ixQaqcReviewerEl = document.getElementById('ix-qaqc-reviewer-name');
   const ixQaqcDateEl = document.getElementById('ix-qaqc-review-date');
   if (ixQaqcReviewerEl) ixQaqcReviewerEl.value = proj.intersectionQaqcReviewerName || '';
@@ -4877,6 +4903,7 @@ function serializeCurrentProject() {
       intersection: JSON.parse(JSON.stringify(intersection)),
       fnames: { ...fnames },
       intersectionQaqc: { ...intersectionQaqc },
+      streetlightComparison: { ...streetlightComparison },
       intersectionQaqcReviewerName: document.getElementById('ix-qaqc-reviewer-name')?.value || '',
       intersectionQaqcReviewDate: document.getElementById('ix-qaqc-review-date')?.value || '',
       activePeriodIdx,
@@ -6089,6 +6116,303 @@ async function renderIntersectionQaqcScreen(snapshotCtx = null) {
     el.addEventListener('click', () => beginIxQaqcRecount(el.dataset.ixqaqcBegin, src));
   });
 }
+
+// ═══════════════════════════════════════════
+// STREETLIGHT COMPARISON — read-only import of a StreetLight Insight TMC peak-hour-table
+// export (`*_tmc_peak_hour_table.xlsx`, parsed by parseStreetlightXlsx.js), shown side by
+// side with the manual count's own closest-matching peak hour.
+//
+// StreetLight sells GPS-derived traffic-volume PROJECTIONS, not real counts — the user's
+// own framing is that individual movement volumes can be off by "a hundred" even after
+// movements are correctly identified. This bucket is therefore never read by, merged into,
+// or used to auto-correct tmcData / the primary count. It exists purely so a reviewer can
+// see where StreetLight's projection and the field count diverge, same cross-check spirit
+// as intersectionQaqc's role (see that section's header comment above) but informational
+// only — there's no pass/fail threshold here, just a visible delta.
+//
+// Storage mirrors intersectionQaqc's dual-source pattern exactly: a standalone/live
+// `streetlightComparison` global for standalone intersection projects, and a
+// `snapshot.streetlightComparison` bucket for area-study children — see
+// slCompareSource()/ixQaqcSource() for the shared shape.
+// ═══════════════════════════════════════════
+const streetlightComparison = { blocks: {}, sourceFileName: null, importedAt: null };
+
+// AM/Midday/PM search ranges — same convention IX_QAQC_WINDOWS/DEFAULT_PEAK_WINDOWS use —
+// for locating the manual count's own peak hour within the day-part StreetLight's block
+// claims to represent.
+const SL_SEARCH_WINDOWS = { AM: [7 * 60, 11 * 60], MD: [11 * 60, 15 * 60], PM: [15 * 60, 19 * 60] };
+
+function slCompareSource(snapshotCtx) {
+  if (snapshotCtx) {
+    const ix = areaIntersections[snapshotCtx.areaIdx];
+    const snap = ix?.snapshot;
+    if (!snap) return null;
+    if (!snap.streetlightComparison) snap.streetlightComparison = { blocks: {}, sourceFileName: null, importedAt: null };
+    return {
+      periods: (snap.periods || []).map(p => ({ name: p.name, data: p })),
+      activePeriodIdx: -1,
+      ctx: { intersection: snap.intersection || intersection, vPairs: snap.vPairs || vPairs, readOnly: true },
+      slStore: snap.streetlightComparison,
+      persist() { persistAreaStudySnapshotsOnly(); },
+    };
+  }
+  return {
+    periods,
+    activePeriodIdx,
+    ctx: { intersection, vPairs, readOnly: false },
+    slStore: streetlightComparison,
+    persist() { window.scheduleAutosave?.(); },
+  };
+}
+
+async function importStreetlightFile(file, src) {
+  const buf = await file.arrayBuffer();
+  const { blocks } = parseStreetlightXlsx(buf);
+  if (!src.slStore.blocks) src.slStore.blocks = {};
+  blocks.forEach((b) => { src.slStore.blocks[b.key] = b; });
+  src.slStore.sourceFileName = file.name;
+  src.slStore.importedAt = new Date().toISOString();
+  src.persist();
+}
+
+// Total turning-movement volume (every approach, every destination, every vehicle class)
+// at one interval slot — used by slDetectPeakStart()'s TMC-based fallback below.
+function slTmcVolumeAtSlot(snap, slotIdx) {
+  let total = 0;
+  const td = snap.tmcData || {};
+  for (const from in td) {
+    for (const to in td[from]) {
+      const arr = td[from][to][slotIdx] || [];
+      total += arr.reduce((a, b) => a + (Number(b) || 0), 0);
+    }
+  }
+  return total;
+}
+
+// ixDetectPeakStart() (defined above, in the QA/QC section) only searches VEHICLE in/out
+// volume (vData) — it silently falls back to returning searchStartMin verbatim whenever
+// vehicle mode isn't active, which is exactly the case for a turning-movement-only project
+// (no vData to search). Confirmed live: a TMC-only test project always matched the search
+// window's literal start time (e.g. "AM Peak" always resolving to 7:00, the window's floor)
+// instead of the intersection's actual busiest hour. Since StreetLight's own export IS
+// turning-movement data, this local wrapper adds a TMC-volume-based peak search as the
+// fallback when vehicle mode/data isn't usable, keeping the two sides' "peak hour" based on
+// the same underlying count type instead of defaulting to a meaningless window boundary.
+async function slDetectPeakStart(snap, ctxVPairs, searchStartMin, searchEndMin) {
+  if (enabledModes.vehicle && ctxVPairs.length) {
+    return ixDetectPeakStart(snap, ctxVPairs, searchStartMin, searchEndMin);
+  }
+  const windowSize = Math.max(1, Math.round(60 / snap.cfg.intervalMin));
+  const startIdxForMin = (m) => Math.round((m - snap.cfg.startMinutes) / snap.cfg.intervalMin);
+  const lo = Math.max(0, startIdxForMin(searchStartMin));
+  const hi = Math.min(snap.cfg.slots - windowSize, startIdxForMin(searchEndMin) - windowSize);
+  if (hi < lo) return searchStartMin;
+  let bestIdx = lo, bestVol = -1;
+  for (let idx = lo; idx <= hi; idx++) {
+    let vol = 0;
+    for (let k = 0; k < windowSize; k++) vol += slTmcVolumeAtSlot(snap, idx + k);
+    if (vol > bestVol) { bestVol = vol; bestIdx = idx; }
+  }
+  return snap.cfg.startMinutes + bestIdx * snap.cfg.intervalMin;
+}
+
+// Picks which manual period + one-hour window best represents the same real-world hour a
+// StreetLight block claims to be (its dayType/peakPeriod) — reuses ixPeriodSnapshot() (the
+// QA/QC section's shared helper) and slDetectPeakStart() immediately above (which itself
+// reuses ixDetectPeakStart() when vehicle data is usable) rather than re-deriving period
+// resolution from scratch.
+// Day-of-week matching is a best-effort heuristic (falls back to period 0 when a period's
+// stored date is missing or doesn't match any weekday) — StreetLight's "Tuesday"/"Wednesday"
+// blocks don't carry an exact calendar date to key off of, only a weekday name.
+async function slMatchManualPeriod(src, block) {
+  if (!src.periods.length) return null;
+  let periodIdx = 0;
+  if (block.dayType !== 'All Days' && src.periods.length > 1) {
+    const found = src.periods.findIndex((p) => {
+      const dateStr = p.data?.meta?.date;
+      if (!dateStr) return false;
+      const d = new Date(dateStr + 'T00:00:00');
+      if (isNaN(d.getTime())) return false;
+      return d.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase() === block.dayType.toLowerCase();
+    });
+    if (found >= 0) periodIdx = found;
+  }
+  const snap = ixPeriodSnapshot(src, periodIdx);
+  if (!snap) return null;
+  const [searchStart, searchEnd] = SL_SEARCH_WINDOWS[block.peakPeriod] || [0, 24 * 60];
+  const startMin = await slDetectPeakStart(snap, src.ctx.vPairs, searchStart, searchEnd);
+  const windowSize = Math.max(1, Math.round(60 / snap.cfg.intervalMin));
+  const startIdx = Math.round((startMin - snap.cfg.startMinutes) / snap.cfg.intervalMin);
+  const inRange = startIdx >= 0 && startIdx + windowSize <= snap.cfg.slots;
+  return { periodIdx, period: src.periods[periodIdx], snap, startMin, startIdx, windowSize, inRange };
+}
+
+// Sums the manual count's own L/T/R totals for one physical approach leg, over
+// [startIdx, startIdx+windowSize) — all vehicle classes combined (StreetLight's table has
+// no per-class breakdown, so this reads the manual side's grand total to match). Reuses
+// classifyTurn() (this app's own, already-audited L/T/R classification — see BUG-023) and
+// looks the movement up BY LABEL (destLeg), never by array position (see BUG-019/020).
+function manualLegMovementTotals(snap, legLetter, startIdx, windowSize) {
+  const totals = { L: 0, T: 0, R: 0 };
+  const legData = (snap.tmcData || {})[legLetter] || {};
+  for (const destLeg in legData) {
+    const cls = classifyTurn(legLetter, destLeg);
+    if (cls !== 'L' && cls !== 'T' && cls !== 'R') continue; // U-turns have no StreetLight counterpart column
+    const slotArr = legData[destLeg] || [];
+    for (let k = 0; k < windowSize; k++) {
+      const arr = slotArr[startIdx + k] || [];
+      totals[cls] += arr.reduce((a, b) => a + (Number(b) || 0), 0);
+    }
+  }
+  return totals;
+}
+
+function slDiffCell(slVal, manualVal) {
+  if (manualVal == null) return '<span style="color:var(--text3)">—</span>';
+  const diff = slVal - manualVal;
+  const sign = diff > 0 ? '+' : '';
+  const color = diff === 0 ? 'var(--text3)' : (diff > 0 ? '#b58900' : '#3a7fc9');
+  return `<span style="color:${color}">${sign}${diff}</span>`;
+}
+
+// Which snapshotCtx the comparison screen is currently showing, and a BUG-022-style
+// generation guard on the shared #streetlight-compare-content container — this render is
+// async (awaits slMatchManualPeriod's peak-hour detection per block) and the screen can be
+// re-entered in quick succession (switching intersections, or right after a fresh import),
+// so a superseded render must never win a stale write over a newer one.
+let slActiveCtx = null;
+let _slCompareRenderGen = 0;
+
+async function renderStreetlightCompareScreen(snapshotCtx = null) {
+  slActiveCtx = snapshotCtx;
+  const myGen = ++_slCompareRenderGen;
+  const root = document.getElementById('streetlight-compare-content');
+  if (!root) return;
+  const src = slCompareSource(snapshotCtx);
+  const fileLabel = document.getElementById('sl-compare-file-label');
+  if (fileLabel) {
+    fileLabel.textContent = src?.slStore?.sourceFileName
+      ? `Imported: ${src.slStore.sourceFileName} (${new Date(src.slStore.importedAt).toLocaleString()})`
+      : 'No StreetLight file imported yet.';
+  }
+  if (!src) { if (myGen === _slCompareRenderGen) root.innerHTML = '<div class="stat-detail">No project loaded.</div>'; return; }
+  const blocks = Object.values(src.slStore.blocks || {});
+  if (!blocks.length) {
+    if (myGen === _slCompareRenderGen) root.innerHTML = '<div class="stat-detail">No StreetLight file imported yet — use "Import StreetLight file" above to load a <code>*_tmc_peak_hour_table.xlsx</code> export.</div>';
+    return;
+  }
+
+  const picker = document.getElementById('sl-compare-block-picker');
+  if (picker) {
+    picker.style.display = blocks.length > 1 ? '' : 'none';
+    const prevVal = picker.value;
+    picker.innerHTML = blocks.map((b) => `<option value="${escapeHtmlMain(b.key)}">${escapeHtmlMain(b.dayType)} — ${escapeHtmlMain(b.peakPeriod)} Peak</option>`).join('');
+    if (blocks.some((b) => b.key === prevVal)) picker.value = prevVal;
+  }
+  const selectedKey = picker && blocks.some((b) => b.key === picker.value) ? picker.value : blocks[0].key;
+  const block = src.slStore.blocks[selectedKey];
+  if (!block) { if (myGen === _slCompareRenderGen) root.innerHTML = '<div class="stat-detail">Block not found.</div>'; return; }
+
+  const match = await slMatchManualPeriod(src, block);
+  if (myGen !== _slCompareRenderGen) return; // a newer render superseded this one — don't clobber its DOM
+
+  const SL_BADGE = '<span style="display:inline-block;font-size:10px;font-weight:700;letter-spacing:.03em;color:#8a5a00;background:#fff3d6;border:1px solid #e8c877;border-radius:3px;padding:1px 5px;margin-right:4px">SL PROJECTION</span>';
+
+  const legRows = block.legs.map((leg) => {
+    const stName = leg.streetName ? ` — ${escapeHtmlMain(leg.streetName)}` : '';
+    const legHeader = `${leg.legLetter ? legLabel(leg.legLetter) : escapeHtmlMain(leg.streetName || leg.key)}${leg.travelDir ? ` (${escapeHtmlMain(leg.travelDir)})` : ''}${stName}`;
+    const iv0 = block.intervals[0];
+    const slVals = block.hourlyTotal?.byLeg?.[leg.key] || iv0.byLeg[leg.key] || { L: 0, T: 0, R: 0 };
+    const slTotal = (slVals.L || 0) + (slVals.T || 0) + (slVals.R || 0);
+    // PHF is StreetLight's own per-MOVEMENT figure (one per L/T/R column), not a single
+    // per-leg number — displaying it as a scalar (an earlier version of this code did) threw
+    // at render time and was also just wrong: each movement can have its own PHF.
+    const slPhfVals = block.phf?.byLeg?.[leg.key] || null;
+    const phfCell = (v) => (v != null && v > 0 ? Number(v).toFixed(2) : '—');
+    const manualVals = (match && match.inRange && leg.legLetter)
+      ? manualLegMovementTotals(match.snap, leg.legLetter, match.startIdx, match.windowSize)
+      : null;
+    const manualTotal = manualVals ? manualVals.L + manualVals.T + manualVals.R : null;
+    const noMatch = !leg.legLetter
+      ? '<div class="stat-detail" style="margin-top:2px">Could not resolve this leg to one of this intersection\'s own approaches — shown as StreetLight-only.</div>'
+      : (!match || !match.inRange ? '<div class="stat-detail" style="margin-top:2px">No matching manual peak hour found in range for this leg.</div>' : '');
+
+    return `
+      <div class="card" style="margin-bottom:14px">
+        <h3 style="font-size:14px">${legHeader}</h3>
+        <table class="crosswalk-table" style="margin-top:6px">
+          <thead><tr><th></th><th>Left</th><th>Thru</th><th>Right</th><th>Total</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>${SL_BADGE}StreetLight (est.)</td>
+              <td style="font-style:italic;color:#8a5a00">${slVals.L ?? 0}</td>
+              <td style="font-style:italic;color:#8a5a00">${slVals.T ?? 0}</td>
+              <td style="font-style:italic;color:#8a5a00">${slVals.R ?? 0}</td>
+              <td style="font-style:italic;color:#8a5a00">${slTotal}</td>
+            </tr>
+            <tr>
+              <td>Manual count</td>
+              <td>${manualVals ? manualVals.L : '—'}</td>
+              <td>${manualVals ? manualVals.T : '—'}</td>
+              <td>${manualVals ? manualVals.R : '—'}</td>
+              <td>${manualTotal != null ? manualTotal : '—'}</td>
+            </tr>
+            <tr>
+              <td style="color:var(--text3)">diff (SL − manual)</td>
+              <td>${slDiffCell(slVals.L || 0, manualVals?.L)}</td>
+              <td>${slDiffCell(slVals.T || 0, manualVals?.T)}</td>
+              <td>${slDiffCell(slVals.R || 0, manualVals?.R)}</td>
+              <td>${slDiffCell(slTotal, manualTotal)}</td>
+            </tr>
+          </tbody>
+        </table>
+        ${slPhfVals ? `<div class="stat-detail" style="margin-top:6px">${SL_BADGE}PHF (StreetLight, per movement) — Left: ${phfCell(slPhfVals.L)} · Thru: ${phfCell(slPhfVals.T)} · Right: ${phfCell(slPhfVals.R)}</div>` : ''}
+        ${noMatch}
+      </div>`;
+  }).join('');
+
+  const matchSummary = match
+    ? (match.inRange
+      ? `Manual comparison hour: <strong>${escapeHtmlMain(match.period.name)}</strong>, ${minToTimeStr(match.startMin)} – ${minToTimeStr(match.startMin + 60)}${block.dayType !== 'All Days' ? ` (closest match to "${escapeHtmlMain(block.dayType)}")` : ''}.`
+      : `No manual peak hour found within the ${escapeHtmlMain(block.peakPeriod)} search window for "${escapeHtmlMain(match.period.name)}" — every leg above is shown StreetLight-only.`)
+    : 'No manual count periods available to compare against.';
+
+  if (myGen !== _slCompareRenderGen) return;
+  root.innerHTML = `
+    <div class="stat-detail" style="margin-bottom:10px;padding:8px 10px;background:#fff3d6;border:1px solid #e8c877;border-radius:4px;color:#6b4d00">
+      ${SL_BADGE}<strong>All StreetLight numbers on this screen are a GPS-derived statistical projection, not a real count.</strong>
+      StreetLight's own accuracy caveat: individual movement volumes can be off by a significant margin even when the movement itself is correctly identified. Use this only as an informational cross-check against the manual count below — never as a substitute for it.
+    </div>
+    <div class="stat-detail" style="margin-bottom:12px">${matchSummary}</div>
+    ${legRows}
+  `;
+}
+window.renderStreetlightCompareScreen = renderStreetlightCompareScreen;
+
+document.getElementById('sl-compare-block-picker')?.addEventListener('change', () => renderStreetlightCompareScreen(slActiveCtx));
+document.getElementById('btn-sl-compare-import')?.addEventListener('click', () => {
+  document.getElementById('sl-compare-file-input')?.click();
+});
+document.getElementById('sl-compare-file-input')?.addEventListener('change', async (e) => {
+  const file = e.target.files?.[0];
+  e.target.value = '';
+  if (!file) return;
+  const errEl = document.getElementById('sl-compare-error');
+  if (errEl) errEl.textContent = '';
+  try {
+    const src = slCompareSource(slActiveCtx);
+    if (!src) throw new Error('No project loaded.');
+    await importStreetlightFile(file, src);
+    await renderStreetlightCompareScreen(slActiveCtx);
+  } catch (err) {
+    console.error('StreetLight import failed:', err);
+    if (errEl) errEl.textContent = `Import failed: ${err.message}`;
+  }
+});
+document.getElementById('btn-sl-compare-to-analyze')?.addEventListener('click', () => {
+  if (slActiveCtx) { showIntersectionAnalysis(slActiveCtx.areaIdx); return; }
+  openWorkspaceTab('analyze');
+});
 
 // Parses a pasted tab-separated table into the {types, intervals} shape parseTripGen.js
 // produces. Handles three common paste layouts:

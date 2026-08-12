@@ -8,6 +8,28 @@ Severity levels:
 
 ---
 
+## BUG-026
+**Status:** Fixed (v3.34.0-alpha.1, caught during required live verification of the new StreetLight comparison feature, before push)
+**Severity:** Minor (wrong-but-plausible-looking output, not a crash — the app never signaled anything was off)
+**Found in:** new (`renderStreetlightCompareScreen()`'s leg card, `src/main.js`)
+**Description:** The StreetLight peak-hour-table PHF row is one value PER MOVEMENT COLUMN (Left/Thru/Right each get their own PHF), not one value per leg — confirmed against the real sample file (`..._tmc_peak_hour_table.xlsx`), e.g. the south leg's row read `[0.95, 0, 0]` for [Left, Thru, Right], not a single number. The first version of the comparison table's "PHF" column tried to call `.toFixed(2)` directly on `block.phf.byLeg[leg.key]`, which is the `{L,T,R}` object, not a number — threw `TypeError: slPhf.toFixed is not a function` on every render once a file was imported, caught immediately by the live-verification pass (real-file import test) rather than shipping silently.
+**Root cause:** Assumed the PHF row had the same one-value-per-leg shape as the Total/Total % row, without checking the parsed data's actual shape before using it.
+**Fix:** Replaced the single "PHF" table column with a caption line below each leg's table listing all three movement PHFs by name ("PHF (StreetLight, per movement) — Left: 0.95 · Thru: — · Right: —"), matching the data's real per-movement granularity instead of forcing it into a per-leg cell.
+**Verified live:** re-imported the real sample file after the fix — all four legs render their correct per-movement PHF values with no console error.
+
+---
+
+## BUG-025
+**Status:** Worked around locally (v3.34.0-alpha.1, caught during required live verification of the new StreetLight comparison feature); the underlying shared function (`ixDetectPeakStart()`) was deliberately left unchanged — see below
+**Severity:** Major (wrong data shown with confidence: a plausible-looking but incorrect "peak hour" match, not a crash)
+**Found in:** pre-existing (`ixDetectPeakStart()`, added for the standalone/area-study QA/QC feature), exposed by the new StreetLight comparison feature
+**Description:** `ixDetectPeakStart()` only searches VEHICLE in/out volume (`vData`) for the busiest hour in a window; when vehicle mode isn't active (`enabledModes.vehicle` false — i.e. a turning-movement-only project, which is a completely normal configuration and exactly the kind of project someone would run a StreetLight TMC comparison against) it silently returns `searchStartMin` verbatim — the search window's literal floor, not an actual detected peak. Reproduced live: a TMC-only test project's "AM Peak" window (7:00–11:00 search range) always matched 7:00–8:00 (the window's start) instead of the intersection's actual busiest hour (9:00–10:00, where the test data was deliberately concentrated), with the StreetLight comparison screen confidently showing the wrong manual-count numbers (all zeros) with no error or warning.
+**Root cause:** `ixDetectPeakStart()` has no fallback for when vehicle data isn't the count type in play — reasonable for its original QA/QC use (QA/QC's per-mode recount already knows which row group it's scoring), but a silent trap for any new caller that needs "the peak hour" for a TMC-only project.
+**Fix:** New local `slDetectPeakStart()` in the StreetLight comparison section of `main.js`: uses `ixDetectPeakStart()` unchanged when vehicle mode/data is usable, otherwise searches `tmcData` volume directly for the busiest hour in the window. Deliberately NOT folded into `ixDetectPeakStart()` itself/QA/QC's own peak search — that would be an unreviewed behavior change to an already-shipped feature outside this task's scope. QA/QC's own TMC-only peak-window search likely has the same gap and should be looked at separately.
+**Verified live:** re-ran the StreetLight comparison against the same TMC-only test project after the fix — "AM Peak" now correctly matches 9:00–10:00 (the intended peak), with StreetLight vs. manual diffs computing to the expected hand-checked values (+20 on one movement, 0 on the rest).
+
+---
+
 ## BUG-024
 **Status:** Fixed (v3.33.0-alpha.1, found while adding the new lat/lng setup fields)
 **Severity:** Minor (data was never lost — only the setup screen's display of it — but two compounding issues, one of which threw on every keystroke)

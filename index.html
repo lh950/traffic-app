@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Traffic App v3.33.0-alpha.1</title>
+<title>Traffic App v3.34.0-alpha.1</title>
 <link rel="manifest" href="./manifest.json">
 <meta name="theme-color" content="#131b23">
 <script>
@@ -117,7 +117,7 @@
   <div class="home-inner">
     <div class="home-wordmark">
       <h1>Traffic App</h1>
-      <div class="home-version">v3.33.0-alpha.1</div>
+      <div class="home-version">v3.34.0-alpha.1</div>
       <button id="home-btn-tour" title="Take the tour" style="margin-left:auto;font-size:12px;color:var(--text3);background:none;border:none;cursor:pointer;text-decoration:underline;flex-shrink:0">Take the tour</button>
       <button id="home-btn-help" title="Help / instructions" style="margin-left:12px;font-size:13px;font-weight:600;color:var(--text3);background:none;border:.5px solid var(--border);border-radius:50%;width:26px;height:26px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">?</button>
     </div>
@@ -185,7 +185,7 @@
     <!-- wordmark -->
     <div style="margin-bottom:2rem">
       <h1 style="font-size:22px;font-weight:500;letter-spacing:-.01em">Traffic App</h1>
-      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v3.33.0-alpha.1</span>
+      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v3.34.0-alpha.1</span>
     </div>
 
     <!-- autosave / resume banner -->
@@ -894,7 +894,7 @@
 
   <header class="counter-header">
     <button id="btn-back-to-project" style="font-size:12px;padding:4px 10px;margin-right:8px">? Project</button>
-    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v3.33.0-alpha.1</span></h1>
+    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v3.34.0-alpha.1</span></h1>
     <div class="hcontrols">
       <div class="mode-toggle" style="display:none">
         <button class="mode-btn active" id="btn-count-mode" onclick="goToCountMode()">count</button>
@@ -1401,10 +1401,33 @@
         </div>
       </div>
       <button id="btn-ix-qaqc-open" style="font-size:12px">QA/QC →</button>
+      <button id="btn-ix-sl-open" style="font-size:12px">StreetLight →</button>
       <button id="btn-ix-open-counter" style="font-size:12px">Open in counter ?</button>
     </div>
   </div>
   <div id="ix-analysis-content"></div>
+</div>
+
+<!-- = STREETLIGHT COMPARISON SCREEN — read-only import of a StreetLight Insight TMC
+     peak-hour-table export, shown side by side with the manual count's closest-matching
+     peak hour. StreetLight sells GPS-derived volume PROJECTIONS, not real counts, so this
+     screen is deliberately labeled as an estimate throughout and never merges into
+     tmcData / the primary count (see src/main.js's STREETLIGHT COMPARISON section). = -->
+<div id="streetlight-compare-screen" class="workspace-screen" style="display:none;min-height:100vh;padding:2rem">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem;flex-wrap:wrap;gap:12px">
+    <h1 style="font-size:22px;font-weight:500">StreetLight comparison <span style="font-size:14px;font-weight:400;color:var(--text2,#6b6960);margin-left:10px">read-only reference, not a count</span></h1>
+    <button id="btn-sl-compare-to-analyze" style="font-size:12px">← back to analysis</button>
+  </div>
+  <div class="card" style="margin-bottom:1.2rem">
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <button class="btn-primary" id="btn-sl-compare-import">Import StreetLight file…</button>
+      <input type="file" id="sl-compare-file-input" accept=".xlsx" style="display:none">
+      <select id="sl-compare-block-picker" style="display:none;font-size:12px;padding:5px 8px"></select>
+      <span id="sl-compare-file-label" style="font-size:12px;color:var(--text3)"></span>
+    </div>
+    <div id="sl-compare-error" style="font-size:12px;color:#c33;margin-top:6px"></div>
+  </div>
+  <div id="streetlight-compare-content"></div>
 </div>
 
 <!-- = CSV AI IMPORT SCREEN = -->
