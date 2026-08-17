@@ -1,5 +1,8 @@
 import * as data from './dataAdapter.js';
-import { renderMultiSeriesBarChart } from './charts.js';
+import { renderMultiSeriesBarChart, renderStackedBarChart } from './charts.js';
+import { weekdayShort, dateLabelWithWeekday } from './dateUtils.js';
+import { intervalBar, pctOfPeakCell } from './intervalDetail.js';
+import { runVehicleQA, renderQASection } from '../../qa.js';
 
 // Trip generation view — one entry per uploaded TripGenData.xlsx-style file (one physical
 // location: driveway/parking lot/storage lot/etc, all part of one site), each containing
@@ -175,6 +178,210 @@ async function resolvePeak(parsed, intervalMinutes, window) {
   return data.peakHourInWindow(parsed.intervals, intervalMinutes, window.searchStartMin, window.searchEndMin, 'vehicle');
 }
 
+// ── Volume by classification: switchable-grouping stacked chart ─────────────────────────
+// Trip Gen's counterpart to main.js's renderVehicleClassStackedSection()/
+// classSeriesFromVehParsed()/classSeriesAcrossPeriods() — stacked by raw CLASSIFICATION,
+// not the categoryMap *group* rollup shown in the "Volume by classification" table above
+// (that's a separate, already-existing rollup — not duplicated here). Same five-groupings
+// idea, adapted to Trip Gen's own peak-window concept (AM/Midday/PM weekday, or Weekend
+// peak 1/2/3) in place of the intersection side's generic "study period".
+const TG_CLASS_CHART_GROUPINGS = [
+  { key: 'bin', label: '15-min interval' },
+  { key: 'hourly', label: 'Hourly' },
+  { key: 'day', label: 'Day' },
+  { key: 'dow', label: 'Day of week' },
+  { key: 'peak', label: 'Peak window' },
+];
+
+// 'bin'/'hourly' only use this day's own parsed data — mirrors main.js's
+// classSeriesFromVehParsed(); kept as a local copy rather than importing that function
+// since main.js is the app entry point that imports THIS module (importing back would be
+// circular) — Trip Gen's day.parsed carries the identical
+// { types, intervals: [{ inbound, outbound }] } shape as vehParsed, so the logic is
+// intentionally identical.
+function classSeriesFromTgParsed(parsed, mode) {
+  const { types, intervals } = parsed;
+  if (!types.length || !intervals.length) return { labels: [], series: [] };
+
+  if (mode === 'hourly') {
+    const order = [];
+    const buckets = new Map();
+    intervals.forEach((iv) => {
+      const key = `${(iv.start || '00:00').split(':')[0]}:00`;
+      if (!buckets.has(key)) { buckets.set(key, types.map(() => 0)); order.push(key); }
+      const arr = buckets.get(key);
+      types.forEach((_, ci) => { arr[ci] += (iv.inbound[ci] || 0) + (iv.outbound[ci] || 0); });
+    });
+    return {
+      labels: order,
+      series: types.map((label, ci) => ({ label, values: order.map((k) => buckets.get(k)[ci]) })),
+    };
+  }
+
+  return {
+    labels: intervals.map((iv) => iv.label || `${iv.start}–${iv.end}`),
+    series: types.map((label, ci) => ({
+      label,
+      values: intervals.map((iv) => (iv.inbound[ci] || 0) + (iv.outbound[ci] || 0)),
+    })),
+  };
+}
+
+// 'day'/'dow'/'peak' groupings across a location's multiple day-sheets (entry.days). Matches
+// classes BY LABEL, not array position — a different day-sheet can carry a different
+// classification set/order, same BUG-019/BUG-020 discipline as the intersection side.
+async function classSeriesAcrossTgDays(days, mode, peakWindows) {
+  const groupTotalsMap = new Map(); // group key -> Map(class label -> total)
+  const groupOrderRaw = [];
+  const groupLabels = new Map();
+
+  function addToGroup(key, groupLabel, parsed, startIdx, endIdx) {
+    if (!groupTotalsMap.has(key)) { groupTotalsMap.set(key, new Map()); groupOrderRaw.push(key); groupLabels.set(key, groupLabel); }
+    const classMap = groupTotalsMap.get(key);
+    const lo = startIdx == null ? 0 : startIdx;
+    const hi = endIdx == null ? parsed.intervals.length - 1 : endIdx;
+    parsed.types.forEach((label, ci) => {
+      let sum = 0;
+      for (let i = lo; i <= hi; i++) {
+        const iv = parsed.intervals[i];
+        sum += (iv.inbound[ci] || 0) + (iv.outbound[ci] || 0);
+      }
+      classMap.set(label, (classMap.get(label) || 0) + sum);
+    });
+  }
+
+  if (mode === 'peak') {
+    for (const day of days) {
+      const { parsed, dayType } = day;
+      const intervalMinutes = inferIntervalMinutes(parsed.intervals);
+      for (const w of (peakWindows[dayType] || [])) {
+        const peak = await resolvePeak(parsed, intervalMinutes, w);
+        if (peak.startIdx < 0) continue;
+        addToGroup(w.label, w.label, parsed, peak.startIdx, peak.endIdx);
+      }
+    }
+  } else {
+    for (const day of days) {
+      let key, groupLabel;
+      if (mode === 'dow') {
+        key = weekdayShort(day.date) || 'No date';
+        groupLabel = key;
+      } else { // 'day'
+        key = day.date || 'No date';
+        groupLabel = key === 'No date' ? key : dateLabelWithWeekday(key);
+      }
+      addToGroup(key, groupLabel, day.parsed, null, null);
+    }
+  }
+
+  let groupOrder;
+  if (mode === 'day') {
+    groupOrder = [...groupOrderRaw].sort((a, b) => (a === 'No date' ? 1 : b === 'No date' ? -1 : a.localeCompare(b)));
+  } else if (mode === 'dow') {
+    const dowRank = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6, 'No date': 7 };
+    groupOrder = [...groupOrderRaw].sort((a, b) => (dowRank[a] ?? 8) - (dowRank[b] ?? 8));
+  } else {
+    groupOrder = groupOrderRaw; // 'peak' — keep encounter order (AM/Midday/PM as configured)
+  }
+
+  const labelTotals = new Map();
+  groupOrder.forEach((key) => {
+    for (const [label, val] of groupTotalsMap.get(key)) labelTotals.set(label, (labelTotals.get(label) || 0) + val);
+  });
+  const classLabels = [...labelTotals.keys()];
+  return {
+    labels: groupOrder.map((key) => groupLabels.get(key)),
+    series: classLabels.map((label) => ({
+      label,
+      values: groupOrder.map((key) => groupTotalsMap.get(key).get(label) || 0),
+    })),
+  };
+}
+
+// `container` is a placeholder div unique to this one day-block (see the
+// data-tg-classchart wiring in renderTripGenSection below — mirrors BUG-017's discipline:
+// no ids shared across simultaneously-mounted day blocks), rebuilt fresh on every full
+// renderTripGenSection() repaint, so the grouping toggle state below lives only as long as
+// this one render call.
+function renderTgClassStackedSection(container, { parsed, days, dayType, peakWindows }) {
+  let grouping = 'bin';
+
+  async function paint() {
+    const chartRoot = container.querySelector('.tg-vcls-chart-root');
+    if (!chartRoot) return;
+    const { labels, series } = (grouping === 'bin' || grouping === 'hourly')
+      ? classSeriesFromTgParsed(parsed, grouping)
+      : await classSeriesAcrossTgDays(days, grouping, peakWindows);
+    if (!labels.length || !series.length) {
+      chartRoot.innerHTML = '<div style="color:var(--text2);font-size:13px;padding:10px 0">No classification data available for this grouping.</div>';
+      return;
+    }
+    chartRoot.innerHTML = renderStackedBarChart({ labels, series });
+  }
+
+  container.innerHTML = `
+    <div class="tg-vcls-toolbar dataset-tabs no-print" style="margin-bottom:12px">
+      ${TG_CLASS_CHART_GROUPINGS.map((g, i) => `<button class="dataset-tab tg-vcls-grp-btn${i === 0 ? ' active' : ''}" data-grp="${g.key}">${escapeHtml(g.label)}</button>`).join('')}
+    </div>
+    <div class="tg-vcls-chart-root"></div>
+  `;
+  container.querySelectorAll('.tg-vcls-grp-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      container.querySelectorAll('.tg-vcls-grp-btn').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      grouping = btn.dataset.grp;
+      paint();
+    });
+  });
+  paint();
+}
+
+// ── Interval Detail table with "% of peak hour" column ───────────────────────────────────
+// Trip Gen's counterpart to main.js's buildIntervalDetailMarkup()/pctOfPeakCell(). Trip Gen
+// has up to 3 named peak windows per day type (AM/Midday/PM weekday, or Weekend peak 1/2/3)
+// rather than one generic peak hour, so each interval's %-of-peak-hour is computed against
+// whichever of that day's already-resolved peak windows actually contains it (an interval
+// outside every window shows "—", same as the intersection side). Reuses resolvePeak() —
+// the same peak detection already driving the "Peak periods" card above — rather than
+// re-detecting peaks with new logic.
+async function buildTgIntervalDetailMarkup(day, peakWindows) {
+  const { parsed, dayType } = day;
+  const { intervals } = parsed;
+  const intervalMinutes = inferIntervalMinutes(intervals);
+  const totals = intervals.map((iv) => iv.inbound.reduce((a, b) => a + (b || 0), 0) + iv.outbound.reduce((a, b) => a + (b || 0), 0));
+  const maxT = Math.max(...totals, 1);
+
+  const resolvedPeaks = [];
+  for (const w of (peakWindows[dayType] || [])) {
+    const peak = await resolvePeak(parsed, intervalMinutes, w);
+    if (peak.startIdx >= 0) resolvedPeaks.push({ ...peak, label: w.label });
+  }
+  const peakForIdx = (i) => resolvedPeaks.find((p) => i >= p.startIdx && i <= p.endIdx);
+
+  const rows = intervals.map((iv, i) => {
+    const p = peakForIdx(i);
+    return `
+      <tr class="ix-tr${p ? ' ix-tr-peak' : ''}">
+        <td class="ix-td ix-td-time">${iv.start}–${iv.end}</td>
+        <td class="ix-td ix-td-num ix-td-bold">${totals[i].toLocaleString()}</td>
+        <td class="ix-td" style="font-size:11px;color:var(--text3)">${p ? escapeHtml(p.label) : ''}</td>
+        <td class="ix-td ix-td-num">${pctOfPeakCell(i, totals, p)}</td>
+        <td class="ix-td ix-td-bar">${intervalBar(totals[i], maxT)}</td>
+      </tr>`;
+  }).join('');
+
+  return `
+    <details class="interval-detail">
+      <summary class="interval-detail-summary">Show all ${intervals.length} interval${intervals.length !== 1 ? 's' : ''}</summary>
+      <div class="interval-detail-wrap">
+        <table class="ix-table">
+          <thead><tr><th class="ix-th">Interval</th><th class="ix-th ix-th-r">Total (in+out)</th><th class="ix-th">Peak window</th><th class="ix-th ix-th-r">% of peak hour</th><th class="ix-th"></th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </details>`;
+}
+
 function renderPeakWindowRangeControls(dayType, peakWindows) {
   return peakWindows[dayType].map((w, i) => `
     <div style="display:flex;align-items:center;gap:6px;font-size:12px;flex-wrap:wrap">
@@ -192,10 +399,11 @@ function renderPeakWindowRangeControls(dayType, peakWindows) {
   `).join('');
 }
 
-async function renderDayBlock(entry, day, ctx) {
+async function renderDayBlock(entry, day, dayIdx, ctx) {
   const { parsed, sheetName, dayType } = day;
   const { categoryMap, peakWindows, qaqc, entryId, siteInfo, dataView } = ctx;
   const intervalMinutes = inferIntervalMinutes(parsed.intervals);
+  const dayKey = `${entryId}__${dayIdx}`; // unique per entry+day, for the placeholder-div ids wired post-render below (BUG-017 discipline — no ids shared across simultaneously-mounted day blocks)
 
   const dayTotalsArr = dataView === 'balanced' ? await balancedDayTotalsByType(parsed) : dayTotalsByType(parsed);
   const rawDayTotalsArr = dayTotalsByType(parsed); // always needed for trip-rate denominators below
@@ -278,9 +486,19 @@ async function renderDayBlock(entry, day, ctx) {
     `
     : '';
 
+  // Weekday alongside the day's date — reuses dateLabelWithWeekday() (see header comment
+  // at the top of this module's imports), never re-derives the weekday. sheetName is often
+  // already a full formatted date for live-counted/pasted entries (formatDateLong(), which
+  // includes the weekday) — the short "Tue 8/11" form is still shown alongside it for a
+  // quick scan, and is the ONLY place the weekday appears for XLSX imports (sheetName there
+  // is the source sheet name, e.g. "WKDY 1", which carries no weekday at all).
+  const weekdayHeaderBit = day.date ? ` — ${dateLabelWithWeekday(day.date)}` : '';
+
+  const intervalDetailHTML = await buildTgIntervalDetailMarkup(day, peakWindows);
+
   return `
     <div class="section" style="margin-bottom:1.5rem">
-      <h3 style="font-size:13px;color:var(--text2);margin-bottom:10px">${escapeHtml(sheetName)} (${dayType})</h3>
+      <h3 style="font-size:13px;color:var(--text2);margin-bottom:10px">${escapeHtml(sheetName)}${weekdayHeaderBit} (${dayType})</h3>
       ${cameraImageHTML}
       ${tripRateHTML}
       <div class="card" style="margin-bottom:14px">
@@ -302,6 +520,19 @@ async function renderDayBlock(entry, day, ctx) {
           <tfoot><tr style="font-weight:600"><td>Day total — all classifications</td><td>${fmt(dayTotal)}</td></tr></tfoot>
         </table>
         ${chartHTML}
+      </div>
+      <div class="card" style="margin-bottom:14px">
+        <h3>Volume by classification — stacked, by grouping</h3>
+        <div class="stat-detail" style="margin-bottom:10px">Stacked by raw classification (not the group rollup above). "Day"/"Day of week"/"Peak window" groupings combine this location's other counted days.</div>
+        <div class="tg-vcls-root" data-tg-classchart="${dayKey}"></div>
+      </div>
+      <div class="section no-print" style="margin-bottom:14px">
+        <div class="section-head"><h2 style="font-size:14px;font-weight:600;margin:0">Interval detail</h2></div>
+        ${intervalDetailHTML}
+      </div>
+      <div class="section no-print" style="margin-bottom:14px">
+        <div class="section-head"><h2 style="font-size:14px;font-weight:600;margin:0">Data quality</h2></div>
+        <div class="tg-qa-root" data-tg-qa="${dayKey}"></div>
       </div>
     </div>
   `;
@@ -445,6 +676,83 @@ export async function computePeakVolumes(entries, peakWindows) {
   return volumes;
 }
 
+// ── Fixed-window report across all locations ─────────────────────────────────────────────
+// Trip Gen's counterpart to main.js's fixedWindowForIntersection()/fixedWindowSectionHtml()/
+// wireFixedWindowInputs() (the area-study Aggregate view's fixed-window picker) — pick one
+// clock-time window and see every LOCATION's classification volume for exactly that window,
+// not each location's own detected peak. Adapted to Trip Gen's entries/days/classifications
+// shape instead of areaIntersections/vPairs. Matches classes BY LABEL, not array position
+// (BUG-019/BUG-020 discipline — a different day-sheet can carry a different classification
+// set/order), and shows an explicit "no data" state when a location's counted day(s) don't
+// cover the requested window, rather than a silent zero.
+function fixedWindowForEntry(entry, startMin, endMin) {
+  for (const day of entry.days) {
+    const { parsed } = day;
+    if (!parsed.intervals.length) continue;
+    const intervalMinutes = inferIntervalMinutes(parsed.intervals);
+    const dayStartMin = toMin(parsed.intervals[0].start);
+    const slots = parsed.intervals.length;
+    const dayEndMin = dayStartMin + slots * intervalMinutes;
+    if (!(dayStartMin <= startMin && dayEndMin >= endMin)) continue;
+    const startIdx = Math.round((startMin - dayStartMin) / intervalMinutes);
+    const windowSize = Math.max(1, Math.round((endMin - startMin) / intervalMinutes));
+    if (startIdx < 0 || startIdx + windowSize > slots) continue;
+
+    let total = 0;
+    const byLabel = new Map();
+    parsed.types.forEach((label, ci) => {
+      let sum = 0;
+      for (let k = 0; k < windowSize; k++) {
+        const iv = parsed.intervals[startIdx + k];
+        sum += (iv.inbound[ci] || 0) + (iv.outbound[ci] || 0);
+      }
+      if (sum) byLabel.set(label, (byLabel.get(label) || 0) + sum);
+      total += sum;
+    });
+    return { noData: false, dayLabel: day.sheetName, total, byLabel };
+  }
+  return { noData: true };
+}
+
+function fixedWindowTripgenTableHtml(entries, startMin, endMin) {
+  const fmtN = (n) => n.toLocaleString();
+  if (endMin <= startMin) {
+    return '<div class="stat-detail" style="color:var(--bad-text)">End time must be after start time.</div>';
+  }
+  if (!entries.length) {
+    return '<div class="stat-detail">No locations counted yet.</div>';
+  }
+  const rows = entries.map((entry) => {
+    const r = fixedWindowForEntry(entry, startMin, endMin);
+    const name = escapeHtml(entry.locationLabel || 'Location');
+    if (r.noData) {
+      return `<tr><td>${name}</td><td colspan="2" style="color:var(--text3)">No data for this window — no counted day covers ${minToTimeInput(startMin)}–${minToTimeInput(endMin)}.</td></tr>`;
+    }
+    const breakdown = [...r.byLabel.entries()].map(([label, v]) => `${escapeHtml(label)}: ${fmtN(v)}`).join(' · ');
+    return `<tr><td>${name}</td><td style="color:var(--text3)">${escapeHtml(r.dayLabel)}</td><td style="text-align:right;font-weight:600">${fmtN(r.total)}<div style="font-weight:400;font-size:11px;color:var(--text3)">${breakdown}</div></td></tr>`;
+  }).join('');
+  return `
+    <div style="overflow-x:auto">
+      <table class="crosswalk-table">
+        <thead><tr><th>Location</th><th>Day used</th><th style="text-align:right">Volume (in+out)</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
+function fixedWindowTripgenSectionHtml(entries, startMin, endMin) {
+  return `
+    <div class="card" style="margin-bottom:14px">
+      <h3>Fixed-window report</h3>
+      <div class="stat-detail" style="margin-bottom:10px">Pick one clock-time window and see every location's volume for exactly that window — not each location's own detected peak hour. Useful for a common cross-site window rather than each site's independently detected peak.</div>
+      <div class="card-grid no-print" style="margin-bottom:10px;grid-template-columns:repeat(2,minmax(120px,160px))">
+        <div class="setup-field"><label>window start</label><input type="time" data-tg-fixedwin="start" value="${minToTimeInput(startMin)}"></div>
+        <div class="setup-field"><label>window end</label><input type="time" data-tg-fixedwin="end" value="${minToTimeInput(endMin)}"></div>
+      </div>
+      <div data-tg-fixedwin-table>${fixedWindowTripgenTableHtml(entries, startMin, endMin)}</div>
+    </div>`;
+}
+
 export async function renderTripGenSection(container, entries, ctx) {
   if (entries.length === 0) { container.innerHTML = ''; return; }
   const { siteInfo, categoryMap, dataView } = ctx;
@@ -468,8 +776,12 @@ export async function renderTripGenSection(container, entries, ctx) {
 
   const qaqcSectionHTML = await renderQaqcSection(entries, ctx);
 
+  const fixedWinStartMin = ctx.fixedWindowStartMin ?? (8 * 60);
+  const fixedWinEndMin = ctx.fixedWindowEndMin ?? (9 * 60);
+  const fixedWindowHTML = fixedWindowTripgenSectionHtml(entries, fixedWinStartMin, fixedWinEndMin);
+
   const locationBlocks = await Promise.all(entries.map(async (entry) => {
-    const dayBlocks = await Promise.all(entry.days.map((d) => renderDayBlock(entry, d, { ...ctx, entryId: entry.id })));
+    const dayBlocks = await Promise.all(entry.days.map((d, di) => renderDayBlock(entry, d, di, { ...ctx, entryId: entry.id })));
     const meta = entry.meta || {};
     return `
       <div class="card" style="margin-bottom:14px">
@@ -499,6 +811,8 @@ export async function renderTripGenSection(container, entries, ctx) {
         </tbody>
       </table>
     </div>
+
+    ${fixedWindowHTML}
 
     <div class="section" style="margin-bottom:1.5rem">
       <div class="section-head"><h2>QA/QC</h2></div>
@@ -541,4 +855,36 @@ export async function renderTripGenSection(container, entries, ctx) {
   container.querySelectorAll('[data-view-field]').forEach((el) => {
     el.addEventListener('click', () => ctx.onDataViewChange(el.dataset.viewField));
   });
+
+  // Fixed-window report inputs — 'change' (not 'input') so a partially-typed time doesn't
+  // trigger a re-render mid-edit; re-render is a full renderTripGenSection() pass via the
+  // ctx callback (same convention as the peak-window/site-info fields above), which recomputes
+  // fixedWindowForEntry() for every location fresh, so a window change always re-sums
+  // correctly rather than reusing stale per-location totals.
+  container.querySelectorAll('[data-tg-fixedwin]').forEach((el) => {
+    el.addEventListener('change', () => {
+      const startEl = container.querySelector('[data-tg-fixedwin="start"]');
+      const endEl = container.querySelector('[data-tg-fixedwin="end"]');
+      ctx.onFixedWindowChange?.(toMin(startEl.value || minToTimeInput(fixedWinStartMin)), toMin(endEl.value || minToTimeInput(fixedWinEndMin)));
+    });
+  });
+
+  // Post-hoc wiring for the two placeholder-div sections in each day block — both need a
+  // live DOM container (renderTgClassStackedSection wires its own click handlers;
+  // renderQASection just writes findings markup), so they're painted here after the full
+  // innerHTML write above rather than inlined as strings, same pattern main.js uses for its
+  // own renderVehicleClassStackedSection()/paintQA() post-render calls.
+  for (const entry of entries) {
+    entry.days.forEach((day, di) => {
+      const dayKey = `${entry.id}__${di}`;
+      const classChartEl = container.querySelector(`[data-tg-classchart="${dayKey}"]`);
+      if (classChartEl) {
+        renderTgClassStackedSection(classChartEl, { parsed: day.parsed, days: entry.days, dayType: day.dayType, peakWindows: ctx.peakWindows });
+      }
+      const qaEl = container.querySelector(`[data-tg-qa="${dayKey}"]`);
+      if (qaEl) {
+        renderQASection(qaEl, runVehicleQA(day.parsed));
+      }
+    });
+  }
 }

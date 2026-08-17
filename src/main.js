@@ -61,6 +61,8 @@ import JSZip from 'jszip';
 import { printSummaryReport, printIntersectionReport } from './printPedReport.js';
 import { buildVolumeProfileSVG, buildCrosswalkBarSVG, buildChartLegend, dirSplitBar, CW_COLORS } from './chartUtils.js';
 import { renderTripGenSection, DEFAULT_PEAK_WINDOWS, computePeakVolumes } from './analysis/ui/tripgenSection.js';
+import { weekdayShort, dateLabelWithWeekday } from './analysis/ui/dateUtils.js';
+import { intervalBar, pctOfPeakCell } from './analysis/ui/intervalDetail.js';
 
 import {
   addClassification as tgAddClassification, beginCounting as tgBeginCounting,
@@ -1245,27 +1247,9 @@ function filterTmcParsedByIndices(parsed, indices) {
   };
 }
 
-// Safe 'YYYY-MM-DD' -> weekday parsing. Deliberately NOT `new Date(dateStr)` — passing a
-// plain date string to the Date constructor parses it as UTC midnight, which shifts to the
-// PREVIOUS calendar day once rendered in any timezone west of UTC (all of the US). Splitting
-// into y/m/d and constructing via `new Date(y, m-1, d)` uses local-time components instead,
-// so the weekday always matches the date as printed. Verified by hand against a real
-// calendar: 2026-08-11 -> Tuesday (not Monday/Wednesday off-by-one). Same style of pitfall
-// as BUG-023 (direction convention trusted without checking against a concrete example).
-const WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-function weekdayShort(dateStr) {
-  if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return '';
-  const [y, m, d] = dateStr.split('-').map(Number);
-  return WEEKDAY_SHORT[new Date(y, m - 1, d).getDay()];
-}
-// "Tue 8/11" style — weekday + M/D, no leading zeros, no year. Falls back to the raw string
-// (or '') if it isn't a plain YYYY-MM-DD, e.g. missing/malformed dates.
-function dateLabelWithWeekday(dateStr) {
-  const wd = weekdayShort(dateStr);
-  if (!wd) return dateStr || '';
-  const [y, m, d] = dateStr.split('-').map(Number);
-  return `${wd} ${m}/${d}`;
-}
+// weekdayShort() / dateLabelWithWeekday() now live in analysis/ui/dateUtils.js (imported
+// above) — shared with Trip Gen's Analyze screen so weekday derivation never drifts between
+// the two (see BUGS.md pitfall note preserved there).
 
 // ── Analyze: vehicle-class stacked bar chart ─────────────────────────────────
 // New, additive alongside the existing "volume by interval" chart in
@@ -1571,20 +1555,9 @@ async function renderAnalyzePeriodContent(root, vehParsed, pedParsed, tmcParsed,
 // fully available via the <details> expand toggle. Shared by every analyze
 // context (live and snapshot) since it only touches the already-normalized
 // vehParsed/pedParsed/tmcParsed shapes, never global/live state directly.
-function intervalBar(val, max, w = 84) {
-  const px = max > 0 ? Math.max(2, Math.round((val / max) * w)) : 2;
-  return `<div class="ix-bar-wrap"><div class="ix-bar" style="width:${px}px"></div></div>`;
-}
-// Builds the "% of peak hour" cell text for interval i, given the study's already-detected
-// peak-hour window (from analysisData.peakHour — the same rolling-hour search the Summary
-// section's "Peak hour" stat card already uses for this period, per BUGS.md discipline
-// against inventing a second peak-detection algorithm). Intervals outside the window show
-// an em dash rather than a percentage against a different (non-peak) hour — keeps the
-// column unambiguous: every non-dash figure sums to ~100% across the peak hour's own rows.
-function pctOfPeakCell(i, totals, peak) {
-  if (!peak || peak.startIdx < 0 || i < peak.startIdx || i > peak.endIdx || !peak.volume) return '—';
-  return `${Math.round((totals[i] / peak.volume) * 1000) / 10}%`;
-}
+// intervalBar() / pctOfPeakCell() now live in analysis/ui/intervalDetail.js (imported
+// above) — shared with Trip Gen's new Interval Detail table so the "% of peak hour" formula
+// never drifts between the two.
 
 // Pure — computes the markup string without touching the DOM, so callers can await it
 // and check a staleness guard before writing (see paintInterval() in
@@ -5508,6 +5481,11 @@ const tripgenQaqc = {};
 const tripgenEntries = [];
 let tripgenDataView = 'raw';
 let tripgenNextId = 1;
+// Fixed-window report state for Trip Gen's combined view (item 4 — mirrors
+// fixedWindowStartMin/fixedWindowEndMin below, which are the intersection/area-study
+// equivalent). Not persisted across save/load, matching that side's own behavior.
+let tripgenFixedWindowStartMin = 8 * 60;   // 8:00
+let tripgenFixedWindowEndMin = 9 * 60;     // 9:00
 let tripgenDistribution = []; // [{id, name, allocs: {[dayType__peakLabel]: {pctIn, pctOut}}}]
 let tripgenDistNextId = 1;
 
@@ -6900,6 +6878,13 @@ async function rerenderTripgenAnalysis() {
       rerenderTripgenAnalysis();
     },
     onDataViewChange: (view) => { tripgenDataView = view; rerenderTripgenAnalysis(); },
+    fixedWindowStartMin: tripgenFixedWindowStartMin,
+    fixedWindowEndMin: tripgenFixedWindowEndMin,
+    onFixedWindowChange: (startMin, endMin) => {
+      tripgenFixedWindowStartMin = startMin;
+      tripgenFixedWindowEndMin = endMin;
+      rerenderTripgenAnalysis();
+    },
   });
 }
 
