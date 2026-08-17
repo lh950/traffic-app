@@ -40,6 +40,60 @@
   --ped4:#90aaf0;--ped4-bg:#0a1233;--ped4-bd:#2255cc;
   --ped5:#d890b8;--ped5-bg:#2a0818;--ped5-bd:#8a1a5a;
 }}
+
+/* ── PER-PROJECT-TYPE ACCENT FAMILIES ──
+   Each project type re-colors only the shared accent/interactive tokens
+   (--accent/--on-accent + the --blue-* family used throughout for active
+   states, badges, links, focus rings). Base surface/text/border tokens are
+   untouched so the app still reads as one product.
+
+   Family logic: intersection (single TMC/turning-movement count), area
+   (corridor study = a collection of intersections) and parking (a physical-
+   location field count, same as the other two) share one blue hue at three
+   shades — light blue → dark blue → a teal-shifted "steel" blue for parking,
+   chosen (a judgment call, since the task didn't specify Parking) so it
+   still reads as the same blue family without looking like an ambiguous
+   half-way blend between the other two shades. Trip Gen is a conceptually
+   different kind of study (site trip generation, not a location field
+   count) and gets its own hue entirely: violet/purple.
+
+   No project-type class present (e.g. home screen, before a project type
+   is chosen) falls back to the original neutral amber :root accent above. */
+body.project-type-intersection{
+  --accent:#1F6BC2;--on-accent:#ffffff;
+  --blue-bg:#E8F1FC;--blue-text:#1D5FA8;--blue-border:#4A90D9;
+}
+body.project-type-area{
+  --accent:#1A4A85;--on-accent:#ffffff;
+  --blue-bg:#E4EBF5;--blue-text:#0F3565;--blue-border:#2A5490;
+}
+body.project-type-parking{
+  --accent:#3F7A8C;--on-accent:#ffffff;
+  --blue-bg:#E6F0F1;--blue-text:#265C6B;--blue-border:#4F8B9C;
+}
+body.project-type-tripgen{
+  --accent:#7C4FC4;--on-accent:#ffffff;
+  --blue-bg:#F3EEFC;--blue-text:#5B3494;--blue-border:#8B5FC9;
+}
+@media(prefers-color-scheme:dark){
+  body.project-type-intersection{
+    --accent:#5B9BE0;--on-accent:#0A1622;
+    --blue-bg:#132A40;--blue-text:#7FB3EC;--blue-border:#3D6FA0;
+  }
+  body.project-type-area{
+    --accent:#5488C8;--on-accent:#0A0F18;
+    --blue-bg:#101E30;--blue-text:#6C9AD8;--blue-border:#2C4E7C;
+  }
+  body.project-type-parking{
+    --accent:#5FA0B0;--on-accent:#081418;
+    --blue-bg:#132428;--blue-text:#7FBAC9;--blue-border:#3D7684;
+  }
+  body.project-type-tripgen{
+    --accent:#A47DDB;--on-accent:#140A22;
+    --blue-bg:#241833;--blue-text:#C3A3E8;--blue-border:#6D4A9E;
+  }
+}
+
 body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:100vh}
 
 /* ── FOCUS BANNER ── */

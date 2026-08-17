@@ -541,6 +541,9 @@ function enterWorkspace() {
   // only meaningful for standalone intersection projects, so hide them for area studies
   // to avoid two disconnected lat/lng entry points for the same intersection.
   document.body.classList.toggle('project-type-area', projectType === 'area');
+  document.body.classList.toggle('project-type-intersection', projectType === 'intersection');
+  document.body.classList.toggle('project-type-tripgen', projectType === 'tripgen');
+  document.body.classList.toggle('project-type-parking', projectType === 'parking');
 }
 
 function exitWorkspace() {

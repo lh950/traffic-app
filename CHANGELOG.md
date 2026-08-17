@@ -1,5 +1,18 @@
 # Changelog
 
+## v3.42.0-alpha.1 — 2026-08-17
+
+### Added
+- **Distinct accent color per project type, in logical families.** Each project type now re-colors the app's shared accent tokens (`--accent`/`--on-accent`/`--blue-bg`/`--blue-text`/`--blue-border` — the tokens already used throughout for active buttons/tabs, badges, links, and focus states) via a `body.project-type-X` class, toggled in `enterWorkspace()` alongside the pre-existing `project-type-area` toggle. Base surface/text/border colors are untouched, so only accents shift — the app still reads as one product. Works correctly in both light and OS dark mode.
+  - **Intersection** (single TMC/turning-movement count) — light blue.
+  - **Area / corridor study** (a collection of intersections) — dark blue, same family as intersection, one shade darker (a corridor study is a collection of intersections — related domains).
+  - **Trip Gen** (site trip generation) — violet/purple, a deliberately different hue, since it's a conceptually distinct study type from the other three.
+  - **Parking** — a teal-shifted third shade of the blue family (judgment call: folded in with intersection/area since it's also a physical-location field count, not given its own hue; shifted toward teal rather than sitting exactly between the other two shades so it doesn't read as an ambiguous in-between blue). Parking's home-screen entry is currently hidden pending design, so this isn't reachable through normal navigation yet, but the styling and body-class toggle are wired and verified.
+  - Exact color values and the full reasoning are recorded in `DEVLOG.md`'s v3.42.0-alpha.1 entry.
+
+### Verification
+Live in the browser (dev server): navigated the real home-screen cards for Intersection, Area-wide study, and Trip generation count, confirming via `document.body.className` and `getComputedStyle` that each applied the correct class and computed accent token values, in both light mode and OS-forced dark mode. Confirmed base tokens (background, text, border) stayed identical across all four project types in both modes. Confirmed the intersection/area "family" relationship and parking's third-shade distinctness read correctly side by side, and that Trip Gen's violet is clearly a different hue, not a blue variant. Every accent/on-accent and blue-text/blue-bg color pair passed a WCAG 4.5:1 contrast check (two initial candidates failed and were adjusted before landing on the final values). No console errors beyond the pre-existing, unrelated Vite HMR websocket noise. `npm run build` passes.
+
 ## v3.41.0-alpha.1 — 2026-08-17
 
 ### Changed
