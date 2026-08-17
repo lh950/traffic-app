@@ -23,6 +23,17 @@ let slot = 0;
 let undoStack = [], redoStack = [];
 let onFinish = null; // callback(parsed) supplied by main.js
 
+// ── Focus mode ──
+// Locks keyboard input to a single classification at a time — same interaction model and
+// keybindings as the intersection counter's focus.js (toggle with \, cycle with [/]), but
+// with its own local state rather than reusing focus.js's module-level globals, since this
+// file's own header comment establishes tripgenCount.js as deliberately standalone from
+// state.js. Reset at the start of every begin*() below (same as slot/undoStack/redoStack)
+// since focusTarget indexes into whatever classifications list that session just loaded,
+// which can be a different length than whatever was focused in a previous location/session.
+let focusMode = false;
+let focusTarget = 0;
+
 function isActiveScreen() {
   const el = document.getElementById('tripgen-counter-screen');
   return el && el.style.display !== 'none';
@@ -153,11 +164,13 @@ export function beginCounting(finishCallback) {
   const n = classifications.length, s = cfg.slots;
   tgData = { in: Array.from({ length: s }, () => Array(n).fill(0)), out: Array.from({ length: s }, () => Array(n).fill(0)) };
   slot = 0; undoStack = []; redoStack = [];
+  focusMode = false; focusTarget = 0;
   onFinish = finishCallback;
 
   buildKbd();
   buildTable();
   updateUndoUI();
+  updateFocusUI();
   document.getElementById('tg-cur-interval').textContent = slotLabel(slot);
   return true;
 }
@@ -178,11 +191,13 @@ export function beginEditing(snapshot, parsed, finishCallback) {
     out: parsed.intervals.map((iv) => iv.outbound.slice()),
   };
   slot = 0; undoStack = []; redoStack = [];
+  focusMode = false; focusTarget = 0;
   onFinish = finishCallback;
 
   buildKbd();
   buildTable();
   updateUndoUI();
+  updateFocusUI();
   document.getElementById('tg-cur-interval').textContent = slotLabel(slot);
   return true;
 }
@@ -219,11 +234,13 @@ export function beginRecount(classificationList, cfgIn, finishCallback) {
   const n = classifications.length, s = cfg.slots;
   tgData = { in: Array.from({ length: s }, () => Array(n).fill(0)), out: Array.from({ length: s }, () => Array(n).fill(0)) };
   slot = 0; undoStack = []; redoStack = [];
+  focusMode = false; focusTarget = 0;
   onFinish = finishCallback;
 
   buildKbd();
   buildTable();
   updateUndoUI();
+  updateFocusUI();
   document.getElementById('tg-cur-interval').textContent = slotLabel(slot);
   return true;
 }
@@ -231,10 +248,13 @@ export function beginRecount(classificationList, cfgIn, finishCallback) {
 function buildKbd() {
   const grid = document.getElementById('tg-kbd-grid');
   if (!grid) return;
-  grid.innerHTML = classifications.map((c, i) => `
-    <span class="kbd-chip"><span class="ck">in</span><kbd id="tgk-in-${i}">${c.inKey.toUpperCase()}</kbd><span class="key-label">${c.label}</span></span>
-    <span class="kbd-chip"><span class="ck">out</span><kbd id="tgk-out-${i}">${c.outKey.toUpperCase()}</kbd><span class="key-label">${c.label}</span></span>
-  `).join('') + `
+  grid.innerHTML = classifications.map((c, i) => {
+    const dim = (focusMode && i !== focusTarget) ? ' dimmed' : '';
+    return `
+    <span class="kbd-chip${dim}"><span class="ck">in</span><kbd id="tgk-in-${i}">${c.inKey.toUpperCase()}</kbd><span class="key-label">${c.label}</span></span>
+    <span class="kbd-chip${dim}"><span class="ck">out</span><kbd id="tgk-out-${i}">${c.outKey.toUpperCase()}</kbd><span class="key-label">${c.label}</span></span>
+  `;
+  }).join('') + `
     <span class="kbd-group-sep"></span>
     <span class="kbd-group-label label-nav">nav</span>
     <span class="kbd-chip"><kbd>↑</kbd><span class="key-label">prev</span></span>
@@ -242,6 +262,51 @@ function buildKbd() {
     <span class="kbd-chip"><kbd>Z</kbd><span class="key-label">undo</span></span>
     <span class="kbd-chip"><kbd>Y</kbd><span class="key-label">redo</span></span>
   `;
+}
+
+// ── Focus mode: toggle/cycle/UI, mirroring focus.js's interaction model ──
+function focusCount() { return classifications.length; }
+function isKeyAllowed(k) {
+  const c = classifications[focusTarget]; if (!c) return false;
+  return k === c.inKey || k === c.outKey;
+}
+function toggleFocusMode() {
+  focusMode = !focusMode;
+  if (focusMode && focusTarget >= focusCount()) focusTarget = 0;
+  updateFocusUI();
+}
+function cycleFocus(dir) {
+  const n = focusCount(); if (!n) return;
+  focusTarget = (focusTarget + dir + n) % n;
+  updateFocusUI();
+}
+function setFocusTarget(i) {
+  focusTarget = i;
+  if (!focusMode) focusMode = true;
+  updateFocusUI();
+}
+function updateFocusUI() {
+  const btn = document.getElementById('tg-btn-focus');
+  const bar = document.getElementById('tg-focus-bar');
+  if (!btn) return;
+  btn.classList.toggle('active', focusMode);
+  btn.textContent = focusMode ? '◎ focus on' : '○ focus';
+  if (bar) bar.style.display = focusMode ? 'flex' : 'none';
+  if (focusMode) buildFocusChips();
+  buildKbd();
+}
+function buildFocusChips() {
+  const wrap = document.getElementById('tg-focus-chips');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  classifications.forEach((c, i) => {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'focus-chip' + (i === focusTarget ? ' active' : '');
+    chip.textContent = c.label;
+    chip.addEventListener('click', () => setFocusTarget(i));
+    wrap.appendChild(chip);
+  });
 }
 
 function buildTable() {
@@ -332,11 +397,18 @@ export function wireKeydown() {
     if (k === 'arrowup') { e.preventDefault(); if (slot > 0) { slot--; render(); } return; }
     if (k === 'z') { e.preventDefault(); undo(); return; }
     if (k === 'y') { e.preventDefault(); redo(); return; }
+    if (k === '\\') { e.preventDefault(); toggleFocusMode(); return; }
+    if (focusMode) {
+      if (k === '[') { e.preventDefault(); cycleFocus(-1); return; }
+      if (k === ']') { e.preventDefault(); cycleFocus(1); return; }
+      if (!isKeyAllowed(k)) return;
+    }
     const action = buildKeyMap()[k];
     if (action) { e.preventDefault(); action(); }
   });
   document.getElementById('tg-btn-undo')?.addEventListener('click', undo);
   document.getElementById('tg-btn-redo')?.addEventListener('click', redo);
+  document.getElementById('tg-btn-focus')?.addEventListener('click', toggleFocusMode);
 }
 
 export function finishLocation() {

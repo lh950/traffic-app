@@ -1,5 +1,13 @@
 # Changelog
 
+## v3.36.0-alpha.3 — 2026-08-17
+
+### Fixed
+- **Trip Gen live counter screen didn't fit the browser window — the workspace sidebar covered its left ~224px (BUG-028)** — reported live by the user while field counting on the then-deployed v3.35.0-alpha.2. Root cause: `#tripgen-counter-screen` (and, found by the same pattern, `#intersection-qaqc-counter-screen`) is a bare `<div>` with no class attribute, so none of the three existing workspace-sidebar-offset CSS rules (the generic `.workspace-screen` rule, the `#setup-screen` rule, or the intersection-counter-specific rule chain) ever applied to it — the fixed, always-visible 224px sidebar rendered on top of the header title, the keyboard reference bar, and the table's time column. Fixed with a one-line CSS addition giving both screens the same `margin-left:224px` offset in workspace mode. See `BUGS.md`.
+
+### Added
+- **Focus mode for the Trip Gen live counter, matching the intersection counter's existing focus mode** — Trip Gen's counting engine (`tripgenCount.js`) previously had no focus mode at all. Added the same interaction model and keybindings as the intersection counter's `focus.js` (toggle with `\`, cycle targets with `[`/`]`, click a chip to jump directly to a target) but with entirely local module state (`focusMode`/`focusTarget` inside `tripgenCount.js`, not a reuse of `focus.js`'s globals — consistent with this file's own deliberate no-shared-globals design). Locks keyboard input to one classification's in/out keys at a time; the keyboard reference bar dims every non-focused classification's chips (reusing the same `.kbd-chip.dimmed` CSS the intersection counter already uses). New `tg-btn-focus`/`tg-focus-bar`/`tg-focus-chips` header button and bar (distinct ids from the intersection counter's `btn-focus`/`focus-bar`/`focus-chips`, avoiding any BUG-017-class id collision), wired via `addEventListener` in `wireKeydown()` — no inline `onclick=`/`oninput=` handlers added, so no `window` exposure was needed (sidesteps BUG-024's whole failure class). Focus state resets to off at the start of every counting session (`beginCounting`/`beginEditing`/`beginRecount`), same as `slot`/`undoStack`/`redoStack`, since `focusTarget` indexes into whatever classifications list that session just loaded.
+
 ## v3.36.0-alpha.2 — 2026-08-17
 
 ### Added

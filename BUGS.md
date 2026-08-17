@@ -8,6 +8,17 @@ Severity levels:
 
 ---
 
+## BUG-028
+**Status:** Fixed (v3.36.0-alpha.3, reported live by the user while field counting on the then-deployed v3.35.0-alpha.2 — pre-existing, not caused by this session's earlier work)
+**Severity:** Major (a real, currently-deployed workflow was unusable at normal viewport sizes — the leftmost ~224px of the screen, including the header title, the keyboard reference bar, and the first table column, rendered underneath the opaque workspace sidebar)
+**Found in:** pre-existing (`#tripgen-counter-screen`, live since Trip Gen's original counting-engine ship; also reproduced in `#intersection-qaqc-counter-screen`, live since the QA/QC recount feature)
+**Description:** User reported "the actual count screen does not properly fit in the window" on the Trip Gen live counter. Reproduced live at both 1366×768 and 1280×800: the fixed 224px-wide workspace sidebar (`.app-sidebar`, `position:fixed;z-index:100`) rendered directly on top of the counter screen's left edge — the "trip generation" header title, the first ~1.5 classifications' worth of keyboard-reference chips, and the table's `time` column plus part of the first classification's columns were all hidden underneath it and inaccessible. Independently confirmed the same root cause reproduces in `#intersection-qaqc-counter-screen` (the QA/QC recount counter), which shares the identical structural gap.
+**Root cause:** Every other workspace screen gets pushed right of the fixed sidebar via one of three existing CSS rules: the generic `body.workspace-mode .workspace-screen{margin-left:224px}` (applies to any screen carrying the `.workspace-screen` class, e.g. `#tripgen-setup-screen`, `#parking-counter-screen`), a `#setup-screen`-specific rule, or the intersection-counter-specific rule chain (`.counter-header`, `#period-tabs-bar`, `.counter-body`, etc., added for BUG-016). `#tripgen-counter-screen` and `#intersection-qaqc-counter-screen` are bare `<div>`s with no class attribute at all — matched by none of the three — so neither one ever received the offset, despite the fixed sidebar always being visible while either is shown (both only ever render inside an open project workspace).
+**Fix:** Added `body.workspace-mode #tripgen-counter-screen, body.workspace-mode #intersection-qaqc-counter-screen{margin-left:224px}` to `src/style.css`, alongside the existing workspace-mode offset rules (same block that already carries the BUG-016 fix for `#counter-instructions`).
+**Verified live:** at 1366×768 and 1280×800, the Trip Gen counter's header title, full keyboard-reference bar (3 classifications, all 6 chips), and the table's time column all render fully to the right of the sidebar with nothing obscured, at both sizes. No console errors introduced.
+
+---
+
 ## BUG-027
 **Status:** Fixed (v3.35.0-alpha.2, caught during my own end-of-batch independent audit — pre-existing, exposed by comparing against the new streetlightComparison code added in the same batch)
 **Severity:** Major

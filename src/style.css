@@ -903,6 +903,14 @@ body.workspace-mode #period-tabs-bar,
 body.workspace-mode #period-meta-bar,
 body.workspace-mode #intersection-tabs-bar,
 body.workspace-mode .counter-body{margin-left:224px}
+/* BUG-028 fix: tripgen-counter-screen and intersection-qaqc-counter-screen are neither
+   .workspace-screen (the generic rule below) nor #counter-screen (the intersection-counter-
+   specific rules above) — each is its own bare div with no class attribute at all, so the
+   fixed 224px sidebar rendered directly on top of their left edge (header title, keyboard
+   reference chips, and the first table column all hidden underneath it) whenever a project
+   workspace was open, which for these two screens is always. */
+body.workspace-mode #tripgen-counter-screen,
+body.workspace-mode #intersection-qaqc-counter-screen{margin-left:224px}
 /* BUG-fix: this caption sits outside .counter-body (which gets the 224px
    workspace-sidebar offset above), so it needs its own margin — previously an
    inline style set margin-left:24px directly on the element, which no external
