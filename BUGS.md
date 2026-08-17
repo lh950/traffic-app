@@ -8,6 +8,17 @@ Severity levels:
 
 ---
 
+## BUG-029
+**Status:** Fixed (v3.38.0-alpha.1, caught while building the matching per-group conflict check for Trip Gen — pre-existing, not caused by this session's earlier work)
+**Severity:** Minor (only the red per-input `key-conflict` highlight was affected; the overall "duplicate keys" banner still correctly detected a conflict somewhere, and the conflict itself — sharing a key within one group of 4 vehicle types — is rare in practice since it requires 9+ vehicle types)
+**Found in:** v3.23.0 (`checkVKeys()` in `setup.js`, shipped with the original vPairs keybinding-groups feature)
+**Description:** For a vehicle-types list with 9 or more entries (3+ keybinding groups), a same-group key conflict in the 3rd group onward (types 9–12, 13–16, ...) was silently NOT highlighted red on the specific offending key inputs, even though the global "duplicate keys" warning banner still showed. Groups 1 and 2 (types 1–8) were unaffected.
+**Root cause:** The conflict-detection loop (`for(let g=0;g<vPairs.length;g+=4)`) records conflicts keyed by the group's START index (`g` = 0, 4, 8, ...). But the per-input scan that reads those conflicts back computed its own group id as `Math.floor(idx/4)` — a group NUMBER (0, 1, 2, ...), not a group start index. These only coincide for group 0 (both give 0); group 1 stores under key `4_x` but was read back under `1_x`, group 2 stores under `8_x` but was read back under `2_x`, etc. — so no group past the first ever matched.
+**Fix:** Changed the read-side group id to `Math.floor(idx/4)*4`, matching the write-side loop's group-start-index convention. Applied the identical fix pattern proactively to Trip Gen's new equivalent (`checkKeyConflicts()` in `tripgenCount.js`) so the same mismatch wasn't introduced there.
+**Lesson:** A loop variable reused as a lookup key needs the read side to reconstruct that key with the exact same formula, not just "the same idea" (group start index vs. group number look superficially interchangeable but only agree at index 0). Found only because writing a second, independent implementation of the same per-group scoping (for Trip Gen) prompted comparing formulas side by side.
+
+---
+
 ## BUG-028
 **Status:** Fixed (v3.36.0-alpha.3, reported live by the user while field counting on the then-deployed v3.35.0-alpha.2 — pre-existing, not caused by this session's earlier work)
 **Severity:** Major (a real, currently-deployed workflow was unusable at normal viewport sizes — the leftmost ~224px of the screen, including the header title, the keyboard reference bar, and the first table column, rendered underneath the opaque workspace sidebar)

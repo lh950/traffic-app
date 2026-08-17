@@ -207,7 +207,7 @@ export function checkVKeys(){
   document.querySelectorAll('#v-pairs-list .vpair-row input.key-input:not(.tmc-key-input)').forEach(inp=>{
     const row=inp.closest('[data-idx]');
     const idx=row?parseInt(row.dataset.idx):-1;
-    const g=Math.floor(idx/4);
+    const g=Math.floor(idx/4)*4; // group START index (0,4,8,...) — must match the loop above's g
     inp.classList.toggle('key-conflict',idx>=0&&dupeSet.has(g+'_'+inp.value.toLowerCase()));
   });
   const conf=document.getElementById('v-conflict');

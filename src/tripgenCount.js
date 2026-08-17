@@ -34,6 +34,13 @@ let onFinish = null; // callback(parsed) supplied by main.js
 let focusMode = false;
 let focusTarget = 0;
 
+// ── Keybinding groups ──
+// When classifications.length > 4, keys are reused across groups of 4 (same mechanic as
+// vPairs' vGroup in state.js / vGroupPrev/Next in counter.js), local to this module rather
+// than sharing state.js's vGroup, per this file's own standalone-from-state.js header
+// comment. Reset alongside focusTarget at the start of every begin*() below.
+let tgGroup = 0;
+
 function isActiveScreen() {
   const el = document.getElementById('tripgen-counter-screen');
   return el && el.style.display !== 'none';
@@ -60,8 +67,18 @@ export function renderClassificationsList() {
   if (!wrap) return;
   wrap.innerHTML = '';
   const locked = classificationsLocked;
+  const multiGroup = classifications.length > 4;
+  if (multiGroup) {
+    const notice = document.createElement('div'); notice.className = 'group-notice';
+    notice.innerHTML = `<strong>Keybinding groups</strong> — classifications 1–4 use one set of keys; 5–8 reuse the same keys as a second group. Use ‹ › during counting to switch groups.`;
+    wrap.appendChild(notice);
+  }
   let dragSrc = -1;
   classifications.forEach((c, i) => {
+    if (multiGroup && i % 4 === 0) {
+      const sep = document.createElement('div'); sep.className = 'group-sep';
+      sep.textContent = `Group ${Math.floor(i / 4) + 1}`; wrap.appendChild(sep);
+    }
     const row = document.createElement('div');
     row.className = 'pair-row tg-pair-row';
     row.dataset.tgIdx = i;
@@ -139,15 +156,28 @@ export function addClassification() {
   renderClassificationsList();
 }
 
+// Scoped PER GROUP (same shape as setup.js's checkVKeys g+=4 loop) — two classifications in
+// DIFFERENT groups are allowed to share a key (that's the point of grouping); only same-group
+// conflicts are flagged. dupeSet keys use the group's START index (0,4,8,...) consistently on
+// both the write side (the loop below) and the read side (the per-input scan), which matters:
+// deriving the read-side group id via a different formula (e.g. group NUMBER 0,1,2 instead of
+// group START index 0,4,8) would silently stop matching for group 2 and beyond.
 function checkKeyConflicts() {
-  const keys = classifications.flatMap((c) => [c.inKey, c.outKey]);
-  const dupes = keys.filter((k, i) => k && keys.indexOf(k) !== i);
+  const dupeSet = new Set();
+  for (let g = 0; g < classifications.length; g += 4) {
+    const grp = classifications.slice(g, g + 4);
+    const gk = grp.flatMap((c) => [c.inKey, c.outKey]);
+    gk.forEach((k, i) => { if (k && k !== '?' && gk.indexOf(k) !== i) dupeSet.add(g + '_' + k); });
+  }
   document.querySelectorAll('#tg-classifications-list input.key-input').forEach((inp) => {
-    inp.classList.toggle('key-conflict', dupes.includes(inp.value.toLowerCase()));
+    const row = inp.closest('[data-tg-idx]');
+    const idx = row ? parseInt(row.dataset.tgIdx) : -1;
+    const g = Math.floor(idx / 4) * 4;
+    inp.classList.toggle('key-conflict', idx >= 0 && dupeSet.has(g + '_' + inp.value.toLowerCase()));
   });
   const warn = document.getElementById('tg-key-conflict');
-  if (warn) warn.classList.toggle('visible', dupes.length > 0);
-  return dupes.length === 0;
+  if (warn) warn.classList.toggle('visible', dupeSet.size > 0);
+  return dupeSet.size === 0;
 }
 
 export function beginCounting(finishCallback) {
@@ -164,7 +194,7 @@ export function beginCounting(finishCallback) {
   const n = classifications.length, s = cfg.slots;
   tgData = { in: Array.from({ length: s }, () => Array(n).fill(0)), out: Array.from({ length: s }, () => Array(n).fill(0)) };
   slot = 0; undoStack = []; redoStack = [];
-  focusMode = false; focusTarget = 0;
+  focusMode = false; focusTarget = 0; tgGroup = 0;
   onFinish = finishCallback;
 
   buildKbd();
@@ -191,7 +221,7 @@ export function beginEditing(snapshot, parsed, finishCallback) {
     out: parsed.intervals.map((iv) => iv.outbound.slice()),
   };
   slot = 0; undoStack = []; redoStack = [];
-  focusMode = false; focusTarget = 0;
+  focusMode = false; focusTarget = 0; tgGroup = 0;
   onFinish = finishCallback;
 
   buildKbd();
@@ -234,7 +264,7 @@ export function beginRecount(classificationList, cfgIn, finishCallback) {
   const n = classifications.length, s = cfg.slots;
   tgData = { in: Array.from({ length: s }, () => Array(n).fill(0)), out: Array.from({ length: s }, () => Array(n).fill(0)) };
   slot = 0; undoStack = []; redoStack = [];
-  focusMode = false; focusTarget = 0;
+  focusMode = false; focusTarget = 0; tgGroup = 0;
   onFinish = finishCallback;
 
   buildKbd();
@@ -245,10 +275,35 @@ export function beginRecount(classificationList, cfgIn, finishCallback) {
   return true;
 }
 
+// Group nav — mirrors counter.js's buildKbd() vehicle-mode group ‹ › + "group N/M" label,
+// but built as real DOM elements with addEventListener rather than inline onclick= (BUG-024:
+// inline handlers need explicit window exposure; this file already uses addEventListener
+// throughout for focus mode, so stay consistent).
+function buildKbdGroupNav(nG) {
+  const navWrap = document.createElement('span');
+  navWrap.style.cssText = 'display:inline-flex;align-items:center;gap:4px;margin-right:6px';
+  const prevBtn = document.createElement('button');
+  prevBtn.type = 'button'; prevBtn.className = 'vgrp-btn'; prevBtn.textContent = '‹';
+  prevBtn.title = 'previous group'; prevBtn.disabled = tgGroup === 0;
+  prevBtn.addEventListener('click', tgGroupPrev);
+  const label = document.createElement('span');
+  label.style.cssText = 'font-size:10px;font-weight:600;color:var(--text2);white-space:nowrap';
+  label.textContent = `group ${tgGroup + 1}/${nG}`;
+  const nextBtn = document.createElement('button');
+  nextBtn.type = 'button'; nextBtn.className = 'vgrp-btn'; nextBtn.textContent = '›';
+  nextBtn.title = 'next group'; nextBtn.disabled = tgGroup === nG - 1;
+  nextBtn.addEventListener('click', tgGroupNext);
+  navWrap.appendChild(prevBtn); navWrap.appendChild(label); navWrap.appendChild(nextBtn);
+  return navWrap;
+}
+
 function buildKbd() {
   const grid = document.getElementById('tg-kbd-grid');
   if (!grid) return;
-  grid.innerHTML = classifications.map((c, i) => {
+  const nG = Math.ceil(classifications.length / 4) || 1;
+  const gs = tgGroup * 4, ge = Math.min(gs + 4, classifications.length);
+  grid.innerHTML = classifications.slice(gs, ge).map((c, j) => {
+    const i = gs + j;
     const dim = (focusMode && i !== focusTarget) ? ' dimmed' : '';
     return `
     <span class="kbd-chip${dim}"><span class="ck">in</span><kbd id="tgk-in-${i}">${c.inKey.toUpperCase()}</kbd><span class="key-label">${c.label}</span></span>
@@ -262,6 +317,19 @@ function buildKbd() {
     <span class="kbd-chip"><kbd>Z</kbd><span class="key-label">undo</span></span>
     <span class="kbd-chip"><kbd>Y</kbd><span class="key-label">redo</span></span>
   `;
+  if (nG > 1) grid.insertBefore(buildKbdGroupNav(nG), grid.firstChild);
+}
+
+// Only shown/reachable when classifications.length > 4 (nG>1) — mirrors vPairs' own
+// vGroupPrev/Next gate. Switching groups also moves focusTarget to the new group's first
+// slot (setFocusTargetState(vGroup*4) equivalent) so focus mode — if later toggled on —
+// never points at a classification that's no longer in the visible group.
+function tgGroupPrev() {
+  if (tgGroup > 0) { tgGroup--; focusTarget = tgGroup * 4; buildKbd(); }
+}
+function tgGroupNext() {
+  const nG = Math.ceil(classifications.length / 4);
+  if (tgGroup < nG - 1) { tgGroup++; focusTarget = tgGroup * 4; buildKbd(); }
 }
 
 // ── Focus mode: toggle/cycle/UI, mirroring focus.js's interaction model ──
@@ -278,6 +346,9 @@ function toggleFocusMode() {
 function cycleFocus(dir) {
   const n = focusCount(); if (!n) return;
   focusTarget = (focusTarget + dir + n) % n;
+  // Keep the visible group in sync with the newly focused target — same as focus.js's
+  // cycleFocus, which calls setVGroup(Math.floor(focusTarget/4)) for mode==='vehicle'.
+  tgGroup = Math.floor(focusTarget / 4);
   updateFocusUI();
 }
 function setFocusTarget(i) {
@@ -379,9 +450,15 @@ function record(dir, idx) {
   if (chip) { chip.classList.add(chipFlash); setTimeout(() => chip.classList.remove(chipFlash), 200); }
 }
 
+// Only register the ACTIVE group's keys — same principle as focus.js's buildVKeyMap, so a
+// key press only counts for a classification if it's in the currently-visible/active group.
+// Without this, two different-group classifications sharing a physical key (the whole point
+// of grouping) would double-count or misattribute whichever key was pressed.
 function buildKeyMap() {
   const m = {};
-  classifications.forEach((c, i) => {
+  const gs = tgGroup * 4, ge = Math.min(gs + 4, classifications.length);
+  classifications.slice(gs, ge).forEach((c, j) => {
+    const i = gs + j;
     if (c.inKey) m[c.inKey] = () => record('in', i);
     if (c.outKey) m[c.outKey] = () => record('out', i);
   });
@@ -402,6 +479,12 @@ export function wireKeydown() {
       if (k === '[') { e.preventDefault(); cycleFocus(-1); return; }
       if (k === ']') { e.preventDefault(); cycleFocus(1); return; }
       if (!isKeyAllowed(k)) return;
+    } else {
+      // Group switching only applies outside focus mode — same precedence as focus.js's
+      // processKey (mode==='vehicle'&&!focusMode branch for [ / ]). No-ops when there's
+      // only one group (tgGroupPrev/Next self-guard).
+      if (k === '[') { e.preventDefault(); tgGroupPrev(); return; }
+      if (k === ']') { e.preventDefault(); tgGroupNext(); return; }
     }
     const action = buildKeyMap()[k];
     if (action) { e.preventDefault(); action(); }
