@@ -5478,7 +5478,12 @@ wireProjectInfoFields();
 // unchanged, exactly as before. lotSf = the site/parcel's total land area — additive
 // context, never fed into the trip-rate calculation. Together they compute FAR (see
 // computeFar() in tripgenSection.js) — that's the "calculation" the two values combine for.
-const tripgenSiteInfo = { location: '', landUseType: '', gsf: '', lotSf: '', parking: '', units: '', studyDates: '', notes: '' };
+// zolaScreenshotUrl = project-wide ZOLA (NYC zoning-lookup) screenshot, a data: URL read via
+// FileReader.readAsDataURL() — same technique as entry.zolaPdfData (per-location zoning PDF,
+// unrelated) and entry.days[i].cameraImageUrl (per-day camera view). Shown near the top of
+// the Analysis screen's summary, not buried per-day/per-location, since it's shared project
+// context rather than something tied to one count location.
+const tripgenSiteInfo = { location: '', landUseType: '', gsf: '', lotSf: '', parking: '', units: '', studyDates: '', notes: '', zolaScreenshotUrl: '' };
 const tripgenCategoryMap = {};
 const tripgenPeakWindows = { weekday: DEFAULT_PEAK_WINDOWS.weekday.map((w) => ({ ...w })), weekend: DEFAULT_PEAK_WINDOWS.weekend.map((w) => ({ ...w })) };
 const tripgenQaqc = {};
@@ -5536,6 +5541,41 @@ function wireSiteInfoFields() {
     if (!el) return;
     el.value = tripgenSiteInfo[field] || '';
     el.addEventListener('change', () => { tripgenSiteInfo[field] = el.value; });
+  });
+  renderTgSiteZolaWrap();
+}
+
+// Project-wide ZOLA screenshot control on the setup screen's static site-info card
+// (id="tg-site-zola-wrap"). Distinct from renderSiteInfoForm()'s own upload control in
+// tripgenSection.js (Analysis screen) — same tripgenSiteInfo.zolaScreenshotUrl field,
+// two independent editors, same dual-location pattern as gsf/lotSf (BUG-017: separate ids
+// here vs. data-site-field on the Analysis side, so the two never collide).
+function renderTgSiteZolaWrap() {
+  const wrap = document.getElementById('tg-site-zola-wrap');
+  if (!wrap) return;
+  wrap.innerHTML = tripgenSiteInfo.zolaScreenshotUrl
+    ? `<div>
+         <img src="${tripgenSiteInfo.zolaScreenshotUrl}" alt="ZOLA screenshot" style="max-width:100%;max-height:400px;width:auto;height:auto;display:block;border-radius:4px;border:1px solid var(--border);margin-bottom:6px">
+         <button type="button" id="tg-site-zola-clear" style="font-size:12px">&times; remove</button>
+       </div>`
+    : `<label style="display:inline-block;cursor:pointer;font-size:12px;color:var(--blue-text)">
+         upload screenshot&hellip; <input type="file" accept="image/*" id="tg-site-zola-upload" style="display:none">
+       </label>`;
+  document.getElementById('tg-site-zola-upload')?.addEventListener('change', (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      tripgenSiteInfo.zolaScreenshotUrl = evt.target.result;
+      renderTgSiteZolaWrap();
+      window.scheduleAutosave?.();
+    };
+    reader.readAsDataURL(file);
+  });
+  document.getElementById('tg-site-zola-clear')?.addEventListener('click', () => {
+    tripgenSiteInfo.zolaScreenshotUrl = '';
+    renderTgSiteZolaWrap();
+    window.scheduleAutosave?.();
   });
 }
 wireSiteInfoFields();

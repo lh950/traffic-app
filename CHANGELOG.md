@@ -1,5 +1,13 @@
 # Changelog
 
+## v3.40.0-alpha.1 — 2026-08-17
+
+### Added
+- **Project-wide ZOLA (NYC zoning-lookup tool) screenshot field for Trip Gen** — a new `tripgenSiteInfo.zolaScreenshotUrl` (a `data:` URL via `FileReader.readAsDataURL()`, same technique as the existing camera-image and per-location zoning-PDF uploads), distinct from the existing per-location "Zoning reference PDF" upload (`entry.zolaPdfName`/`entry.zolaPdfData`, untouched). Upload/preview/remove control added to both the setup screen's static site-info card (`index.html`/`main.js`'s `renderTgSiteZolaWrap()`) and the Analysis screen's dynamic `renderSiteInfoForm()` (`tripgenSection.js`) — same dual-location pattern as the recent Lot SF/Available GSF fields (`a8aad13`), with separate ids on the setup side vs. `data-site-zola-*` attributes on the Analysis side to avoid a BUG-017-class id collision. Shown at the top of `renderTripGenSection()`'s output, inside the "Site information" card (first thing rendered after the summary's intro line) — not buried per-day/per-location, and not a tiny thumbnail (`max-height:400px`).
+
+### Verification
+Live in the browser (dev server): uploaded a real image via the setup screen's control (dispatched an actual `File`/`change` event at the hidden input, exercising the real `FileReader.readAsDataURL()` path, not a shortcut) — preview and "× remove" appeared correctly. Loaded a synthetic Trip Gen project (via the pre-existing `window.__loadProject()` test hook) with a location and count data, then reached the Analysis screen through the real "View analysis" button flow — confirmed the ZOLA screenshot renders inside the Site information card near the very top of the output (roughly 6% into the rendered HTML, well above the per-day breakdowns). Verified the Analysis screen's own upload/remove control independently (separate `data-site-zola-upload`/`data-site-zola-clear` elements, same `zolaScreenshotUrl` field via `ctx.onSiteInfoChange`). Confirmed persistence: `scheduleAutosave()` wrote `zolaScreenshotUrl` into `localStorage`, and a full page reload + "Resume →" correctly restored the image on the setup screen. Confirmed the no-screenshot state renders cleanly on both screens (just the "upload screenshot…" label, no broken `<img>`, no gap). No console errors from any of the above actions (aside from pre-existing, unrelated dev-server/HMR noise).
+
 ## v3.39.0-alpha.1 — 2026-08-17
 
 ### Changed

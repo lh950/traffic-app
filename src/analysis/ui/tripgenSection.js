@@ -19,10 +19,13 @@ import { runVehicleQA, renderQASection } from '../../qa.js';
 //
 // State this module is handed (owned by main.js, mutated only via the on*Change callbacks
 // so re-render stays a pure function of state):
-//   siteInfo: { location, landUseType, gsf, lotSf, parking, units, studyDates, notes }
+//   siteInfo: { location, landUseType, gsf, lotSf, parking, units, studyDates, notes,
+//     zolaScreenshotUrl }
 //     gsf = facility's own "Available GSF" (building/leasable floor area) — feeds
 //     tripRate() unchanged. lotSf = the site/parcel's total land area — additive context
 //     only, never a trip-rate input. Together they compute FAR (computeFar(), below).
+//     zolaScreenshotUrl = project-wide ZOLA (NYC zoning-lookup) screenshot, a data: URL —
+//     shared across every location, distinct from each entry's per-location zolaPdfData.
 //   categoryMap: { [classificationLabel]: groupName } — a NON-AUTHORITATIVE starting
 //     suggestion, always user-editable; grouping is project-specific (different sites split
 //     pedestrians/trucks differently), never a fixed standard.
@@ -146,6 +149,17 @@ function renderSiteInfoForm(siteInfo) {
       <div class="setup-field" style="margin-top:10px">
         <label>Notes</label>
         <textarea data-site-field="notes" rows="2" style="width:100%;font-family:inherit;font-size:13px;padding:6px 10px;border:.5px solid var(--border2);border-radius:var(--r);background:var(--surface2);color:var(--text)">${escapeHtml(siteInfo.notes || '')}</textarea>
+      </div>
+      <div class="setup-field" style="margin-top:10px">
+        <label>ZOLA screenshot <span style="color:var(--text3)">(NYC zoning lookup — project-wide, shared across all locations)</span></label>
+        ${siteInfo.zolaScreenshotUrl
+          ? `<div style="margin-top:6px">
+               <img src="${siteInfo.zolaScreenshotUrl}" alt="ZOLA screenshot" style="max-width:100%;max-height:400px;width:auto;height:auto;display:block;border-radius:4px;border:1px solid var(--border);margin-bottom:6px">
+               <button type="button" data-site-zola-clear style="font-size:12px">&times; remove</button>
+             </div>`
+          : `<label style="display:inline-block;cursor:pointer;font-size:12px;color:var(--blue-text);margin-top:4px">
+               upload screenshot&hellip; <input type="file" accept="image/*" data-site-zola-upload style="display:none">
+             </label>`}
       </div>
     </div>
     <div class="card print-only" id="site-info-print" style="margin-bottom:14px">
@@ -845,6 +859,18 @@ export async function renderTripGenSection(container, entries, ctx) {
   // element out from under the cursor, losing focus after the first character typed.
   container.querySelectorAll('[data-site-field]').forEach((el) => {
     el.addEventListener('change', () => ctx.onSiteInfoChange(el.dataset.siteField, el.value));
+  });
+  container.querySelectorAll('[data-site-zola-upload]').forEach((input) => {
+    input.addEventListener('change', (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (evt) => ctx.onSiteInfoChange('zolaScreenshotUrl', evt.target.result);
+      reader.readAsDataURL(file);
+    });
+  });
+  container.querySelectorAll('[data-site-zola-clear]').forEach((btn) => {
+    btn.addEventListener('click', () => ctx.onSiteInfoChange('zolaScreenshotUrl', ''));
   });
   container.querySelectorAll('[data-category-field]').forEach((el) => {
     el.addEventListener('change', () => ctx.onCategoryMapChange(el.dataset.categoryField, el.value));
