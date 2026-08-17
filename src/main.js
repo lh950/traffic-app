@@ -70,6 +70,8 @@ import {
   resetClassifications as tgResetClassifications, beginEditing as tgBeginEditing,
   beginRecount as tgBeginRecount, defaultClassificationsFor as tgDefaultClassificationsFor,
   setClassificationsLocked as tgSetClassificationsLocked,
+  renderClassificationsList as tgRenderClassificationsList,
+  getClassifications as tgGetClassifications,
 } from './tripgenCount.js';
 import {
   beginIntersectionRecount as ixBeginRecount, wireKeydown as ixQaqcWireKeydown,
@@ -481,8 +483,20 @@ function switchTgTab(name, btn) {
   const screen = document.getElementById('tripgen-setup-screen');
   screen.querySelectorAll('.tg-tab').forEach(b => b.classList.remove('active'));
   screen.querySelectorAll('.tg-panel').forEach(p => p.classList.remove('active'));
-  btn.classList.add('active');
-  document.getElementById('tgp-' + name).classList.add('active');
+  // btn is omitted when this is called programmatically (e.g. the sidebar's "Location
+  // counts" item jumping straight to the locations tab) rather than from the tab bar's own
+  // inline onclick= — look the button up by its data-tgtab attribute in that case.
+  const activeBtn = btn || screen.querySelector(`.tg-tab[data-tgtab="${name}"]`);
+  activeBtn?.classList.add('active');
+  document.getElementById('tgp-' + name)?.classList.add('active');
+  if (name === 'classifications') {
+    // Classifications are project-wide config with their own tab now, reachable before any
+    // location exists — refresh the lock state (real count data may exist from a location
+    // added earlier this session) and repaint, since this tab's DOM may not have been
+    // rendered yet if the user never opened "start a new count" first.
+    tgSetClassificationsLocked(hasTripgenCountData());
+    tgRenderClassificationsList();
+  }
 }
 
 function _updateBackBtn() {
@@ -630,8 +644,9 @@ function renderSidebarTripgen() {
     <div class="sidebar-section">
       <div class="sidebar-section-label">Study</div>
       <button class="sidebar-item" data-ws="tg-setup">Setup</button>
-      <button class="sidebar-item" data-ws="tg-analyze">Analysis</button>
+      <button class="sidebar-item" data-ws="tg-locations">Location counts</button>
       <button class="sidebar-item" data-ws="tg-qaqc">QA/QC</button>
+      <button class="sidebar-item" data-ws="tg-analyze">Analysis</button>
       <button class="sidebar-item" data-ws="tg-distribution">Distribution</button>
     </div>
     ${SIDEBAR_FOOTER}`;
@@ -721,6 +736,16 @@ function openWorkspaceTab(tab, idx) {
       showIntersectionAnalysis(idx ?? activeIntersectionIdx);
       break;
     case 'tg-setup': showScreen('tripgen-setup-screen'); break;
+    // "Location counts" — a dedicated sidebar entry point straight onto the locations tab
+    // of Setup (per-location count data: add/upload/paste, list, edit, finish), rather than
+    // making the user go through Setup's "project info" tab first. Judgment call (no
+    // separate screen was built): the locations tab is already a complete, self-contained
+    // location-management UI living inside #tripgen-setup-screen (which already carries the
+    // .workspace-screen sidebar-offset class — see BUG-028), so a second copy of that same
+    // markup under a new id would just be an unnecessary duplicate (BUG-017 risk) for zero
+    // added capability. This reuses the existing tab-switch mechanism (switchTgTab) to jump
+    // straight there instead.
+    case 'tg-locations': showScreen('tripgen-setup-screen'); switchTgTab('locations'); break;
     case 'tg-analyze': showScreen('analyze-screen'); break;
     case 'tg-qaqc': showScreen('tripgen-qaqc-screen'); break;
     case 'tg-distribution': showScreen('tripgen-distribution-screen'); renderDistributionScreen(); break;
@@ -786,6 +811,10 @@ document.getElementById('home-btn-area')?.addEventListener('click', () => {
 
 document.getElementById('home-btn-tripgen')?.addEventListener('click', () => {
   projectType = 'tripgen';
+  // Classifications are project-wide config now (own tab, no longer wiped per location —
+  // see the "start a new count" handler below), so a genuinely new project must clear
+  // whatever the previous session's project left behind, or it would silently leak in.
+  tgResetClassifications();
   enterWorkspace();
   setSidebarMeta('New trip generation', '');
   _sidebarActiveItem = 'tg-setup';
@@ -1927,6 +1956,9 @@ document.getElementById('btn-new-tripgen')?.addEventListener('click', () => {
   tripgenEntries.length = 0;
   tripgenDistribution = [];
   tripgenDistNextId = 1;
+  // See home-btn-tripgen's handler above — classifications are project-wide config now and
+  // must be cleared explicitly for a genuinely new project.
+  tgResetClassifications();
   showScreen('tripgen-setup-screen');
   renderTripgenLocationsList();
 });
@@ -4897,6 +4929,11 @@ function loadProject(proj) {
     Object.assign(tripgenQaqc, proj.qaqc || {});
     tripgenEntries.length = 0;
     tripgenEntries.push(...(proj.entries || []));
+    // Classifications are project-wide config with their own tab (not saved as a distinct
+    // project field — they're only ever "whatever's queued for the next new location"), so
+    // loading a different project must not carry over the previous project's in-progress
+    // list, same leakage class as BUG-027.
+    tgResetClassifications();
     tripgenDistribution = JSON.parse(JSON.stringify(proj.distribution || []));
     tripgenDistNextId = tripgenDistribution.reduce((mx, ix) => Math.max(mx, ix.id + 1), 1);
     if (proj.qaqcReviewerName) { const el = document.getElementById('qaqc-reviewer-name'); if (el) el.value = proj.qaqcReviewerName; }
@@ -5773,17 +5810,38 @@ function hasTripgenCountData() {
     return p.intervals.some((iv) => (iv.inbound || []).some((v) => v) || (iv.outbound || []).some((v) => v));
   }));
 }
+// Renders the read-only classifications summary shown on the locations tab's "start a new
+// count" panel, now that the actual editor lives on its own "classifications" tab (see
+// switchTgTab). Called whenever that panel is opened so it reflects whatever's currently
+// configured, without needing a live two-way binding to the other tab's DOM.
+function updateTgClassificationsSummary() {
+  const el = document.getElementById('tg-classifications-summary');
+  if (!el) return;
+  const list = tgGetClassifications();
+  el.textContent = list.length
+    ? `${list.length} classification${list.length === 1 ? '' : 's'} defined: ${list.map((c) => c.label).join(', ')}`
+    : 'No classifications defined yet — click "Edit classifications →" to add some.';
+}
 document.getElementById('btn-tripgen-start-new')?.addEventListener('click', () => {
   const area = document.getElementById('tripgen-new-count-area');
   const isHidden = area.style.display === 'none';
   area.style.display = isHidden ? '' : 'none';
   if (isHidden) {
-    tgResetClassifications();
     tgSetClassificationsLocked(hasTripgenCountData());
-    tgAddClassification();
+    // Classifications are project-wide config now (their own tab), not reset per location —
+    // only seed one blank starter row the very first time this project has none at all, so a
+    // brand-new project isn't left with an empty, unusable list. Anything already configured
+    // (here or on an earlier location) carries forward unchanged.
+    if (tgGetClassifications().length === 0) tgAddClassification();
+    tgRenderClassificationsList();
+    updateTgClassificationsSummary();
   }
 });
 document.getElementById('btn-tg-add-classification')?.addEventListener('click', () => tgAddClassification());
+document.getElementById('btn-tg-jump-classifications')?.addEventListener('click', () => {
+  const btn = document.querySelector('#tripgen-setup-screen .tg-tab[data-tgtab="classifications"]');
+  switchTgTab('classifications', btn);
+});
 document.getElementById('btn-tg-begin-counting')?.addEventListener('click', () => {
   const ctx = requireLocationContext();
   if (!ctx) return;

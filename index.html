@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Traffic App v3.40.0-alpha.1</title>
+<title>Traffic App v3.41.0-alpha.1</title>
 <link rel="manifest" href="./manifest.json">
 <meta name="theme-color" content="#131b23">
 <script>
@@ -117,7 +117,7 @@
   <div class="home-inner">
     <div class="home-wordmark">
       <h1>Traffic App</h1>
-      <div class="home-version">v3.40.0-alpha.1</div>
+      <div class="home-version">v3.41.0-alpha.1</div>
       <button id="home-btn-tour" title="Take the tour" style="margin-left:auto;font-size:12px;color:var(--text3);background:none;border:none;cursor:pointer;text-decoration:underline;flex-shrink:0">Take the tour</button>
       <button id="home-btn-help" title="Help / instructions" style="margin-left:12px;font-size:13px;font-weight:600;color:var(--text3);background:none;border:.5px solid var(--border);border-radius:50%;width:26px;height:26px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">?</button>
     </div>
@@ -185,7 +185,7 @@
     <!-- wordmark -->
     <div style="margin-bottom:2rem">
       <h1 style="font-size:22px;font-weight:500;letter-spacing:-.01em">Traffic App</h1>
-      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v3.40.0-alpha.1</span>
+      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v3.41.0-alpha.1</span>
     </div>
 
     <!-- autosave / resume banner -->
@@ -316,8 +316,9 @@
   </div>
 
   <div class="tg-tabs">
-    <button class="tg-tab active" onclick="switchTgTab('info',this)">project info</button>
-    <button class="tg-tab" onclick="switchTgTab('locations',this)">locations</button>
+    <button class="tg-tab active" data-tgtab="info" onclick="switchTgTab('info',this)">project info</button>
+    <button class="tg-tab" data-tgtab="locations" onclick="switchTgTab('locations',this)">locations</button>
+    <button class="tg-tab" data-tgtab="classifications" onclick="switchTgTab('classifications',this)">classifications</button>
   </div>
 
   <!-- TAB: project info -->
@@ -373,6 +374,23 @@
     </div>
   </div>
 
+  <!-- TAB: classifications — project-wide config: what's being counted, and the keyboard
+       keys used for Entry/Exit. Applies to whichever location is started next; editable
+       here independently of "start a new count" (which used to be the only way to reach
+       this editor, nested inside the locations tab). -->
+  <div class="tg-panel" id="tgp-classifications">
+    <div class="card">
+      <h3>Classifications</h3>
+      <div class="stat-detail" style="margin-bottom:10px">What's being counted at any location in this project — add one row per classification, with the keyboard keys used for Entry/Exit while counting. No starting set is prescribed; add whatever this study needs. Define these before adding a location, or edit them any time from here.</div>
+      <div class="pair-header tg-pair-header">
+        <span></span><span>label</span><span></span><span>entry key</span><span>exit key</span><span></span>
+      </div>
+      <div id="tg-classifications-list"></div>
+      <button id="btn-tg-add-classification" style="margin-top:8px;font-size:12px">+ add classification</button>
+      <div class="conflict-msg" id="tg-key-conflict">? duplicate keys — each key must be unique</div>
+    </div>
+  </div>
+
   <!-- TAB: locations -->
   <div class="tg-panel" id="tgp-locations">
     <div class="card">
@@ -417,13 +435,10 @@
         </div>
 
         <div style="font-size:12px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text2);margin-bottom:10px">classifications</div>
-        <div class="stat-detail" style="margin-bottom:10px">What's being counted at this location — add one row per classification, with the keyboard keys used for Entry/Exit while counting. No starting set is prescribed; add whatever this study needs.</div>
-        <div class="pair-header tg-pair-header">
-          <span></span><span>label</span><span></span><span>entry key</span><span>exit key</span><span></span>
+        <div class="stat-detail" id="tg-classifications-summary" style="margin-bottom:10px">No classifications defined yet.</div>
+        <div style="margin-bottom:1rem">
+          <button type="button" id="btn-tg-jump-classifications" style="font-size:12px">Edit classifications →</button>
         </div>
-        <div id="tg-classifications-list"></div>
-        <button id="btn-tg-add-classification" style="margin-top:8px;font-size:12px">+ add classification</button>
-        <div class="conflict-msg" id="tg-key-conflict">? duplicate keys — each key must be unique</div>
 
         <div style="display:flex;justify-content:flex-end;margin-top:1rem">
           <button class="btn-primary" id="btn-tg-begin-counting">begin counting ?</button>
@@ -908,7 +923,7 @@
 
   <header class="counter-header">
     <button id="btn-back-to-project" style="font-size:12px;padding:4px 10px;margin-right:8px">? Project</button>
-    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v3.40.0-alpha.1</span></h1>
+    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v3.41.0-alpha.1</span></h1>
     <div class="hcontrols">
       <div class="mode-toggle" style="display:none">
         <button class="mode-btn active" id="btn-count-mode" onclick="goToCountMode()">count</button>

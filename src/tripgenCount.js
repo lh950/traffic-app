@@ -529,3 +529,11 @@ export function resetClassifications() {
   classifications = [];
   renderClassificationsList();
 }
+
+// Read-only snapshot of the current classification list — used by main.js to build a
+// short summary on the locations tab ("3 classifications: Autos, Trucks, Bikes") now that
+// the editor itself lives on its own dedicated tab rather than inline in the "start a new
+// count" panel.
+export function getClassifications() {
+  return classifications.map((c) => ({ ...c }));
+}
