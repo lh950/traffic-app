@@ -6,7 +6,17 @@
 // finishing converts the result into the same {types, intervals} shape parseTripGen.js
 // produces, so it drops straight into the existing trip-gen analysis pipeline.
 
-let classifications = []; // [{label, inKey, outKey}]
+let classifications = []; // [{label, inKey, outKey, def}]
+// Whether the classification list is locked against reordering — set by main.js (which owns
+// tripgenEntries, not visible from this module per this file's own header comment) via
+// setClassificationsLocked() before each render, mirroring vPairs' hasCountData() lock in
+// setup.js: reordering after a location already has real day data would silently scramble
+// which historical column means what.
+let classificationsLocked = false;
+export function setClassificationsLocked(v) { classificationsLocked = !!v; }
+// Which classification rows have their description textarea expanded — pure UI state, same
+// spirit as vPairs' vDescExpanded in setup.js.
+const descExpanded = new Set();
 let cfg = { startMinutes: 0, intervalMin: 15, durationMin: 1440, get slots() { return Math.max(1, Math.round(this.durationMin / this.intervalMin)); } };
 let tgData = { in: [], out: [] };
 let slot = 0;
@@ -30,27 +40,69 @@ function slotStartEnd(i) {
 }
 
 // ── Setup: classification list editor ──
+// Escapes text for safe interpolation into innerHTML (matches setup.js's own local `esc`
+// used for the parallel vPairs editor).
+function esc(s) { return (s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;'); }
+
 export function renderClassificationsList() {
   const wrap = document.getElementById('tg-classifications-list');
   if (!wrap) return;
   wrap.innerHTML = '';
+  const locked = classificationsLocked;
+  let dragSrc = -1;
   classifications.forEach((c, i) => {
     const row = document.createElement('div');
-    row.className = 'pair-row';
+    row.className = 'pair-row tg-pair-row';
+    row.dataset.tgIdx = i;
+    const expanded = descExpanded.has(i);
+    const descBtnLabel = expanded ? '▾ desc' : (c.def ? '✎ desc' : '+ desc');
     row.innerHTML = `
-      <span class="pair-num">${i + 1}</span>
-      <input type="text" value="${c.label}" placeholder="label" data-tg-field="label" data-tg-idx="${i}">
-      <input type="text" class="key-input" maxlength="1" value="${c.inKey.toUpperCase()}" placeholder="in" data-tg-field="inKey" data-tg-idx="${i}">
-      <input type="text" class="key-input" maxlength="1" value="${c.outKey.toUpperCase()}" placeholder="out" data-tg-field="outKey" data-tg-idx="${i}">
+      <span class="drag-handle${locked ? ' drag-locked' : ''}" title="${locked ? 'locked — count data exists' : 'drag to reorder'}">⣿</span>
+      <input type="text" value="${esc(c.label)}" placeholder="label" data-tg-field="label" data-tg-idx="${i}">
+      <button type="button" class="desc-toggle-btn" data-tg-desc-toggle="${i}" title="${expanded ? 'Hide description' : (c.def ? 'Edit description' : 'Add description')}">${descBtnLabel}</button>
+      <input type="text" class="key-input" maxlength="1" value="${(c.inKey || '').toUpperCase()}" placeholder="in" data-tg-field="inKey" data-tg-idx="${i}">
+      <input type="text" class="key-input" maxlength="1" value="${(c.outKey || '').toUpperCase()}" placeholder="out" data-tg-field="outKey" data-tg-idx="${i}">
       <button data-tg-remove="${i}" style="font-size:11px">×</button>
     `;
     wrap.appendChild(row);
+    if (expanded) {
+      const descRow = document.createElement('div');
+      descRow.className = 'desc-row';
+      descRow.innerHTML = `<textarea class="desc-textarea" placeholder="e.g. AKA visitor parking, includes rideshare drop-off" data-tg-desc-idx="${i}">${esc(c.def || '')}</textarea>`;
+      wrap.appendChild(descRow);
+    }
+    if (!locked) {
+      row.draggable = true;
+      row.addEventListener('dragstart', (e) => { dragSrc = i; e.dataTransfer.effectAllowed = 'move'; row.classList.add('dragging'); });
+      row.addEventListener('dragend', () => row.classList.remove('dragging'));
+      row.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; row.classList.add('drag-over'); });
+      row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
+      row.addEventListener('drop', (e) => {
+        e.preventDefault(); row.classList.remove('drag-over');
+        if (dragSrc < 0 || dragSrc === i) return;
+        const moved = classifications.splice(dragSrc, 1)[0];
+        classifications.splice(i, 0, moved);
+        renderClassificationsList();
+      });
+    }
   });
   wrap.querySelectorAll('[data-tg-field]').forEach((el) => {
     el.addEventListener('input', () => {
       const i = Number(el.dataset.tgIdx), field = el.dataset.tgField;
       classifications[i][field] = field === 'label' ? el.value : el.value.toLowerCase();
       checkKeyConflicts();
+    });
+  });
+  wrap.querySelectorAll('[data-tg-desc-toggle]').forEach((el) => {
+    el.addEventListener('click', () => {
+      const i = Number(el.dataset.tgDescToggle);
+      if (descExpanded.has(i)) descExpanded.delete(i); else descExpanded.add(i);
+      renderClassificationsList();
+    });
+  });
+  wrap.querySelectorAll('[data-tg-desc-idx]').forEach((el) => {
+    el.addEventListener('input', () => {
+      classifications[Number(el.dataset.tgDescIdx)].def = el.value;
     });
   });
   wrap.querySelectorAll('[data-tg-remove]').forEach((el) => {
@@ -72,7 +124,7 @@ export function addClassification() {
   const used = new Set(classifications.flatMap((c) => [c.inKey, c.outKey]));
   const inKey = IN_KEY_POOL.find((k) => !used.has(k)) || '?';
   const outKey = OUT_KEY_POOL.find((k) => !used.has(k)) || '?';
-  classifications.push({ label: `classification ${classifications.length + 1}`, inKey, outKey });
+  classifications.push({ label: `classification ${classifications.length + 1}`, inKey, outKey, def: '' });
   renderClassificationsList();
 }
 
@@ -152,7 +204,7 @@ export function snapshotForEdit() {
 export function defaultClassificationsFor(types) {
   const inPool = ['a', 's', 'd', 'f', 'q', 'w', 'e', 'r', 'z', 'x', 'c', 'v'];
   const outPool = ['j', 'k', 'l', ';', 'u', 'i', 'o', 'p', 'm', ',', '.', '/'];
-  return types.map((label, i) => ({ label, inKey: inPool[i] || '?', outKey: outPool[i] || '?' }));
+  return types.map((label, i) => ({ label, inKey: inPool[i] || '?', outKey: outPool[i] || '?', def: '' }));
 }
 
 // Starts a fresh (zeroed) count using a GIVEN classification list and timing — used for
@@ -292,7 +344,10 @@ export function finishLocation() {
     const { start, end } = slotStartEnd(i);
     return { label: slotLabel(i), start, end, inbound: tgData.in[i].slice(), outbound: tgData.out[i].slice() };
   });
-  const parsed = { types: classifications.map((c) => c.label), intervals };
+  // defs is a parallel array (index-matched to types) rather than folding def into types
+  // itself — types stays a plain string array so every existing consumer (groupTotals,
+  // categoryMap, by-label aggregation) that keys off it is untouched.
+  const parsed = { types: classifications.map((c) => c.label), defs: classifications.map((c) => c.def || ''), intervals };
   if (onFinish) onFinish(parsed, snapshotForEdit());
 }
 

@@ -203,11 +203,15 @@ async function renderDayBlock(entry, day, ctx) {
   const dayTotal = dayTotalsArr.reduce((s, v) => s + v, 0);
 
   const groupNames = [...new Set(Object.keys(dayGroups))];
+  // defs is a parallel array (index-matched to parsed.types) — populated for locations
+  // counted live through the classification editor's own description field; empty for
+  // XLSX/paste imports, which have no such editor step and so carry no description.
+  const defs = parsed.defs || [];
   const detailRows = groupNames.map((g) => {
     const subRows = parsed.types
       .map((t, i) => ({ t, i }))
       .filter(({ t }) => (categoryMap[t] || 'Other') === g)
-      .map(({ t, i }) => `<tr><td style="padding-left:1.5em;color:var(--text2)">${escapeHtml(t)}</td><td>${fmt(dayTotalsArr[i])}</td></tr>`)
+      .map(({ t, i }) => `<tr><td style="padding-left:1.5em;color:var(--text2)"${defs[i] ? ` title="${escapeHtml(defs[i])}"` : ''}>${escapeHtml(t)}${defs[i] ? ' <span style="color:var(--text3);font-size:10px" title="' + escapeHtml(defs[i]) + '">ⓘ</span>' : ''}</td><td>${fmt(dayTotalsArr[i])}</td></tr>`)
       .join('');
     return `<tr style="font-weight:500"><td>${escapeHtml(g)}</td><td>${fmt(dayGroups[g])}</td></tr>${subRows}`;
   }).join('');

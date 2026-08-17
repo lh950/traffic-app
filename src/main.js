@@ -20,7 +20,7 @@ import {
   checkVKeys, checkPKeys, checkTmcKeys, setLegLabel, toggleLegCrosswalk, toggleLegApproach, toggleLegOneWay, toggleLegOneWayIn,
   updateCrosswalkField, toggleApproachDestUnified, toggleApproachCount, renderLegConfig,
   buildTemplateGrid, renderVPairsList, addBikeToVPairs, addAllVPairsToTmc,
-  copyVPairsFromProject,
+  copyVPairsFromProject, toggleVDescExpand,
   updateTemplateSuboption, setDiagLeg, setMissingLeg,
   initApproaches, updateDefaultFilenames, wireSetupFilenameInputs, startCounting, goSetup,
   openLegPopover, closeLegPopover, getOpenLeg, wireLegPopoverDismiss,
@@ -67,6 +67,7 @@ import {
   wireKeydown as tgWireKeydown, finishLocation as tgFinishLocation,
   resetClassifications as tgResetClassifications, beginEditing as tgBeginEditing,
   beginRecount as tgBeginRecount, defaultClassificationsFor as tgDefaultClassificationsFor,
+  setClassificationsLocked as tgSetClassificationsLocked,
 } from './tripgenCount.js';
 import {
   beginIntersectionRecount as ixBeginRecount, wireKeydown as ixQaqcWireKeydown,
@@ -139,7 +140,7 @@ Object.assign(window, {
   checkVKeys, checkPKeys, setLegLabel, toggleLegCrosswalk, toggleLegApproach, toggleLegOneWay, toggleLegOneWayIn,
   updateCrosswalkField, toggleApproachDestUnified, toggleApproachCount, renderLegConfig,
   updateDefaultFilenames,
-  checkTmcKeys, addBikeToVPairs, addAllVPairsToTmc, renderVPairsList,
+  checkTmcKeys, addBikeToVPairs, addAllVPairsToTmc, renderVPairsList, toggleVDescExpand,
   openLegPopover, closeLegPopover, getOpenLeg,
   setDiagLeg, setMissingLeg, updateDiagram, toggleDiagram, toggleTurningDiagram,
   setMode, render, buildKbd, updateCfgFields, vGroupPrev, vGroupNext,
@@ -1171,7 +1172,7 @@ function liveTmcParsed() {
     });
     return { label: slotLabel(i), start, end, counts };
   });
-  return { approaches, types: vPairs.filter(p=>p.includeTmc).map(p => ({ label: p.label, isBike: !!p.isBike })), intervals, legLabels: intersection.legLabels || {}, intervalMin: cfg.intervalMin };
+  return { approaches, types: vPairs.filter(p=>p.includeTmc).map(p => ({ label: p.label, isBike: !!p.isBike, def: p.def || '' })), intervals, legLabels: intersection.legLabels || {}, intervalMin: cfg.intervalMin };
 }
 
 // ── Period-stored-data → analysis shapes ─────────────────────────────────────
@@ -1207,7 +1208,7 @@ function parsedFromPeriod(pData, ctx = {}) {
     })),
   };
   const tmcParsed = {
-    approaches, types: vp.filter(p=>p.includeTmc).map(p => ({ label: p.label, isBike: !!p.isBike })),
+    approaches, types: vp.filter(p=>p.includeTmc).map(p => ({ label: p.label, isBike: !!p.isBike, def: p.def || '' })),
     legLabels: ix.legLabels || {}, intervalMin,
     intervals: Array.from({ length: slots }, (_, i) => {
       const counts = {};
@@ -1653,7 +1654,7 @@ async function buildIntervalDetailMarkup(activeKind, vehParsed, pedParsed, tmcPa
           <tbody>
             ${types.map((t, ti) => `
               <tr>
-                <td>${escapeHtmlMain(t.label)}${t.isBike ? ' 🚲' : ''}</td>
+                <td${t.def ? ` title="${escapeHtmlMain(t.def)}"` : ''}>${escapeHtmlMain(t.label)}${t.isBike ? ' 🚲' : ''}${t.def ? ' <span style="color:var(--text3);font-size:10px" title="' + escapeHtmlMain(t.def) + '">ⓘ</span>' : ''}</td>
                 ${perClassPerApproach[ti].map(v => `<td style="text-align:right">${v.toLocaleString()}</td>`).join('')}
                 <td style="text-align:right;font-weight:600">${perClassPerApproach[ti].reduce((a,b)=>a+b,0).toLocaleString()}</td>
               </tr>`).join('')}
@@ -3525,12 +3526,13 @@ window.showAreaAggregateScreen = showAreaAggregateScreen;
 // not by array position — see this section's header comment.
 function aggregateVehicleClassTotals() {
   const byLabel = new Map();
-  const touch = (label, isBike, amount, ixName) => {
-    if (!byLabel.has(label)) byLabel.set(label, { label, isBike: false, total: 0, intersections: new Set() });
+  const touch = (label, isBike, amount, ixName, def) => {
+    if (!byLabel.has(label)) byLabel.set(label, { label, isBike: false, def: '', total: 0, intersections: new Set() });
     const entry = byLabel.get(label);
     entry.total += amount;
     if (amount > 0) entry.intersections.add(ixName);
     if (isBike) entry.isBike = true; // sticky — one intersection's row marking it bike is enough
+    if (!entry.def && def) entry.def = def; // first non-empty description across intersections wins
   };
   for (const ix of areaIntersections) {
     const snap = ix.snapshot;
@@ -3543,7 +3545,7 @@ function aggregateVehicleClassTotals() {
         vp.forEach((cls, i) => {
           const inSum = (p.vData.in || []).reduce((s, r) => s + (r[i] || 0), 0);
           const outSum = (p.vData.out || []).reduce((s, r) => s + (r[i] || 0), 0);
-          if (inSum + outSum > 0) touch(cls.label, !!cls.isBike, inSum + outSum, ix.name);
+          if (inSum + outSum > 0) touch(cls.label, !!cls.isBike, inSum + outSum, ix.name, cls.def);
         });
       } else {
         // TMC mode — tmcData[from][to][slot] is an array indexed by vPairs position, same
@@ -3553,7 +3555,7 @@ function aggregateVehicleClassTotals() {
             for (const slot of slots) {
               (slot || []).forEach((v, i) => {
                 if (!v || !vp[i]) return;
-                touch(vp[i].label, !!vp[i].isBike, v, ix.name);
+                touch(vp[i].label, !!vp[i].isBike, v, ix.name, vp[i].def);
               });
             }
           }
@@ -3916,7 +3918,7 @@ async function renderAreaAggregateContent() {
 
   const classRows = classTotals.map(c => `
     <tr>
-      <td>${escapeHtmlMain(c.label)}${c.isBike ? ' 🚲' : ''}</td>
+      <td${c.def ? ` title="${escapeHtmlMain(c.def)}"` : ''}>${escapeHtmlMain(c.label)}${c.isBike ? ' 🚲' : ''}${c.def ? ' <span style="color:var(--text3);font-size:10px" title="' + escapeHtmlMain(c.def) + '">ⓘ</span>' : ''}</td>
       <td style="text-align:right">${fmt(c.total)}</td>
       <td style="text-align:right">${classGrandTotal > 0 ? Math.round((c.total / classGrandTotal) * 100) : 0}%</td>
       <td>${intervalBar(c.total, maxClassTotal, 140)}</td>
@@ -5737,11 +5739,27 @@ document.getElementById('btn-tripgen-paste-toggle')?.addEventListener('click', (
 });
 
 // ── Start a new live count (parallel to upload/paste — see tripgenCount.js) ──
+// Trip Gen equivalent of setup.js's hasCountData() — true once at least one location in
+// this project carries real (nonzero) interval data, at which point the classification
+// list's drag-to-reorder locks (see BUGS.md discipline: reordering after data exists would
+// silently scramble which historical column means what). A location with only zeroed
+// intervals (e.g. an XLSX import whose sheet turned out empty) doesn't count as "has data."
+function hasTripgenCountData() {
+  return tripgenEntries.some((e) => (e.days || []).some((d) => {
+    const p = d.parsed;
+    if (!p || !p.intervals) return false;
+    return p.intervals.some((iv) => (iv.inbound || []).some((v) => v) || (iv.outbound || []).some((v) => v));
+  }));
+}
 document.getElementById('btn-tripgen-start-new')?.addEventListener('click', () => {
   const area = document.getElementById('tripgen-new-count-area');
   const isHidden = area.style.display === 'none';
   area.style.display = isHidden ? '' : 'none';
-  if (isHidden) { tgResetClassifications(); tgAddClassification(); }
+  if (isHidden) {
+    tgResetClassifications();
+    tgSetClassificationsLocked(hasTripgenCountData());
+    tgAddClassification();
+  }
 });
 document.getElementById('btn-tg-add-classification')?.addEventListener('click', () => tgAddClassification());
 document.getElementById('btn-tg-begin-counting')?.addEventListener('click', () => {

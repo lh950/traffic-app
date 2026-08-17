@@ -94,6 +94,16 @@ function hasCountData(){
   return periods.some(p=>{const d=p.data;if(!d)return false;return chkV(d.vData)||chkP(d.pedData)||chkT(d.tmcData||{});});
 }
 
+// Which vPairs rows currently have their description textarea expanded — pure UI state,
+// not persisted with the project (resets to collapsed each session, same spirit as other
+// expand/collapse widgets like the Analyze screen's <details> interval table). Indices
+// only, keyed by the row's live position in vPairs.
+const vDescExpanded=new Set();
+export function toggleVDescExpand(i){
+  if(vDescExpanded.has(i)) vDescExpanded.delete(i); else vDescExpanded.add(i);
+  renderVPairsList();
+}
+
 export function renderVPairsList(){
   const wrap=document.getElementById('v-pairs-list'); if(!wrap) return;
   wrap.innerHTML='';
@@ -114,9 +124,12 @@ export function renderVPairsList(){
     const labelEl=locked||p.isBike
       ?`<span class="pair-label-ro${p.isBike?' bike-label-locked':''}">${esc(p.label)}</span>`
       :`<input type="text" value="${esc(p.label)}" placeholder="label" oninput="vPairs[${i}].label=this.value;updateCfgFields()">`;
-    const defEl=locked||p.isBike
-      ?`<span class="tmc-def-ro">${p.isBike?'Cyclists':esc(p.def)}</span>`
-      :`<input type="text" value="${esc(p.def)}" placeholder="definition" style="font-size:11px" oninput="vPairs[${i}].def=this.value">`;
+    const descExpanded=vDescExpanded.has(i);
+    const descText=p.isBike?'Cyclists':(p.def||'');
+    const descBtnLabel=descExpanded?'▾ desc':(descText?'✎ desc':'+ desc');
+    const defEl=p.isBike
+      ?`<span class="tmc-def-ro" title="${esc(descText)}">Cyclists</span>`
+      :`<button type="button" class="desc-toggle-btn" onclick="toggleVDescExpand(${i})" title="${descExpanded?'Hide description':(descText?'Edit description':'Add description')}">${descBtnLabel}</button>`;
     const inKeyEl=p.isBike
       ?`<span class="key-input key-input-blank"></span>`
       :`<input type="text" class="key-input" maxlength="1" value="${(p.inKey||'')===';'?';':(p.inKey||'').toUpperCase()}" placeholder="in" oninput="vPairs[${i}].inKey=this.value.toLowerCase();checkVKeys()">`;
@@ -160,6 +173,14 @@ export function renderVPairsList(){
       });
     }
     wrap.appendChild(row);
+    if(descExpanded&&!p.isBike){
+      const descRow=document.createElement('div');
+      descRow.className='desc-row';
+      descRow.innerHTML=locked
+        ?`<div class="desc-view">${esc(p.def)||'<span style="color:var(--text3)">(no description)</span>'}</div>`
+        :`<textarea class="desc-textarea" placeholder="e.g. AKA tandem trailers, includes classes 11-13" oninput="vPairs[${i}].def=this.value">${esc(p.def)}</textarea>`;
+      wrap.appendChild(descRow);
+    }
   });
   checkVKeys();
   checkTmcKeys();
