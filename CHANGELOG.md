@@ -1,5 +1,10 @@
 # Changelog
 
+## v3.36.0-alpha.1 — 2026-08-17
+
+### Added
+- **Trip Gen's per-day camera-image capture now surfaces in the Analysis screen, not just the tiny 64×40px setup-screen thumbnail** — the setup screen's Locations list already let a user upload/preview/remove a `data:` URL camera photo per count-day (`entry.days[i].cameraImageUrl`), and it already persisted correctly through save/load (whole-object clone, no allowlist stripping), but the photo itself was never shown anywhere except that tiny thumbnail. `renderDayBlock()` in `src/analysis/ui/tripgenSection.js` now renders a full-size "Camera view" card (`max-height:360px`, preserves aspect ratio) at the top of each day's section, right under the day header and before the Trip rate card, whenever `day.cameraImageUrl` is set — days without a photo render with no card and no gap, exactly as before. In-app analysis screen only; `exportTripgenXLSX` and print/export paths are untouched (out of scope for this task).
+
 ## v3.35.0-alpha.2 — 2026-08-12
 
 ### Fixed

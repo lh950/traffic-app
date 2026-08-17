@@ -265,9 +265,19 @@ async function renderDayBlock(entry, day, ctx) {
     `;
   }));
 
+  const cameraImageHTML = day.cameraImageUrl
+    ? `
+      <div class="card" style="margin-bottom:14px">
+        <h3>Camera view</h3>
+        <img src="${day.cameraImageUrl}" alt="Camera view for ${escapeHtml(sheetName)}" style="max-width:100%;max-height:360px;width:auto;height:auto;display:block;border-radius:4px;border:1px solid var(--border)">
+      </div>
+    `
+    : '';
+
   return `
     <div class="section" style="margin-bottom:1.5rem">
       <h3 style="font-size:13px;color:var(--text2);margin-bottom:10px">${escapeHtml(sheetName)} (${dayType})</h3>
+      ${cameraImageHTML}
       ${tripRateHTML}
       <div class="card" style="margin-bottom:14px">
         <h3>Peak periods</h3>
