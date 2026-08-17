@@ -1,5 +1,13 @@
 # Changelog
 
+## v3.39.0-alpha.1 — 2026-08-17
+
+### Changed
+- **Trip Gen focus mode now dims the live count table's columns, not just the keyboard-reference chips** — the intersection counter's own focus mode (ped-counting table) dims every non-focused column to `opacity:.28` and highlights the focused pair's header, and Trip Gen's focus mode (shipped earlier this session) was missing that stronger signal, only dimming the keyboard chips. `buildTable()` in `tripgenCount.js` now computes `fcxi` (the focused classification index, or -1 when focus mode is off) each render and applies the intersection counter's own `ped-focus-col`/`ped-focus-col-hd`/`ped-dimmed` CSS classes (reused verbatim from `counter.js`'s `renderPed()`, not reinvented) to the focused classification's In/Out header cells, body cells, and footer total cells — every other classification's columns dim, matching the intersection counter's look exactly. `updateFocusUI()` now also calls `buildTable()` (previously only `buildKbd()`) so toggling/cycling focus refreshes the table immediately. Table columns are never grouped-of-4 like the keyboard chips are — Trip Gen's table already shows every classification's columns at once — so dimming works the same whether the focused classification is in the currently visible keybinding group or not; `cycleFocus()`'s existing `tgGroup = Math.floor(focusTarget/4)` sync keeps the two views in visual agreement regardless.
+
+### Verification
+Live in the browser (dev server): built a 6-classification Trip Gen location (2 keybinding groups) and began counting. Toggled focus mode on — classification 1's In/Out table columns (header, all body rows, footer totals) rendered with the highlighted `ped-focus-col`/`ped-focus-col-hd` treatment, all 5 other classifications' columns dimmed. Cycled focus with `]` four times to classification 5 (group 2) — dimming correctly moved to classification 5's columns only, confirmed via both a DOM class inspection and a visual screenshot; the keyboard reference bar's group nav followed along to group 2 as before. Toggled focus mode off — all `ped-focus-col`/`ped-focus-col-hd`/`ped-dimmed` classes cleared from every header/body/footer cell, no stuck dimming. No console errors beyond the pre-existing, unrelated Vite HMR websocket failure in this dev harness.
+
 ## v3.38.0-alpha.1 — 2026-08-17
 
 ### Added

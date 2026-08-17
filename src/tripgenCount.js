@@ -365,6 +365,7 @@ function updateFocusUI() {
   if (bar) bar.style.display = focusMode ? 'flex' : 'none';
   if (focusMode) buildFocusChips();
   buildKbd();
+  buildTable();
 }
 function buildFocusChips() {
   const wrap = document.getElementById('tg-focus-chips');
@@ -380,24 +381,42 @@ function buildFocusChips() {
   });
 }
 
+// Column-dimming classes/opacity below (ped-focus-col / ped-focus-col-hd / ped-dimmed) are
+// reused verbatim from the intersection counter's ped-table focus treatment (counter.js's
+// renderPed()) rather than invented fresh — same visual language ("focused column highlighted,
+// every other column dimmed to opacity .28") so the two counters feel consistent, per this
+// session's build brief. focusMode/focusTarget here are this file's own local state (this
+// module deliberately doesn't share focus.js's globals — see file header), so fcxi is computed
+// fresh each render rather than reusing focus.js's renderPed() fcxi pattern directly.
 function buildTable() {
   const tbl = document.getElementById('tg-tbl-count');
   if (!tbl) return;
-  const head = `<thead><tr><th>time</th>${classifications.map((c) => `<th>${c.label} In</th><th>${c.label} Out</th>`).join('')}<th>total</th></tr></thead>`;
+  const fcxi = focusMode ? focusTarget : -1;
+  const colCls = (ci) => {
+    const focused = ci === fcxi, anyFocus = fcxi >= 0;
+    return focused ? ' ped-focus-col' : anyFocus ? ' ped-dimmed' : '';
+  };
+  const head = `<thead><tr><th>time</th>${classifications.map((c, ci) => {
+    const focused = ci === fcxi, anyFocus = fcxi >= 0;
+    const hd = focused ? ' ped-focus-col-hd' : anyFocus ? ' ped-dimmed' : '';
+    return `<th class="${hd.trim()}">${c.label} In</th><th class="${hd.trim()}">${c.label} Out</th>`;
+  }).join('')}<th>total</th></tr></thead>`;
   const body = Array.from({ length: cfg.slots }, (_, i) => {
     const cur = i === slot ? ' class="current"' : '';
     let rowTotal = 0;
     const cells = classifications.map((_, ci) => {
       const inV = tgData.in[i][ci], outV = tgData.out[i][ci];
       rowTotal += inV + outV;
-      return `<td class="${inV > 0 ? 'nonzero' : ''}">${inV}</td><td class="${outV > 0 ? 'nonzero' : ''}">${outV}</td>`;
+      const fc = colCls(ci);
+      return `<td class="${((inV > 0 ? 'nonzero' : '') + fc).trim()}">${inV}</td><td class="${((outV > 0 ? 'nonzero' : '') + fc).trim()}">${outV}</td>`;
     }).join('');
     return `<tr${cur} id="tg-r-${i}"><td>${slotLabel(i)}</td>${cells}<td class="${rowTotal > 0 ? 'nonzero' : ''}">${rowTotal}</td></tr>`;
   }).join('');
   const totals = classifications.map((_, ci) => {
     const inT = tgData.in.reduce((s, r) => s + r[ci], 0);
     const outT = tgData.out.reduce((s, r) => s + r[ci], 0);
-    return `<td>${inT}</td><td>${outT}</td>`;
+    const fc = colCls(ci);
+    return `<td class="${fc.trim()}">${inT}</td><td class="${fc.trim()}">${outT}</td>`;
   }).join('');
   const grand = tgData.in.flat().reduce((a, b) => a + b, 0) + tgData.out.flat().reduce((a, b) => a + b, 0);
   tbl.innerHTML = `${head}<tbody>${body}</tbody><tfoot><tr><td>total</td>${totals}<td>${grand}</td></tr></tfoot>`;
