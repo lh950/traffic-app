@@ -1,5 +1,17 @@
 # Changelog
 
+## v3.37.0-alpha.1 — 2026-08-17
+
+### Added
+- **Lot square footage, alongside the existing facility floor-area field, with a computed FAR** — Trip Gen's site info (`tripgenSiteInfo`) previously had one square-footage field (`gsf`), used only to compute trip rate (trips per 1000 GSF). Relabeled it "Available GSF (facility)" for clarity and added a new `lotSf` field ("Lot square footage") next to it, on both the setup screen's static site-information card (`index.html`) and the Analysis screen's `renderSiteInfoForm()` (`tripgenSection.js`) — same `data-site-field`/`onSiteInfoChange` persistence pattern as every other site-info field, no new wiring mechanism. New `computeFar()` in `tripgenSection.js` divides `gsf` by `lotSf` (Floor Area Ratio) and displays it (2 decimals, e.g. "0.42") on both the no-print site-info card and the print-only summary table, only when both values are present and `lotSf` is nonzero — otherwise no FAR row at all (no NaN/Infinity from a partially-filled form). `exportXlsx.js`'s Trip Gen summary sheet gained matching "Lot SF:" and "FAR:" rows alongside the existing "Available GSF:" row (renamed from "GSF:").
+- **Trip rate calculation is unchanged** — `data.tripRate(groupTotal, siteInfo.gsf)` still divides by the facility's own `gsf` exactly as before; `lotSf` is additive context for FAR only, never fed into the rate calculation.
+
+### Judgment call
+The task ("lot square footage... calculations should be done with these values") named lot SF and the existing GSF field but didn't spell out what "calculations" meant. Read as: FAR (facility GSF ÷ lot SF) is the standard, unambiguous real-estate/traffic-engineering combination of exactly these two values — a natural derived stat, not just two static display fields — while trip rate (which already exists and already uses `gsf`) was left untouched since the task was explicit that lot SF is additive, not a replacement input.
+
+### Verification
+Live in the browser (dev server): set Available GSF = 20000, Lot SF = 47600 on a real Trip Gen project's site info (via the Analysis screen's site-info card) — FAR displayed as "0.42" (20000/47600 = 0.42017, hand-checked). Confirmed FAR disappears entirely (no NaN/Infinity) with Lot SF = "0" and again with Lot SF blank. Confirmed trip rate (10.8, 2.2, 15.2, 4.55 trips/1000 GSF across two day-sheets) was unaffected by any Lot SF change — hand-checked one value (216 day-total ÷ 20 = 10.8). Reloaded the page and resumed the autosaved project — both "Available GSF (facility)" (20000) and "Lot square footage" (47600) persisted correctly. No console errors beyond the pre-existing, unrelated Vite HMR websocket failure.
+
 ## v3.36.0-alpha.4 — 2026-08-17
 
 ### Added

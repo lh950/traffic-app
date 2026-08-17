@@ -19,7 +19,10 @@ import { runVehicleQA, renderQASection } from '../../qa.js';
 //
 // State this module is handed (owned by main.js, mutated only via the on*Change callbacks
 // so re-render stays a pure function of state):
-//   siteInfo: { location, landUseType, gsf, parking, units, studyDates, notes }
+//   siteInfo: { location, landUseType, gsf, lotSf, parking, units, studyDates, notes }
+//     gsf = facility's own "Available GSF" (building/leasable floor area) — feeds
+//     tripRate() unchanged. lotSf = the site/parcel's total land area — additive context
+//     only, never a trip-rate input. Together they compute FAR (computeFar(), below).
 //   categoryMap: { [classificationLabel]: groupName } — a NON-AUTHORITATIVE starting
 //     suggestion, always user-editable; grouping is project-specific (different sites split
 //     pedestrians/trucks differently), never a fixed standard.
@@ -106,15 +109,28 @@ function ratingBadge(rating) {
   return `<span class="tag ${map[rating] || ''}">${rating}</span>`;
 }
 
+// FAR = facility's Available GSF ÷ lot square footage — the standard combined use of the
+// two site-area figures (e.g. FAR 0.42, FAR 2.1). Only meaningful when both values are
+// present and lotSf is nonzero; returns null otherwise so callers can hide the stat rather
+// than showing NaN/Infinity from a partially-filled form.
+function computeFar(siteInfo) {
+  const gsf = Number(siteInfo.gsf);
+  const lotSf = Number(siteInfo.lotSf);
+  if (!gsf || !lotSf) return null;
+  return Math.round((gsf / lotSf) * 100) / 100;
+}
+
 function renderSiteInfoForm(siteInfo) {
   const fields = [
     ['location', 'Location / address'],
     ['landUseType', 'Land use type'],
-    ['gsf', 'Square footage (GSF)'],
+    ['gsf', 'Available GSF (facility)'],
+    ['lotSf', 'Lot square footage'],
     ['parking', 'Parking spaces'],
     ['units', 'Units / employees'],
     ['studyDates', 'Study date range'],
   ];
+  const far = computeFar(siteInfo);
   return `
     <div class="card no-print" style="margin-bottom:14px">
       <h3>Site information</h3>
@@ -126,6 +142,7 @@ function renderSiteInfoForm(siteInfo) {
           </div>
         `).join('')}
       </div>
+      ${far !== null ? `<div class="stat-detail" style="margin-top:10px">FAR (Available GSF &divide; lot SF): <strong>${far.toFixed(2)}</strong></div>` : ''}
       <div class="setup-field" style="margin-top:10px">
         <label>Notes</label>
         <textarea data-site-field="notes" rows="2" style="width:100%;font-family:inherit;font-size:13px;padding:6px 10px;border:.5px solid var(--border2);border-radius:var(--r);background:var(--surface2);color:var(--text)">${escapeHtml(siteInfo.notes || '')}</textarea>
@@ -136,6 +153,7 @@ function renderSiteInfoForm(siteInfo) {
       <table class="crosswalk-table">
         <tbody>
           ${fields.filter(([key]) => siteInfo[key]).map(([key, label]) => `<tr><td>${label}</td><td>${escapeHtml(String(siteInfo[key]))}</td></tr>`).join('') || '<tr><td colspan="2" style="color:var(--text3)">No site information entered yet</td></tr>'}
+          ${far !== null ? `<tr><td>FAR</td><td>${far.toFixed(2)}</td></tr>` : ''}
           ${siteInfo.notes ? `<tr><td>Notes</td><td>${escapeHtml(siteInfo.notes)}</td></tr>` : ''}
         </tbody>
       </table>

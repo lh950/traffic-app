@@ -5474,7 +5474,11 @@ function wireProjectInfoFields() {
 }
 wireProjectInfoFields();
 
-const tripgenSiteInfo = { location: '', landUseType: '', gsf: '', parking: '', units: '', studyDates: '', notes: '' };
+// gsf = facility's own "Available GSF" (building/leasable floor area) — feeds tripRate()
+// unchanged, exactly as before. lotSf = the site/parcel's total land area — additive
+// context, never fed into the trip-rate calculation. Together they compute FAR (see
+// computeFar() in tripgenSection.js) — that's the "calculation" the two values combine for.
+const tripgenSiteInfo = { location: '', landUseType: '', gsf: '', lotSf: '', parking: '', units: '', studyDates: '', notes: '' };
 const tripgenCategoryMap = {};
 const tripgenPeakWindows = { weekday: DEFAULT_PEAK_WINDOWS.weekday.map((w) => ({ ...w })), weekend: DEFAULT_PEAK_WINDOWS.weekend.map((w) => ({ ...w })) };
 const tripgenQaqc = {};
@@ -5526,7 +5530,7 @@ function requireLocationContext() {
 }
 
 function wireSiteInfoFields() {
-  const map = { 'tg-site-address': 'location', 'tg-site-landuse': 'landUseType', 'tg-site-gsf': 'gsf', 'tg-site-parking': 'parking', 'tg-site-units': 'units', 'tg-site-studydates': 'studyDates', 'tg-site-notes': 'notes' };
+  const map = { 'tg-site-address': 'location', 'tg-site-landuse': 'landUseType', 'tg-site-gsf': 'gsf', 'tg-site-lotsf': 'lotSf', 'tg-site-parking': 'parking', 'tg-site-units': 'units', 'tg-site-studydates': 'studyDates', 'tg-site-notes': 'notes' };
   Object.entries(map).forEach(([id, field]) => {
     const el = document.getElementById(id);
     if (!el) return;
