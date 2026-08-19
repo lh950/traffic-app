@@ -11,6 +11,9 @@
 ### Changed
 - **Approach/movement active-selection visual clarity.** The approach selector's active state now gets a focus ring + bold weight (matching the movement chip row's existing treatment) instead of a flat background swap, and the live counter's "N → Left (E)"-style active-selection summary line is now a filled pill instead of plain text — user feedback that the current selection "wasn't super clear."
 
+### Testing
+- **Added `test-fixtures/` — reference `.tcproject` files for manual regression testing.** 8 fixtures covering every project type (intersection, parking, area-wide) and counting mode (vehicle in/out, pedestrian, TMC), including the 5-way multi-Left-turn destination-ordering shape (BUG-031) and the empty-tmcData/populated-vData wrong-mode corruption signature the new Data Quality flag targets. See `test-fixtures/README.md`.
+
 ## v3.42.1-alpha.1 — 2026-08-19
 
 ### Fixed
