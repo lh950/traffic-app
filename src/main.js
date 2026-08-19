@@ -13,7 +13,7 @@ import {
   initVData, initPedData, initTMCData, mode,
   periods, activePeriodIdx, setActivePeriodIdx,
   captureActivePeriod, restoreActivePeriod, initDefaultPeriods,
-  resetUndoStacks, updateUndoUI, periodMeta,
+  resetUndoStacks, updateUndoUI, periodMeta, resetIntersection,
 } from './state.js';
 import {
   switchSetupTab, setIntervalLen, updateDerived, updateVCount, applyVPreset,
@@ -814,11 +814,25 @@ function renderHomeResumeBanner() {
 document.getElementById('home-btn-intersection')?.addEventListener('click', () => {
   projectType = 'intersection';
   plannedPeriods.length = 0;
+  // BUG-032: this entry point never reset the module-singleton `intersection`/TEMPLATES
+  // slots/enabledModes, so a genuinely new project silently inherited whatever template,
+  // diagLeg, and enabled count types the previously-open project (in the same tab) left
+  // behind — same leakage shape as BUG-027, different trigger (new project vs. load).
+  resetIntersection();
+  syncTemplateSlotsFromIntersection();
+  enabledModes.ped = true; enabledModes.vehicle = true; enabledModes.turning = true;
+  syncCountTypeToggles(); // reflect the reset into the ct-ped/ct-vehicle/ct-turning checkboxes' DOM state, not just the JS object
   enterWorkspace();
   setSidebarMeta('New intersection count', '');
   _sidebarActiveItem = 'setup';
   renderAppSidebar();
   showScreen('setup-screen');
+  // Same render-refresh set used by loadProject()/switchIntersection() after restoring
+  // `intersection` (main.js ~4939-4941) — without these, stale DOM from whatever project
+  // was previously open (e.g. the 5-way diagonal-leg pill selector) survives the reset above
+  // even though the underlying `intersection`/TEMPLATES state is correct.
+  buildTemplateGrid(); renderVPairsList(); updateDerived(); renderLegConfig(); renderSetupDiagram();
+  updateTemplateSuboption(); initApproaches();
   renderPlannedPeriods();
 });
 

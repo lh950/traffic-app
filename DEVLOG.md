@@ -4,6 +4,14 @@ Key decisions, scope constraints, and architectural choices.
 
 ---
 
+## 2026-08-19 — BUG-032: reset-before-populate needed at every project-entry point, not just load
+
+**The stale-global leak (BUG-027, then the diagLeg part of BUG-031) turned out to have a third trigger: starting a brand-new project, not just loading an existing one.** `home-btn-intersection`'s click handler populated the setup screen straight from whatever `intersection`/`TEMPLATES.slots`/`enabledModes` already held in memory, with no reset step — those are module-singletons that persist across "projects" within the same browser tab by design (so mid-session edits stay live), but that means every entry point that's supposed to represent a *fresh* state has to explicitly reset them; nothing does it for free. Fixed by adding `resetIntersection()` (state.js) and calling it, plus an explicit `enabledModes` reset and the same `syncTemplateSlotsFromIntersection()`/render-refresh call set the load paths already use, before showing the setup screen for a new project.
+
+**Lesson for next time a stale-global bug is suspected:** audit every entry point that's supposed to start from defaults, not just the "load a project" ones — "new project" looks like it should be trivially stateless but isn't, since nothing actually re-initializes the shared state on that path. Also: resetting the JS state object isn't sufficient on its own if the UI has separately-rendered DOM (checkboxes, pill selectors) that only syncs to that object on specific user actions (a checkbox's `change` event, a template card's `onclick`) — a reset needs to explicitly re-run whatever render function normally keeps that DOM in sync (`syncCountTypeToggles()`, `buildTemplateGrid()`, `updateTemplateSuboption()`, etc.), confirmed by first shipping a version that reset the object correctly but left visibly stale checkboxes/pills, caught by live verification before it landed.
+
+---
+
 ## 2026-08-19 — test-fixtures/ (reference project files for regression testing)
 
 **Added a `test-fixtures/` directory of 8 reference `.tcproject` files, generated (not hand-written) by `test-fixtures/_generate.mjs` so the data shape stays correct.** Read `src/state.js` (`TEMPLATES`, `vPairs`, `intersection`), `src/setup.js` (`sortDestsByTurn`/`classifyTurn`, approach/destination construction, one-way-in semantics), and the exact save/load schema in `src/main.js` (`serializeCurrentProject`/`loadProject` for intersection projects, plus the separate `parking`/`area`/`tripgen` project-type branches) before writing anything — a fixture that doesn't match the real save format silently fails to load and is worse than no fixture. Ported `classifyTurn`/`sortDestsByTurn`'s exact logic into the generator so computed destination orderings (e.g. the 5-way diagonal leg's two Left turns) are guaranteed to match what the live app would compute, not just plausible-looking hand-typed arrays.

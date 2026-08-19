@@ -62,6 +62,32 @@ export let intersection = {
   ],
   approaches: [],
 };
+// Mutates the live `intersection` singleton back to its default shape (delete-then-assign,
+// not Object.assign alone — see BUG-027: Object.assign only overwrites keys present in the
+// source, so stale keys from a previously-configured project would survive a reset).
+export function resetIntersection(){
+  for(const k in intersection) delete intersection[k];
+  Object.assign(intersection, {
+    template: 't4',
+    diagLeg:  'SE',
+    missingLeg:'S',
+    street1: '',
+    street2: '',
+    street3: '',
+    lat: '',
+    lng: '',
+    legLabels: {},
+    oneWay: {},
+    oneWayIn: {},
+    crosswalks: [
+      {name:'North x-walk', dir0:'EB', dir1:'WB', key0:'a', key1:'s', assign:'N'},
+      {name:'East x-walk',  dir0:'NB', dir1:'SB', key0:'j', key1:'k', assign:'E'},
+      {name:'South x-walk', dir0:'EB', dir1:'WB', key0:'d', key1:'f', assign:'S'},
+      {name:'West x-walk',  dir0:'NB', dir1:'SB', key0:'l', key1:';', assign:'W'},
+    ],
+    approaches: [],
+  });
+}
 // Aliases preserved exactly as in v5: pedTemplate/pedPairs read/write through to intersection.
 Object.defineProperty(window,'pedTemplate',{get(){return intersection.template;},set(v){intersection.template=v;}});
 Object.defineProperty(window,'pedPairs',   {get(){return intersection.crosswalks;},set(v){intersection.crosswalks=v;}});

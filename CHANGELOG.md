@@ -1,5 +1,10 @@
 # Changelog
 
+## v3.43.0-alpha.2 — 2026-08-19
+
+### Fixed
+- **BUG-032: starting a brand-new intersection project inherited the previous project's template/diagLeg/enabled modes.** The home screen's "Intersection count" card never reset the `intersection` singleton, the 5-way/T-intersection template slots, or the pedestrian/vehicle/turning enabled-modes flags — a genuinely new project silently opened pre-configured as whatever the last-open project in the same tab had set. Same leak class as BUG-027/BUG-031, different trigger. See `BUGS.md` BUG-032.
+
 ## v3.43.0-alpha.1 — 2026-08-19
 
 ### Fixed
