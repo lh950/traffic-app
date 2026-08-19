@@ -1,5 +1,10 @@
 # Changelog
 
+## v3.43.0-alpha.5 — 2026-08-19
+
+### Fixed
+- **BUG-034 (Critical): Trip Gen live counts had zero persistence until "finish location" was clicked.** Caused real field data loss — leaving the counter before finishing (back button, refresh, crash) silently discarded the whole in-progress count, in both autosave and an explicit "save project" export. Now autosaves continuously while counting and, on reload, resumes straight back into the counter with the in-progress data intact instead of landing on a bare setup screen with the count gone. See `BUGS.md` BUG-034 for full root cause and live-verification detail.
+
 ## v3.43.0-alpha.4 — 2026-08-19
 
 ### Fixed

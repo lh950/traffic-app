@@ -447,6 +447,7 @@ export function undo() {
   applyAction(a, true);
   redoStack.push(a);
   updateUndoUI(); render();
+  window.scheduleAutosave?.();
 }
 export function redo() {
   if (!redoStack.length) return;
@@ -454,12 +455,18 @@ export function redo() {
   applyAction(a, false);
   undoStack.push(a);
   updateUndoUI(); render();
+  window.scheduleAutosave?.();
 }
 
 function record(dir, idx) {
   pushUndo({ dir, slot, col: idx });
   tgData[dir][slot][idx]++;
   render();
+  // BUG-034: unlike the main intersection counter (counter.js), nothing here previously
+  // triggered autosave — a live Trip Gen count had zero persistence until "finish location"
+  // was clicked, so navigating away (back button, refresh, crash) before finishing silently
+  // discarded the whole count with no trace, in both autosave AND an explicit "save project".
+  window.scheduleAutosave?.();
   // Flash the whole kbd-chip (which contains both the <kbd> key and the .key-label type name)
   const kbd = document.getElementById(`tgk-${dir === 'in' ? 'in' : 'out'}-${idx}`);
   const chip = kbd?.closest('.kbd-chip');
@@ -513,7 +520,10 @@ export function wireKeydown() {
   document.getElementById('tg-btn-focus')?.addEventListener('click', toggleFocusMode);
 }
 
-export function finishLocation() {
+// Builds the same {types, defs, intervals} shape finishLocation() commits, without calling
+// onFinish or requiring the count to actually be finished — used by BUG-034's live-autosave
+// path (main.js) to capture whatever's currently on the board, mid-count, for persistence.
+function buildParsedFromLiveData() {
   const intervals = Array.from({ length: cfg.slots }, (_, i) => {
     const { start, end } = slotStartEnd(i);
     return { label: slotLabel(i), start, end, inbound: tgData.in[i].slice(), outbound: tgData.out[i].slice() };
@@ -521,8 +531,25 @@ export function finishLocation() {
   // defs is a parallel array (index-matched to types) rather than folding def into types
   // itself — types stays a plain string array so every existing consumer (groupTotals,
   // categoryMap, by-label aggregation) that keys off it is untouched.
-  const parsed = { types: classifications.map((c) => c.label), defs: classifications.map((c) => c.def || ''), intervals };
-  if (onFinish) onFinish(parsed, snapshotForEdit());
+  return { types: classifications.map((c) => c.label), defs: classifications.map((c) => c.def || ''), intervals };
+}
+
+export function finishLocation() {
+  const parsed = buildParsedFromLiveData();
+  const cb = onFinish;
+  onFinish = null; // clear BEFORE invoking cb — cb's own work (pushing the entry, etc.) is
+  // already the source of truth once finish runs, so captureLiveSnapshot() must stop
+  // reporting this session as "still in progress" from this point on, not after cb returns.
+  if (cb) cb(parsed, snapshotForEdit());
+}
+
+// Read-only capture of the live in-progress count (BUG-034) — returns null if no count is
+// currently active (nothing to capture), otherwise the same {parsed, editSnapshot} shape a
+// finished location carries, plus the current interval index so a reload restores the exact
+// spot the user was at, not just interval 0.
+export function captureLiveSnapshot() {
+  if (!onFinish) return null; // no active count session
+  return { parsed: buildParsedFromLiveData(), editSnapshot: snapshotForEdit(), slot };
 }
 
 export function resetClassifications() {

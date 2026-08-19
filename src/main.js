@@ -67,6 +67,7 @@ import { intervalBar, pctOfPeakCell } from './analysis/ui/intervalDetail.js';
 import {
   addClassification as tgAddClassification, beginCounting as tgBeginCounting,
   wireKeydown as tgWireKeydown, finishLocation as tgFinishLocation,
+  captureLiveSnapshot as tgCaptureLiveSnapshot,
   resetClassifications as tgResetClassifications, beginEditing as tgBeginEditing,
   beginRecount as tgBeginRecount, defaultClassificationsFor as tgDefaultClassificationsFor,
   setClassificationsLocked as tgSetClassificationsLocked,
@@ -5018,9 +5019,47 @@ function loadProject(proj) {
     setSidebarMeta(proj.projectInfo?.projectName || 'Trip generation', proj.siteInfo?.location || '');
     _sidebarActiveItem = 'tg-setup';
     renderAppSidebar();
-    showScreen('tripgen-setup-screen');
     wireSiteInfoFields();
     renderTripgenLocationsList();
+    // BUG-034: resume straight into the counter with the in-progress count intact, rather
+    // than landing on the setup screen and leaving the user to notice (or not) that an
+    // unfinished count is sitting unreachable. Note: this restores the count DATA exactly
+    // (every interval's in/out values) but not the exact interval the user had scrolled to —
+    // tgBeginEditing() always starts a resumed session at interval 0, same as reopening any
+    // finished location for edit; nothing is lost, you just may need to scroll back down.
+    if (proj.pendingLocation) {
+      const pl = proj.pendingLocation;
+      tgPendingLocation = { kind: pl.kind, address: pl.address, date: pl.date, dayType: pl.dayType, entryId: pl.entryId, dayIdx: pl.dayIdx };
+      tgCounterBackTarget = 'tripgen-setup-screen';
+      showScreen('tripgen-counter-screen');
+      if (pl.kind === 'edit') {
+        const entry = tripgenEntries.find((e) => e.id === pl.entryId);
+        const day = entry?.days[pl.dayIdx];
+        tgBeginEditing(pl.editSnapshot, pl.parsed, (parsed, editSnapshot) => {
+          if (day) { day.parsed = parsed; day.editSnapshot = editSnapshot; }
+          tgPendingLocation = null;
+          renderTripgenLocationsList();
+          goToTripgenAnalyze();
+          window.scheduleAutosave?.();
+        });
+      } else {
+        document.getElementById('tg-location-address').value = pl.address || '';
+        document.getElementById('tg-location-date').value = pl.date || '';
+        tgBeginEditing(pl.editSnapshot, pl.parsed, (parsed, editSnapshot) => {
+          tripgenEntries.push({
+            id: tripgenNextId++, filename: '(live count)', locationLabel: pl.address,
+            meta: {}, days: [{ sheetName: formatDateLong(pl.date), dayType: pl.dayType, date: pl.date, parsed, editSnapshot }],
+          });
+          tgPendingLocation = null;
+          clearLocationContext();
+          renderTripgenLocationsList();
+          goToTripgenAnalyze();
+          window.scheduleAutosave?.();
+        });
+      }
+    } else {
+      showScreen('tripgen-setup-screen');
+    }
     return;
   }
   if (proj.projectType === 'area') {
@@ -5181,6 +5220,12 @@ function serializeCurrentProject() {
     };
   }
   if (projectType === 'tripgen') {
+    // BUG-034: capture whatever's currently on the board if a count is in progress and not
+    // yet finished, so it round-trips through autosave/save-project instead of vanishing the
+    // moment the user leaves the counter screen. tgPendingLocation is the authority on
+    // whether there's a real in-progress location (not tripgenCount.js's internal onFinish
+    // alone, which also goes truthy for QA/QC recounts — a different, unrelated flow).
+    const pendingSnap = tgPendingLocation ? tgCaptureLiveSnapshot() : null;
     return {
       version: 1, projectType: 'tripgen', savedAt: new Date().toISOString(), uuid: projectUUID,
       projectInfo: { ...projectInfo },
@@ -5191,6 +5236,7 @@ function serializeCurrentProject() {
       qaqcReviewDate: document.getElementById('qaqc-review-date')?.value || '',
       entries: JSON.parse(JSON.stringify(tripgenEntries)),
       distribution: JSON.parse(JSON.stringify(tripgenDistribution)),
+      pendingLocation: pendingSnap ? { ...tgPendingLocation, ...pendingSnap } : null,
     };
   }
   return null;
@@ -5603,6 +5649,12 @@ const tripgenQaqc = {};
 const tripgenEntries = [];
 let tripgenDataView = 'raw';
 let tripgenNextId = 1;
+// BUG-034: tracks the not-yet-finished live count currently on the board, if any, so
+// serializeCurrentProject() can persist it (autosave + explicit save) and a reload can
+// resume straight back into the counter instead of silently discarding in-progress work.
+// kind:'new' -> not yet in tripgenEntries at all; kind:'edit' -> re-editing an existing
+// entry's day, whose ALREADY-SAVED data must not be touched until finish is clicked again.
+let tgPendingLocation = null; // { kind:'new', address, date, dayType } | { kind:'edit', entryId, dayIdx }
 // Fixed-window report state for Trip Gen's combined view (item 4 — mirrors
 // fixedWindowStartMin/fixedWindowEndMin below, which are the intersection/area-study
 // equivalent). Not persisted across save/load, matching that side's own behavior.
@@ -5923,15 +5975,18 @@ document.getElementById('btn-tg-begin-counting')?.addEventListener('click', () =
   if (!ctx) return;
   const dayType = dayTypeFromDate(ctx.date);
   tgCounterBackTarget = 'tripgen-setup-screen';
+  tgPendingLocation = { kind: 'new', address: ctx.address, date: ctx.date, dayType };
   const started = tgBeginCounting((parsed, editSnapshot) => {
     tripgenEntries.push({
       id: tripgenNextId++, filename: '(live count)', locationLabel: ctx.address,
       meta: {}, days: [{ sheetName: formatDateLong(ctx.date), dayType, date: ctx.date, parsed, editSnapshot }],
     });
+    tgPendingLocation = null;
     clearLocationContext();
     renderTripgenLocationsList();
     // "finish location" takes you straight into the data view, not back to a bare list.
     goToTripgenAnalyze();
+    window.scheduleAutosave?.();
   });
   if (started) showScreen('tripgen-counter-screen');
 });
@@ -5945,11 +6000,14 @@ function editTripgenDay(entryId, dayIdx) {
   if (!day?.editSnapshot) return;
   tgCounterBackTarget = 'tripgen-setup-screen';
   showScreen('tripgen-counter-screen');
+  tgPendingLocation = { kind: 'edit', entryId, dayIdx };
   tgBeginEditing(day.editSnapshot, day.parsed, (parsed, editSnapshot) => {
     day.parsed = parsed;
     day.editSnapshot = editSnapshot;
+    tgPendingLocation = null;
     renderTripgenLocationsList();
     goToTripgenAnalyze();
+    window.scheduleAutosave?.();
   });
 }
 window.editTripgenDay = editTripgenDay;
