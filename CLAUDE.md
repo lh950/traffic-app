@@ -13,6 +13,18 @@ Before starting substantive work (more than a one-line fix), check `SESSION_LOCK
 
 This isn't a hard distributed lock — two sessions could still race if they check at the exact same moment — but it makes the common case (one session picks up after the other) visible and safe, and git's own merge-conflict-on-push is the backstop if it's ever missed.
 
+## ⚠️ If you are a remote/web session (claude.ai/code): you cannot push. Save your work for the main session instead.
+
+**Confirmed, not hypothetical:** the GitHub integration behind claude.ai/code sessions on this repo currently has read access only. Every push path has been tested and fails the same way — plain `git push`, an authenticated push with the session's own token, and the `mcp__github__push_files` MCP tool all get rejected (`403 Resource not accessible by integration` on `git/refs` — it can't create or update refs). This is a permission gap on the connector itself, not something fixable from within a session, and not something worth re-attempting more than once per session.
+
+**What to do instead — this is the expected, supported workflow, not a fallback:**
+
+1. Do the real work: understand the task, make the fix, verify it live (run the app, don't just read the diff), update `BUGS.md`/`CHANGELOG.md`/`DEVLOG.md`/version numbers per the conventions below, and commit locally in your clone. Commit — don't leave it sitting uncommitted, since this container/clone is ephemeral and uncommitted work disappears when the session ends.
+2. Try pushing once, expect it to fail, don't retry it repeatedly or burn time diagnosing it further — the cause is already known (see above).
+3. Produce a **handoff** for whichever session does have push access (a local CLI session on the maintainer's machine): a plain unified diff/patch (`git diff <base>..<your-HEAD> > name.patch`, or `git format-patch`) covering everything you changed, plus a short written summary — what the task was, root cause, what you changed, and exactly how you verified it live. A worked example of this exact pattern exists: BUG-030 (see `BUGS.md`/`DEVLOG.md`) was fixed by a remote session this way — patch applied cleanly, verified again, and pushed by the local session with no rework needed. That's the bar: the patch should be good enough to apply and push with no back-and-forth, not a rough draft.
+4. Send/deliver the patch through whatever channel actually reaches the user (chat attachment, a rendered artifact, pasting the diff directly) — don't assume a link or file reference alone will be seen.
+5. Don't touch `SESSION_LOCK.md` on `master` if your session is scoped to its own branch and a push there would be denied anyway — just note the lock state you observed in your handoff so the applying session knows whether it needs to claim/clear it.
+
 ## Versioning scheme
 
 `MAJOR.MINOR.PATCH[-alpha.BUILD]`
