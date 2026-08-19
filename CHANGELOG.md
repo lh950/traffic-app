@@ -1,5 +1,10 @@
 # Changelog
 
+## v3.44.0-alpha.2 — 2026-08-19
+
+### Fixed
+- **BUG-037: count tables blew out past the screen width, and every keystroke scrolled the page to the far right.** A CSS grid-blowout bug (`grid-template-columns:1fr` instead of `minmax(0,1fr)`) let the table's container grow to its full unconstrained content width instead of respecting the screen, pushing the whole page wider than the viewport — so the per-keystroke "scroll current row into view" call ended up scrolling the entire page horizontally instead of a contained scrollbox. See `BUGS.md` BUG-037.
+
 ## v3.44.0-alpha.1 — 2026-08-19
 
 ### Added
