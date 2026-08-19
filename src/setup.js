@@ -187,6 +187,9 @@ export function renderVPairsList(){
   // show/hide bicycle button
   const bikeBtn=document.getElementById('btn-vpairs-add-bike');
   if(bikeBtn)bikeBtn.style.display=vPairs.some(p=>p.isBike)?'none':'';
+  // hide "+ vehicle type" once the documented 12-type cap (3 keybinding groups) is reached
+  const addTypeBtn=document.getElementById('btn-vpairs-add-type');
+  if(addTypeBtn)addTypeBtn.style.display=vPairs.filter(p=>!p.isBike).length>=12?'none':'';
 }
 
 export function addBikeToVPairs(){

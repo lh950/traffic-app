@@ -8,6 +8,17 @@ Severity levels:
 
 ---
 
+## BUG-030
+**Status:** Fixed (v3.42.1-alpha.1, reported live by the user while setting up an intersection count)
+**Severity:** Major (a documented, supported capability — up to 12 vehicle types across 3 keybinding groups — was completely unreachable through the UI; the only way past 4 types was importing a saved project's `vPairs` wholesale via "copy from project…")
+**Found in:** pre-existing (the "counting types" panel, `#sp-vehicle` in `index.html`, live since the v3.23.0 single-master-list refactor)
+**Description:** The setup screen's own help panel documents "Up to 12 types across keybinding groups of 4," and `setup.js` already had a fully-working `updateVCount(n)` function (grows `vPairs` to `n` entries, reusing the 4-key group pool exactly like the keybinding-groups feature expects) — but no control in `index.html` ever called it. The two presets (`applyVPreset`) each set exactly 4 rows, "+ bicycle" adds exactly one special row (capped at 1), and "copy from project…" only helps if you already have a saved project file with more types. A user starting fresh had no way to add a 5th, 6th, ... type by hand.
+**Root cause:** `updateVCount(n)` was written (and still exposed via `Object.assign(window,{...})` in `main.js`) for what was presumably an earlier numeric-input-driven UI, but no `<input id="v-count">` or equivalent control exists in the current `index.html` — the function was fully wired on the JS side and completely orphaned on the markup side.
+**Fix:** Added a `+ vehicle type` button (`#btn-vpairs-add-type`) next to the existing `+ bicycle` button in the "counting types" panel's preset row, calling the existing `updateVCount(vPairs.length+1)` — one new row per click, correctly landing in the next keybinding group of 4 (reusing the exact logic already used for presets/import). `renderVPairsList()` hides the button once 12 non-bicycle types are reached, matching the help text's documented cap and mirroring how the bicycle button already hides once a bicycle row exists.
+**Verified live:** dev server, real UI flow (Playwright-driven, not fixture-driven) — started a new intersection count, opened "counting types," confirmed exactly 4 default rows and a visible `+ vehicle type` button. Clicked it repeatedly: row 5 appeared under a new "Group 2" separator with the correct reused A/S/D/F·J/K/L/; keys, continued through row 12 (Group 3), at which point the button correctly hid itself. Confirmed "+ bicycle" still works independently alongside it (13th row, its own button then hides). No console errors from any of these interactions.
+
+---
+
 ## BUG-029
 **Status:** Fixed (v3.38.0-alpha.1, caught while building the matching per-group conflict check for Trip Gen — pre-existing, not caused by this session's earlier work)
 **Severity:** Minor (only the red per-input `key-conflict` highlight was affected; the overall "duplicate keys" banner still correctly detected a conflict somewhere, and the conflict itself — sharing a key within one group of 4 vehicle types — is rare in practice since it requires 9+ vehicle types)

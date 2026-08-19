@@ -1,5 +1,10 @@
 # Changelog
 
+## v3.42.1-alpha.1 — 2026-08-19
+
+### Fixed
+- **BUG-030: no way to add more than 4 vehicle types in intersection setup.** The "counting types" panel's help text documents support for "up to 12 types across keybinding groups of 4," and the growing logic (`updateVCount(n)`) already existed and worked correctly, but no button or input in the UI ever called it — the two presets each set exactly 4 rows, "+ bicycle" adds one capped special row, and "copy from project…" only helps with an existing file that already has more types. Added a `+ vehicle type` button that adds one row per click (correctly starting new keybinding groups of 4), hiding once the documented 12-type cap is reached.
+
 ## v3.42.0-alpha.1 — 2026-08-17
 
 ### Added
