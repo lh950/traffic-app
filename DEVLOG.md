@@ -4,6 +4,14 @@ Key decisions, scope constraints, and architectural choices.
 
 ---
 
+## 2026-08-19 — BUG-035: a stale design comment justified a real data-loss bug
+
+**The classifications-not-saving bug had a comment explaining exactly why it was "correct" — and that explanation was wrong by the time it mattered.** The code unconditionally wiped classifications on every project load, with a comment saying this was deliberate: classifications were originally just "whatever's queued for the next new location," disposable scratch state, reset to prevent leaking between projects. That was true when it was written. It stopped being true once classifications became their own dedicated project-wide config tab — but nobody revisited the comment or the behavior it justified when that change happened, so a real bug shipped with a confident-sounding explanation for why it wasn't one.
+
+**Lesson:** a code comment explaining *why* something works a certain way is a claim about intent at the time it was written, not a standing guarantee. When a feature's role changes (disposable staging state becoming persisted config, in this case), the code paths that were correct for the OLD role need to be re-audited against the NEW one — the comment justifying the old behavior won't flag itself as outdated. This is the same shape of trap as trusting a memory or doc that's gone stale: the confidence of the explanation isn't evidence it's still true.
+
+---
+
 ## 2026-08-19 — BUG-034: every count type needs live in-progress persistence, not just "finished" data
 
 **Real data loss, caught directly by the user mid-count on the deployed app.** Trip Gen counting had never had the equivalent of the intersection counter's `captureActivePeriod()` — a way to snapshot whatever's currently on the board, mid-count, into something durable. It only ever persisted committed (`finishLocation()`-called) locations. Since nothing about the UI signals "this screen has no safety net" (the back button looks like an ordinary, safe navigation action, and autosave visibly runs — it just silently has nothing to save), a user doing the reasonable thing — leaving an unfinished count alone rather than misusing "finish location" on something not actually done — lost real field data with zero warning.

@@ -111,6 +111,7 @@ export function renderClassificationsList() {
         const moved = classifications.splice(dragSrc, 1)[0];
         classifications.splice(i, 0, moved);
         renderClassificationsList();
+        window.scheduleAutosave?.();
       });
     }
   });
@@ -119,6 +120,7 @@ export function renderClassificationsList() {
       const i = Number(el.dataset.tgIdx), field = el.dataset.tgField;
       classifications[i][field] = field === 'label' ? el.value : el.value.toLowerCase();
       checkKeyConflicts();
+      window.scheduleAutosave?.();
     });
   });
   wrap.querySelectorAll('[data-tg-desc-toggle]').forEach((el) => {
@@ -131,12 +133,14 @@ export function renderClassificationsList() {
   wrap.querySelectorAll('[data-tg-desc-idx]').forEach((el) => {
     el.addEventListener('input', () => {
       classifications[Number(el.dataset.tgDescIdx)].def = el.value;
+      window.scheduleAutosave?.();
     });
   });
   wrap.querySelectorAll('[data-tg-remove]').forEach((el) => {
     el.addEventListener('click', () => {
       classifications.splice(Number(el.dataset.tgRemove), 1);
       renderClassificationsList();
+      window.scheduleAutosave?.();
     });
   });
   checkKeyConflicts();
@@ -154,6 +158,7 @@ export function addClassification() {
   const outKey = OUT_KEY_POOL.find((k) => !used.has(k)) || '?';
   classifications.push({ label: `classification ${classifications.length + 1}`, inKey, outKey, def: '' });
   renderClassificationsList();
+  window.scheduleAutosave?.();
 }
 
 // Scoped PER GROUP (same shape as setup.js's checkVKeys g+=4 loop) — two classifications in
@@ -554,6 +559,15 @@ export function captureLiveSnapshot() {
 
 export function resetClassifications() {
   classifications = [];
+  renderClassificationsList();
+}
+
+// BUG-035: restores a saved classification list on project load. Previously nothing in
+// serializeCurrentProject()'s tripgen branch persisted `classifications` at all — every
+// classification the user configured (labels, keys, descriptions) was silently dropped from
+// both autosave AND an explicit "save project" export, project-wide config, not count data.
+export function restoreClassifications(list) {
+  classifications = (list || []).map((c) => ({ ...c }));
   renderClassificationsList();
 }
 

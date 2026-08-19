@@ -1,5 +1,10 @@
 # Changelog
 
+## v3.43.0-alpha.6 — 2026-08-19
+
+### Fixed
+- **BUG-035 (Critical): Trip Gen classifications were never included in any save.** Project-wide config (labels, keys, descriptions on the Classifications tab) — not count data — was silently excluded from both autosave and an explicit "save project" export, and unconditionally wiped back to empty on every project load. Now persists correctly and restores on reload. See `BUGS.md` BUG-035.
+
 ## v3.43.0-alpha.5 — 2026-08-19
 
 ### Fixed

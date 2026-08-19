@@ -69,6 +69,7 @@ import {
   wireKeydown as tgWireKeydown, finishLocation as tgFinishLocation,
   captureLiveSnapshot as tgCaptureLiveSnapshot,
   resetClassifications as tgResetClassifications, beginEditing as tgBeginEditing,
+  restoreClassifications as tgRestoreClassifications,
   beginRecount as tgBeginRecount, defaultClassificationsFor as tgDefaultClassificationsFor,
   setClassificationsLocked as tgSetClassificationsLocked,
   renderClassificationsList as tgRenderClassificationsList,
@@ -5005,11 +5006,14 @@ function loadProject(proj) {
     Object.assign(tripgenQaqc, proj.qaqc || {});
     tripgenEntries.length = 0;
     tripgenEntries.push(...(proj.entries || []));
-    // Classifications are project-wide config with their own tab (not saved as a distinct
-    // project field — they're only ever "whatever's queued for the next new location"), so
-    // loading a different project must not carry over the previous project's in-progress
-    // list, same leakage class as BUG-027.
-    tgResetClassifications();
+    // BUG-035: classifications are real project-wide config (labels/keys/descriptions the
+    // user configured), not disposable "whatever's queued for the next location" staging
+    // state — the previous design treated it as the latter and unconditionally reset it on
+    // every load, silently dropping it even when serializeCurrentProject() now DOES persist
+    // it (see the classifications field there). Restore what was saved; only reset to empty
+    // when the loaded project genuinely has none, still avoiding the BUG-027-style leak of
+    // one project's classifications bleeding into another that has its own (or none).
+    tgRestoreClassifications(proj.classifications || []);
     tripgenDistribution = JSON.parse(JSON.stringify(proj.distribution || []));
     tripgenDistNextId = tripgenDistribution.reduce((mx, ix) => Math.max(mx, ix.id + 1), 1);
     if (proj.qaqcReviewerName) { const el = document.getElementById('qaqc-reviewer-name'); if (el) el.value = proj.qaqcReviewerName; }
@@ -5230,6 +5234,9 @@ function serializeCurrentProject() {
       version: 1, projectType: 'tripgen', savedAt: new Date().toISOString(), uuid: projectUUID,
       projectInfo: { ...projectInfo },
       siteInfo: { ...tripgenSiteInfo }, categoryMap: { ...tripgenCategoryMap },
+      // BUG-035: classifications (labels/keys/descriptions) are project-wide config, not
+      // count data — must always be captured regardless of whether any count exists yet.
+      classifications: tgGetClassifications(),
       peakWindows: JSON.parse(JSON.stringify(tripgenPeakWindows)),
       qaqc: { ...tripgenQaqc },
       qaqcReviewerName: document.getElementById('qaqc-reviewer-name')?.value || '',
