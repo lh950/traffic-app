@@ -5191,6 +5191,11 @@ function loadProject(proj) {
 
 function serializeCurrentProject() {
   if (projectType === 'area') {
+    // NOTE: persistAreaStudySnapshotsOnly() (below) hand-builds this exact same field set as
+    // a deliberate parallel path (it can't call this function — see its own comment for why).
+    // If you add/change a field here, update that function too, or it will silently drift out
+    // of sync — this is exactly the bug class BUG-038 turned out to be (a second, unmaintained
+    // hand-built serializer for Trip Gen quietly missing fields this one gained over time).
     areaIntersections[activeIntersectionIdx].snapshot = serializeIntersectionSnapshot();
     return {
       version: 2, projectType: 'area', savedAt: new Date().toISOString(), uuid: projectUUID,
@@ -5357,6 +5362,9 @@ function persistAreaStudySnapshotsOnly() {
   if (projectType !== 'area') { window.scheduleAutosave?.(); return; }
   setSaveState('Saving…');
   try {
+    // Field set here must stay in sync with serializeCurrentProject()'s own 'area' branch —
+    // see the warning comment there. Checked during the BUG-038 audit (2026-08-19): currently
+    // identical, field-for-field.
     const proj = {
       version: 2, projectType: 'area', savedAt: new Date().toISOString(), uuid: projectUUID,
       projectInfo: { ...projectInfo },

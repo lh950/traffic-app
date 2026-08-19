@@ -4,6 +4,17 @@ Key decisions, scope constraints, and architectural choices.
 
 ---
 
+## 2026-08-19 — audited every save/export path after BUG-038
+
+**Prompted directly by the user:** "if we're fixing a save issue, then logically you should confirm all save abilities and options carry the same fixes." Audited every explicit save/export button and every autosave call site in `main.js` for the same shape of bug as BUG-038 (a hand-built duplicate of `serializeCurrentProject()` that silently drifted out of sync). Findings:
+- `saveProject()` (intersection + area, both UI save buttons), `scheduleAutosave()`, `flushPendingAutosave()`, and the `.tcsync` cross-device export all correctly go through `serializeCurrentProject()` (or re-package its already-correct output) — no other instance of the bug.
+- Parking has no separate save path at all — same shared route.
+- One more real instance of the *same risk*, not yet a live bug: `persistAreaStudySnapshotsOnly()` is a deliberate second hand-built serializer for area studies (it exists on purpose — it must skip a re-derive step `serializeCurrentProject()` always does, see its own comment). It's currently identical field-for-field to the real one, so nothing is broken today, but it has zero mechanism to notice if the real one gains a new field later — exactly how BUG-038 happened. Added cross-reference warning comments at both definitions so a future field addition doesn't repeat the mistake silently.
+
+**Lesson:** when a bug turns out to be "this code duplicated a canonical function and drifted," the fix isn't done at just the one instance — grep for the pattern (`downloadJSON(`, hand-built `{version:, projectType:, ...}` object literals, anywhere something skips the shared serializer) and check every other instance, even ones that aren't currently broken. A user catching this class of bug once is a strong signal to sweep for it everywhere, not patch-and-move-on.
+
+---
+
 ## 2026-08-19 — v3.44.0-alpha.3: Trip Gen "Location Counts" gets its own screen
 
 A prior session (see BUG-017-era judgment call, formerly documented inline in `main.js` right
