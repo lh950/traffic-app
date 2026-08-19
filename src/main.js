@@ -21,7 +21,7 @@ import {
   updateCrosswalkField, toggleApproachDestUnified, toggleApproachCount, renderLegConfig,
   buildTemplateGrid, renderVPairsList, addBikeToVPairs, addAllVPairsToTmc,
   copyVPairsFromProject, toggleVDescExpand,
-  updateTemplateSuboption, setDiagLeg, setMissingLeg,
+  updateTemplateSuboption, setDiagLeg, setMissingLeg, syncTemplateSlotsFromIntersection,
   initApproaches, updateDefaultFilenames, wireSetupFilenameInputs, startCounting, goSetup,
   openLegPopover, closeLegPopover, getOpenLeg, wireLegPopoverDismiss,
   legLabel,
@@ -53,7 +53,7 @@ import { renderSummary } from './analysis/ui/summary.js';
 import { renderStackedBarChart } from './analysis/ui/charts.js';
 import { renderTmcSection } from './analysis/ui/tmcDiagram.js';
 import { openPrintReport } from './printReport.js';
-import { runTmcQA, runVehicleQA, renderQASection } from './qa.js';
+import { runTmcQA, runVehicleQA, renderQASection, tmcStudyTotal, vehStudyTotal } from './qa.js';
 import { parseProjectSnapshot, parseCurrentSnapshot, renderComparisonSection, pickComparisonFile } from './compare.js';
 import { renderCorridorChart } from './corridorChart.js';
 import { exportShareablePage, buildShareableHTML } from './shareReport.js';
@@ -170,6 +170,19 @@ Object.assign(window, {
   },
 });
 
+// Which mode to open the counter in when the currently-active mode isn't one of the
+// enabled count types for this project (e.g. a TMC-only project where `mode` is still
+// its stale/default 'vehicle' value from a prior project or the module default).
+// Priority mirrors buildCounterSidebar()'s own item order (ped, vehicle, turning) so this
+// doesn't invent a new precedence — if only one mode is enabled it's the obvious pick;
+// if several are, the first enabled one in that order wins.
+function pickInitialMode() {
+  if (enabledModes.ped) return 'ped';
+  if (enabledModes.vehicle) return 'vehicle';
+  if (enabledModes.turning) return 'turning';
+  return 'vehicle';
+}
+
 // Wrap startCounting to initialize periods after data is ready
 window.startCounting = function () {
   startCounting(); // reads form inputs → cfg, runs initVData/ped/tmc
@@ -191,6 +204,13 @@ window.startCounting = function () {
     initDefaultPeriods();
   }
   buildPeriodTabs();
+  // BUG: nothing previously picked an initial mode based on enabledModes — `mode` defaults
+  // to 'vehicle' (state.js) and nothing here ever called setMode() before opening the
+  // workspace, so a TMC-only project (vehicle+ped both disabled) always opened into
+  // vehicle/in-out mode with no data to show, forcing a manual click into turning mode
+  // every time. Only override when the currently-active mode isn't actually enabled for
+  // this project, so a normal vehicle(+ped/turning) project's default is left untouched.
+  if (!enabledModes[mode]) setMode(pickInitialMode());
   buildCounterSidebar();
   if (projectType === 'intersection') {
     if (document.body.classList.contains('workspace-mode')) {
@@ -1483,6 +1503,33 @@ async function renderAnalyzePeriodContent(root, vehParsed, pedParsed, tmcParsed,
     const findings = activeKind === 'vehicle'
       ? runVehicleQA(vehParsed)
       : runTmcQA(hasBikes ? filterTmcParsedByIndices(tmcParsed, motorIdx) : tmcParsed);
+    // "Wrong mode" cross-check: turning movements are enabled and approaches are actually
+    // configured (so TMC data COULD have been recorded), but essentially none was recorded
+    // anywhere in the study while real vehicle in/out volume exists — the fingerprint of a
+    // field session counted entirely in vehicle mode instead of turning-movement mode (the
+    // user hit this and lost a count to it). Checked across every period (ctx.allPeriods),
+    // not just the one in view, so a genuinely wrong-mode session is caught regardless of
+    // which period tab happens to be open, and shown on both the Vehicle and Turning
+    // movements tabs since either could be the one the user is looking at when they notice.
+    // Thresholds: TMC_NEGLIGIBLE is a small ABSOLUTE count (not a % of vehicle volume) —
+    // a genuinely low-but-real turning-movement study can still be a small percentage of
+    // vehicle volume without being a mode mistake, so this must stay strict/absolute rather
+    // than proportional. VEH_NONTRIVIAL keeps this from firing on a barely-started project
+    // where neither mode has much data yet (not an error, just not started).
+    if (enabledModes.turning && hasTmc) {
+      const TMC_NEGLIGIBLE = 3;
+      const VEH_NONTRIVIAL = 50;
+      const allP = ctx.allPeriods || [];
+      const tmcTotalAll = allP.reduce((s, p) => s + tmcStudyTotal(p.tmcParsed), 0);
+      const vehTotalAll = allP.reduce((s, p) => s + vehStudyTotal(p.vehParsed), 0);
+      if (tmcTotalAll <= TMC_NEGLIGIBLE && vehTotalAll >= VEH_NONTRIVIAL) {
+        findings.push({
+          severity: 'error',
+          code: 'WRONG_MODE',
+          message: `Turning-movement data is empty (${tmcTotalAll} recorded) but vehicle in/out counts show ${vehTotalAll.toLocaleString()} vehicles — check you were in Turning Movement mode while counting.`,
+        });
+      }
+    }
     renderQASection(qaRoot, findings);
   }
 
@@ -1933,11 +1980,21 @@ async function renderIntersectionAnalysis(containerEl = null, snapshotCtx = null
     // the vehicle-class stacked chart below, which compare across periods rather than
     // across intervals within one period. Built from src.periods, which captureActive()
     // already refreshed for the live-counting case at the top of this function.
-    const allPeriods = src.periods.map((p) => ({
-      name: p.name,
-      meta: p.data?.meta || {},
-      vehParsed: p.data ? parsedFromPeriod(p.data, src.ctx).vehParsed : vehParsed,
-    }));
+    const allPeriods = src.periods.map((p) => {
+      const pp = p.data ? parsedFromPeriod(p.data, src.ctx) : null;
+      return {
+        name: p.name,
+        meta: p.data?.meta || {},
+        vehParsed: pp ? pp.vehParsed : vehParsed,
+        // tmcParsed alongside vehParsed (not just for the currently-viewed period) so the
+        // "wrong mode" QA cross-check below can see the study's TOTAL turning-movement
+        // volume across every period, not just whichever one is in view — a session
+        // counted entirely in the wrong mode has zero TMC data in every period, and
+        // checking only the viewed one would make the flag flicker on/off as the user
+        // clicks between period tabs instead of reporting the real study-wide problem.
+        tmcParsed: pp ? pp.tmcParsed : tmcParsed,
+      };
+    });
     await renderAnalyzePeriodContent(root, vehParsed, pedParsed, tmcParsed, { ...src.ctx, allPeriods });
   }
 
@@ -4871,6 +4928,7 @@ function loadIntersectionIntoView(snap) {
     setActivePeriodIdx(idx);
     restoreActivePeriod(periods[idx].data);
   }
+  syncTemplateSlotsFromIntersection();
   buildTemplateGrid(); renderVPairsList(); updateDerived(); renderLegConfig(); renderSetupDiagram();
   updateTemplateSuboption(); initApproaches();
   showScreen('counter-screen');
@@ -5041,6 +5099,7 @@ function loadProject(proj) {
   setSidebarMeta(proj.projectInfo?.projectName || 'Intersection count', '');
   _sidebarActiveItem = 'count';
   renderAppSidebar();
+  syncTemplateSlotsFromIntersection();
   buildTemplateGrid(); renderVPairsList(); updateDerived(); renderLegConfig(); renderSetupDiagram();
   updateTemplateSuboption(); initApproaches();
   // Jump straight to the counter screen with restored data, skipping setup.

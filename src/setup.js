@@ -317,6 +317,7 @@ export function toggleApproachDestUnified(leg,dest,checked){
   if(!app)return;
   if(checked){if(!app.destinations.includes(dest))app.destinations.push(dest);}
   else{app.destinations=app.destinations.filter(d=>d!==dest);}
+  app.destinations=sortDestsByTurn(leg,app.destinations);
   renderLegConfig();
   renderSetupDiagram();
 }
@@ -324,7 +325,17 @@ export function toggleApproachDestUnified(leg,dest,checked){
 // (one-way-in legs can't be exited to — traffic flows inbound only).
 // One-way-out legs ARE valid destinations (traffic exits the intersection via them).
 function validDestinations(tpl,leg){
-  return tpl.slots.filter(d=>d!==leg&&!intersection.oneWayIn?.[d]);
+  return sortDestsByTurn(leg, tpl.slots.filter(d=>d!==leg&&!intersection.oneWayIn?.[d]));
+}
+// Every consumer of app.destinations (the live-counting keyboard/grid AND the turning-
+// movement diagram — diagram.js, counter.js, main.js) iterates it in raw stored order with
+// no sort of its own, so the array itself must stay grouped Left→Thru→Right→U at every
+// mutation site, not just at initial template population. Array.sort is stable, so entries
+// sharing a classification (e.g. two Lefts on a 5-way's diagonal leg) keep their original
+// relative order instead of being reshuffled against each other.
+const TURN_SORT_ORDER={L:0,T:1,R:2,U:3};
+function sortDestsByTurn(leg,arr){
+  return [...arr].sort((a,b)=>(TURN_SORT_ORDER[classifyTurn(leg,a)]??9)-(TURN_SORT_ORDER[classifyTurn(leg,b)]??9));
 }
 export function toggleLegOneWay(leg,checked){
   intersection.oneWay[leg]=checked;
@@ -353,7 +364,10 @@ export function toggleLegOneWayIn(leg,checked){
     // Restore this leg as a valid destination for any approach that doesn't already have it
     const tpl=TEMPLATES.find(t=>t.id===intersection.template)||TEMPLATES[1];
     intersection.approaches.forEach(a=>{
-      if(a.leg!==leg&&!a.destinations.includes(leg)) a.destinations.push(leg);
+      if(a.leg!==leg&&!a.destinations.includes(leg)){
+        a.destinations.push(leg);
+        a.destinations=sortDestsByTurn(a.leg,a.destinations);
+      }
     });
   }
   renderLegConfig();renderSetupDiagram();
@@ -594,6 +608,30 @@ export function setMissingLeg(leg){
   initApproaches(); renderLegConfig(); renderSetupDiagram();
 }
 
+// TEMPLATES.t5/t3 `.slots` are module-singleton arrays, mutated in place by setDiagLeg()/
+// setMissingLeg() above rather than derived fresh from `intersection.diagLeg`/`missingLeg`
+// each time they're read. That's fine while the user is live-editing the current project
+// (the pill click and the slot mutation happen together), but every project-LOAD path
+// (loadProject, loadIntersectionIntoView / switchIntersection for area studies) restores
+// `intersection.diagLeg`/`missingLeg` via Object.assign and then calls initApproaches()
+// WITHOUT going through setDiagLeg/setMissingLeg — so `tpl.slots` is left holding whatever
+// diagonal/missing leg some earlier project in this same browser session last set (or the
+// 'SE'/'S' hardcoded defaults on a fresh page load), not the just-loaded project's actual
+// value. For a 5-way project whose diagLeg differs from that stale value (e.g. loaded
+// project has diagLeg:'NE' but tpl.slots still says 'SE' from before), initApproaches()
+// would derive approaches for the wrong 5th leg letter, silently dropping/misplacing that
+// leg's config. Call this right after restoring `intersection` and before initApproaches()
+// on every load path so `tpl.slots` always matches the just-loaded diagLeg/missingLeg.
+export function syncTemplateSlotsFromIntersection(){
+  const t5=TEMPLATES.find(t=>t.id==='t5');
+  if(t5) t5.slots=['N','E','S','W', intersection.diagLeg||'SE'];
+  const t3=TEMPLATES.find(t=>t.id==='t3');
+  if(t3){
+    const all=['N','E','S','W'];
+    t3.slots=all.filter(l=>l!==(intersection.missingLeg||'S'));
+  }
+}
+
 // ═══════════════════════════════════════════
 // APPROACH CONFIG
 // ═══════════════════════════════════════════
@@ -605,13 +643,13 @@ export function initApproaches(){
   intersection.approaches=legs.map(leg=>({
     leg,
     count: prev[leg]?prev[leg].count:true,
-    destinations:legs.filter(d=>{
+    destinations:sortDestsByTurn(leg, legs.filter(d=>{
       if(d===leg)return false;
       if(intersection.oneWayIn?.[d])return false;
       if(intersection.oneWay[leg]) return false;
       if(prev[leg])return prev[leg].dests.has(d);
       return true;
-    }),
+    })),
   })).filter(a=>!intersection.oneWay[a.leg]);
 }
 

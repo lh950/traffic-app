@@ -530,9 +530,14 @@ tfoot td:first-child{text-align:left;color:var(--text2)}
 /* approach selector bar */
 .approach-bar{display:flex;align-items:center;gap:6px;padding:7px 14px 6px;border-bottom:.5px solid var(--border);background:var(--surface);flex-wrap:wrap}
 .approach-bar-label{font-size:11px;font-weight:500;color:var(--text3);margin-right:4px;flex-shrink:0}
-.app-sel-btn{border:.5px solid var(--border);border-radius:var(--r);background:var(--surface2);color:var(--text2);padding:3px 12px;font-size:12px;font-weight:600;font-family:var(--mono);cursor:pointer;transition:background .12s,color .12s}
+.app-sel-btn{border:.5px solid var(--border);border-radius:var(--r);background:var(--surface2);color:var(--text2);padding:3px 12px;font-size:12px;font-weight:600;font-family:var(--mono);cursor:pointer;transition:background .12s,color .12s,box-shadow .12s,transform .12s}
 .app-sel-btn:hover{background:var(--surface3)}
-.app-sel-btn.active{background:var(--blue-bg);color:var(--blue-text);border-color:var(--blue-border)}
+/* BUG report: live-counting approach/movement selection "wasn't super clear" — the plain
+   flat active state here (bg swap only) was noticeably weaker than the movement chip's own
+   active state (.mov-sel-chip.active below, which already had a focus-ring + scale). Brought
+   this up to the same ring-highlight language already established by .focus-chip.active
+   elsewhere in the app, rather than inventing a new treatment. */
+.app-sel-btn.active{background:var(--blue-bg);color:var(--blue-text);border-color:var(--blue-border);font-weight:700;box-shadow:0 0 0 1.5px var(--blue-border)}
 /* TMC table */
 .tmc-table .mov-group-hdr{text-align:center;padding:4px 8px;font-size:11px;font-weight:600;border-left:2px solid var(--border);white-space:nowrap}
 .tmc-table .mov-group-hdr.mov-L{border-top:2px solid var(--in-border);background:var(--in-bg)}
@@ -557,7 +562,7 @@ tfoot td:first-child{text-align:left;color:var(--text2)}
 .mov-sel-chip.active{
   background:var(--blue-bg);color:var(--blue-text);
   border-color:var(--blue-border);
-  box-shadow:0 0 0 1.5px var(--blue-border);
+  box-shadow:0 0 0 2px var(--blue-border);
   font-size:14px;padding:8px 20px;transform:scale(1.05)}
 .mov-sel-chip .mov-cls{font-size:9px;font-weight:700;padding:2px 5px;
   border-radius:3px;letter-spacing:.03em}

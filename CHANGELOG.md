@@ -1,5 +1,16 @@
 # Changelog
 
+## v3.43.0-alpha.1 — 2026-08-19
+
+### Fixed
+- **BUG-031: 5-way TMC destination ordering, TMC-only default mode, project-load diagLeg desync.** Four related fixes from a real 5-way field count: (1) an approach's destination list now sorts by turn classification (Left/Thru/Right/U-turn) at every mutation point, so two Left-turn destinations on a 5-way approach group together instead of splitting across Thru/Right; (2) a TMC-only project (vehicle and pedestrian both disabled) now opens directly into turning-movement mode instead of an empty, disabled vehicle screen; (3) loading a saved project no longer leaves the 5-way/T-intersection template's diagonal/missing-leg slot pointing at a stale value left over from an earlier project in the same browser session — found during an audit of whether `setDiagLeg()`'s leg letter actually propagates to `classifyTurn()` (it does, live — the gap was project *load* skipping that resync). See `BUGS.md` BUG-031 for full root cause and live verification detail.
+
+### Added
+- **Data Quality flag: turning movements enabled but empty while vehicle volume exists.** A new Analyze-screen Data Quality check fires when turning-movement counting is enabled, the study's total recorded TMC volume across every period is essentially zero, and real vehicle in/out volume was recorded — the fingerprint of a field session counted entirely in the wrong mode. Scoped narrowly (an absolute near-zero TMC threshold, not a percentage of vehicle volume) so a genuinely low but real turning-movement study doesn't false-positive, and gated on turning actually being enabled with approaches configured so it doesn't fire on projects that never used turning-movement mode.
+
+### Changed
+- **Approach/movement active-selection visual clarity.** The approach selector's active state now gets a focus ring + bold weight (matching the movement chip row's existing treatment) instead of a flat background swap, and the live counter's "N → Left (E)"-style active-selection summary line is now a filled pill instead of plain text — user feedback that the current selection "wasn't super clear."
+
 ## v3.42.1-alpha.1 — 2026-08-19
 
 ### Fixed

@@ -13,6 +13,17 @@ function vehIvTotal(iv) {
   return iv.inbound.reduce((a, b) => a + b, 0) + iv.outbound.reduce((a, b) => a + b, 0);
 }
 
+// Study-wide totals (sum across every interval of one parsed period). Exported so callers
+// with access to multiple periods' parsed objects (e.g. the Analyze screen's "wrong mode"
+// cross-check below) can sum across the whole study, not just one period, without
+// duplicating the counts.js/tmc counts-object traversal here.
+export function tmcStudyTotal(parsed) {
+  return (parsed?.intervals || []).reduce((s, iv) => s + tmcIvTotal(iv), 0);
+}
+export function vehStudyTotal(parsed) {
+  return (parsed?.intervals || []).reduce((s, iv) => s + vehIvTotal(iv), 0);
+}
+
 function iqrBounds(values) {
   if (values.length < 4) return null;
   const s = [...values].sort((a, b) => a - b);

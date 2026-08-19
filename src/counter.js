@@ -115,7 +115,13 @@ export function updateCfgFields(){
     const activeMovLabel=activeDest?destLabel(tApp.leg,activeDest):'—';
     const summary=document.createElement('div');
     summary.id='tmc-active-summary';
-    summary.style.cssText='font-family:var(--mono);font-size:15px;font-weight:700;color:var(--blue-text);letter-spacing:.02em;padding:2px 0 4px 0';
+    // Boosted from a plain text line to a filled pill (per user feedback: approach/movement
+    // selection "wasn't super clear... maybe making it stand out more") so the current
+    // selection reads at a glance instead of blending into the rest of the panel — same
+    // blue-bg/blue-border/blue-text tokens used for every other "active" state in the app
+    // (.app-sel-btn.active, .mov-sel-chip.active, .focus-chip.active), just applied to the
+    // summary line too instead of only the two chip rows beneath it.
+    summary.style.cssText='display:inline-block;font-family:var(--mono);font-size:15px;font-weight:700;color:var(--blue-text);letter-spacing:.02em;background:var(--blue-bg);border:.5px solid var(--blue-border);border-radius:var(--r);padding:4px 10px;margin-bottom:2px';
     summary.textContent=tmcApproach?`${legLabel(tmcApproach)} → ${activeMovLabel}`:'select approach';
     chipsCol.insertBefore(summary, chipsCol.firstChild);
 
