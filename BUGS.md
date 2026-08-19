@@ -8,6 +8,16 @@ Severity levels:
 
 ---
 
+## BUG-038
+**Status:** Fixed (v3.44.0-alpha.3, user reported: "something weird happens to classification when you reload the save. it lost its grouping")
+**Severity:** Critical (data loss on explicit save/load — classification config, including group assignments, silently dropped)
+**Found in:** `main.js`, `window.saveTripgenProject()`
+**Description / root cause:** `window.saveTripgenProject()` (the explicit "save project" button's export, distinct from autosave) was a separate, hand-built serialization of a Trip Gen project that predated `serializeCurrentProject()`'s `tripgen` branch. When BUG-034/035/036 added `classifications` (with `group`), `distribution`, `pendingLocation`, and `uuid` to `serializeCurrentProject()`, nobody updated this second, independent copy — so the explicit save/load round trip silently dropped classifications (and their group assignments) entirely, while autosave (which already used `serializeCurrentProject()`) stayed correct.
+**Fix:** `saveTripgenProject()` now just calls `serializeCurrentProject()`, matching `window.saveProject()`'s (the intersection counter's equivalent) existing pattern, so there's a single source of truth instead of two serializations that can drift.
+**Verified live:** save-file → load-file round trip confirmed classifications and their `group` values are preserved exactly. (Verified by a separate session working the same tree; not re-verified independently here per that session's note — see CLAUDE.md `SESSION_LOCK.md` shared-tree context.)
+
+---
+
 ## BUG-037
 **Status:** Fixed (v3.44.0-alpha.2, reported by the user as "the table is too wide, we should have a default size... with each input (key press) the table reloads to far right side")
 **Severity:** Major (broke live counting usability — table wider than the viewport, page itself horizontally scrollable, and the "current" table row's `scrollIntoView` call on every keystroke jumped the whole page horizontally to the far right instead of scrolling within an internal scrollbox)

@@ -4,6 +4,47 @@ Key decisions, scope constraints, and architectural choices.
 
 ---
 
+## 2026-08-19 — v3.44.0-alpha.3: Trip Gen "Location Counts" gets its own screen
+
+A prior session (see BUG-017-era judgment call, formerly documented inline in `main.js` right
+above the sidebar's `'tg-locations'` case) deliberately routed the "Location counts" sidebar
+button straight onto Setup's "locations" tab rather than building a second screen, on the
+reasoning that the locations tab was already a complete, self-contained location-management UI
+and a second copy of the same markup would be a duplicate for zero added capability.
+
+The user explicitly rejected that shortcut: *"it should be a meaningfully different page than
+setup, right now its the same page for both buttons"* and, after the original reasoning was
+explained, *"no its either a new screen or theres no point in keeping the button."* Unambiguous —
+so this batch adds a real, distinct `tripgen-locations-screen`: a larger card-grid "browse all my
+counted locations" view (address, day(s) counted with day type, classification count, total
+recorded volume in+out, in-progress status) with click-to-edit reusing the existing
+`editTripgenDay()` flow rather than a new edit path. Setup's compact "locations" tab is untouched
+— it still owns the "add a new location" entry point (upload/paste/begin-counting); the new
+screen is purely for browsing/managing what's already there.
+
+One follow-on change needed to make the reuse clean: `editTripgenDay()` gained an optional
+`backTarget` parameter so its "save location and exit" button returns to whichever screen the
+edit was opened from (Setup or the new Location Counts screen) instead of hardcoding Setup —
+otherwise editing from the new screen would silently bounce back to the old one, undermining the
+"meaningfully different page" requirement. Setup's own compact-list callers don't pass it, so
+they keep the original default behavior unchanged.
+
+Verified live (dev server + browser automation, since this session's browser pane couldn't
+screenshot): added a finished live count, a paste-imported count, confirmed the new screen renders
+both with correct per-day stats (volume computed the same way the QA/QC screen already sums
+`inbound`/`outbound`, classification count from `parsed.types.length`), confirmed the pasted entry
+(no `editSnapshot`) correctly renders non-clickable with an explanatory tooltip instead of a dead
+click target, confirmed clicking the live-count entry reopens `editTripgenDay()` and that its
+in-counter "back" button returns to the new screen (not Setup), confirmed Setup's own compact
+locations tab still lists/edits/removes locations unaffected. No console errors.
+
+Also folded into this batch: BUG-038 (Trip Gen's explicit "save project" button had its own
+stale hand-built serialization that never got the `classifications`/`group` fields
+`serializeCurrentProject()` gained in BUG-034/035/036 — fixed by a separate concurrent session
+working the same tree; see `BUGS.md` BUG-038 and `CHANGELOG.md`).
+
+---
+
 ## 2026-08-19 — v3.44.0-alpha.1: configurable keybinding groups (design decisions)
 
 A large, coherent feature batch (customizable group membership, group-scoped TMC keys, one-handed

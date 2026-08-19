@@ -301,7 +301,7 @@ initApproaches();
 // ═══════════════════════════════════════════
 // SCREEN ROUTER
 // ═══════════════════════════════════════════
-const SCREENS = ['home-screen', 'help-screen', 'area-setup-screen', 'area-import-screen', 'summary-screen', 'area-aggregate-screen', 'export-screen', 'ix-analysis-screen', 'setup-screen', 'counter-screen', 'intersection-qaqc-screen', 'intersection-qaqc-counter-screen', 'streetlight-compare-screen', 'tripgen-setup-screen', 'tripgen-counter-screen', 'tripgen-qaqc-screen', 'tripgen-distribution-screen', 'analyze-screen', 'parking-setup-screen', 'parking-counter-screen'];
+const SCREENS = ['home-screen', 'help-screen', 'area-setup-screen', 'area-import-screen', 'summary-screen', 'area-aggregate-screen', 'export-screen', 'ix-analysis-screen', 'setup-screen', 'counter-screen', 'intersection-qaqc-screen', 'intersection-qaqc-counter-screen', 'streetlight-compare-screen', 'tripgen-setup-screen', 'tripgen-counter-screen', 'tripgen-locations-screen', 'tripgen-qaqc-screen', 'tripgen-distribution-screen', 'analyze-screen', 'parking-setup-screen', 'parking-counter-screen'];
 let projectType = null; // 'intersection' | 'area' | 'tripgen' | 'parking' | null
 
 // ── Parking study state ──
@@ -765,16 +765,12 @@ function openWorkspaceTab(tab, idx) {
       showIntersectionAnalysis(idx ?? activeIntersectionIdx);
       break;
     case 'tg-setup': showScreen('tripgen-setup-screen'); break;
-    // "Location counts" — a dedicated sidebar entry point straight onto the locations tab
-    // of Setup (per-location count data: add/upload/paste, list, edit, finish), rather than
-    // making the user go through Setup's "project info" tab first. Judgment call (no
-    // separate screen was built): the locations tab is already a complete, self-contained
-    // location-management UI living inside #tripgen-setup-screen (which already carries the
-    // .workspace-screen sidebar-offset class — see BUG-028), so a second copy of that same
-    // markup under a new id would just be an unnecessary duplicate (BUG-017 risk) for zero
-    // added capability. This reuses the existing tab-switch mechanism (switchTgTab) to jump
-    // straight there instead.
-    case 'tg-locations': showScreen('tripgen-setup-screen'); switchTgTab('locations'); break;
+    // "Location counts" — a dedicated, larger browse/manage screen distinct from Setup's
+    // compact "locations" tab (which stays focused on adding a new location: upload/paste/
+    // begin-counting). This screen shows every location with more detail (address, day(s)
+    // counted, classification count, total recorded volume, in-progress status) and lets
+    // the user click into any day to edit it via the existing editTripgenDay() flow.
+    case 'tg-locations': showScreen('tripgen-locations-screen'); renderTripgenLocationsScreen(); break;
     case 'tg-analyze': showScreen('analyze-screen'); break;
     case 'tg-qaqc': showScreen('tripgen-qaqc-screen'); break;
     case 'tg-distribution': showScreen('tripgen-distribution-screen'); renderDistributionScreen(); break;
@@ -6062,11 +6058,14 @@ document.getElementById('btn-tg-begin-counting')?.addEventListener('click', () =
 // Re-opens a previously-finished live count for editing (only entries that were live-counted
 // carry the entry-key/cfg snapshot needed to reconstruct the keyboard counter — uploaded/
 // pasted entries have no live-count step to return to).
-function editTripgenDay(entryId, dayIdx) {
+// backTarget: which screen the counter's own "save and exit" button should return to —
+// defaults to Setup (the historical caller) but the Location Counts screen passes itself
+// so editing from there returns there, not back into Setup.
+function editTripgenDay(entryId, dayIdx, backTarget) {
   const entry = tripgenEntries.find((e) => e.id === entryId);
   const day = entry?.days[dayIdx];
   if (!day?.editSnapshot) return;
-  tgCounterBackTarget = 'tripgen-setup-screen';
+  tgCounterBackTarget = backTarget || 'tripgen-setup-screen';
   showScreen('tripgen-counter-screen');
   tgPendingLocation = { kind: 'edit', entryId, dayIdx };
   tgBeginEditing(day.editSnapshot, day.parsed, (parsed, editSnapshot) => {
@@ -6080,6 +6079,80 @@ function editTripgenDay(entryId, dayIdx) {
   });
 }
 window.editTripgenDay = editTripgenDay;
+
+// ── Location Counts screen (sidebar "Location counts") — a larger, more detailed browse/
+// manage view of every location in the current Trip Gen project, distinct from Setup's
+// compact "locations" tab (which stays focused on adding a new location). Editing a day
+// reuses editTripgenDay() — no separate edit path.
+function tgLocationDayStats(day) {
+  if (!day.parsed) return { classCount: 0, totalVolume: null };
+  const classCount = (day.parsed.types || []).length;
+  const totalVolume = (day.parsed.intervals || []).reduce(
+    (s, iv) => s + iv.inbound.reduce((a, b) => a + b, 0) + iv.outbound.reduce((a, b) => a + b, 0), 0);
+  return { classCount, totalVolume };
+}
+
+function renderTripgenLocationsScreen() {
+  const root = document.getElementById('tripgen-locations-screen-root');
+  if (!root) return;
+  if (!tripgenEntries.length) {
+    root.innerHTML = `<div class="setup-card"><div class="stat-detail">No locations added yet. Use "+ add a location" above to upload a file, paste a table, or start a live count.</div></div>`;
+    return;
+  }
+
+  const cards = tripgenEntries.map((entry) => {
+    const dayRows = entry.days.map((d, i) => {
+      const { classCount, totalVolume } = tgLocationDayStats(d);
+      const canEdit = !!d.editSnapshot;
+      const dateLabel = d.date ? formatDateLong(d.date) : escapeHtmlMain(d.sheetName);
+      const dayTypeLabel = d.dayType ? `<span class="stat-detail" style="text-transform:capitalize">${escapeHtmlMain(d.dayType)}</span>` : '';
+      return `
+        <div class="stat-card"${canEdit ? ` data-tg-loc-edit-entry="${entry.id}" data-tg-loc-edit-day="${i}" style="cursor:pointer"` : ''} title="${canEdit ? 'Click to open this day for editing' : 'No live-count snapshot to edit (uploaded/pasted data)'}">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+            <span style="font-size:13px;font-weight:500">${dateLabel}</span>
+            ${d.inProgress ? `<span class="in-progress-badge">&#9679; in progress</span>` : ''}
+          </div>
+          ${dayTypeLabel}
+          <div style="display:flex;gap:14px;margin-top:6px">
+            <div>
+              <div class="stat-value" style="font-size:18px">${totalVolume === null ? '—' : totalVolume.toLocaleString()}</div>
+              <div class="stat-detail">total volume (in+out)</div>
+            </div>
+            <div>
+              <div class="stat-value" style="font-size:18px">${classCount || '—'}</div>
+              <div class="stat-detail">classifications</div>
+            </div>
+          </div>
+          ${canEdit ? `<div style="font-size:11px;color:var(--blue-text);margin-top:6px">${d.inProgress ? 'resume count →' : 'edit counts →'}</div>` : ''}
+        </div>`;
+    }).join('');
+
+    return `
+      <div class="setup-card" style="margin-bottom:16px">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:4px">
+          <h2 style="margin-bottom:0">${escapeHtmlMain(entry.locationLabel) || '(unlabeled location)'}</h2>
+          <span class="stat-detail" style="white-space:nowrap">${entry.days.length} day${entry.days.length === 1 ? '' : 's'} counted</span>
+        </div>
+        <div class="stat-detail" style="margin-bottom:12px">source: ${escapeHtmlMain(entry.filename)}</div>
+        <div class="card-grid" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr))">
+          ${dayRows}
+        </div>
+      </div>`;
+  }).join('');
+
+  root.innerHTML = cards;
+
+  root.querySelectorAll('[data-tg-loc-edit-entry]').forEach((el) => {
+    el.addEventListener('click', () => {
+      editTripgenDay(Number(el.dataset.tgLocEditEntry), Number(el.dataset.tgLocEditDay), 'tripgen-locations-screen');
+    });
+  });
+}
+document.getElementById('btn-tg-locations-back')?.addEventListener('click', () => showScreen('tripgen-setup-screen'));
+document.getElementById('btn-tg-locations-add')?.addEventListener('click', () => {
+  showScreen('tripgen-setup-screen');
+  switchTgTab('locations');
+});
 // The counter screen is reused for both "count a new location" and "QA/QC recount" flows —
 // each begin* call sets this so the back button returns to the right place rather than
 // always assuming the location-setup flow.
@@ -7195,14 +7268,14 @@ async function rerenderTripgenAnalysis() {
 
 // checkAutosave() — replaced by renderHomeResumeBanner() called from showHome()
 
+// BUG-038: this used to hand-build its own project object — a second, independent
+// serialization of a Trip Gen project alongside serializeCurrentProject(), which drifted out
+// of sync with it (missing classifications entirely — including their group assignments —
+// plus distribution, pendingLocation, and uuid) the moment BUG-034/035/036 added those fields
+// to serializeCurrentProject() but nobody updated this duplicate. Reuse the single source of
+// truth instead, matching window.saveProject()'s own pattern just above in this file.
 window.saveTripgenProject = function () {
-  const proj = {
-    version: 1, projectType: 'tripgen', savedAt: new Date().toISOString(),
-    projectInfo: { ...projectInfo },
-    siteInfo: tripgenSiteInfo, categoryMap: tripgenCategoryMap, peakWindows: tripgenPeakWindows,
-    qaqc: tripgenQaqc, qaqcReviewerName: document.getElementById('qaqc-reviewer-name')?.value || '',
-    qaqcReviewDate: document.getElementById('qaqc-review-date')?.value || '',
-    entries: tripgenEntries,
-  };
+  const proj = serializeCurrentProject();
+  if (!proj) return;
   downloadJSON(proj, `${tripgenSiteInfo.location || 'tripgen'}.tcproject`);
 };

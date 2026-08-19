@@ -1,5 +1,13 @@
 # Changelog
 
+## v3.44.0-alpha.3 — 2026-08-19
+
+### Added
+- **Trip Gen: a real "Location Counts" screen.** The sidebar's "Location counts" button used to just jump onto Setup's compact "locations" tab (the same page as clicking "Setup" then "locations") — the user correctly rejected this as not a meaningfully different page. It now opens a dedicated `tripgen-locations-screen`: a larger card-grid browse view showing every location in the project with per-day detail (date, day type, classification count, total recorded volume in+out, an "in progress" badge for unfinished counts) and a "+ add a location" shortcut back to Setup's entry-point tab. Clicking any day with live-count data reopens it for editing via the existing `editTripgenDay()` flow — its "save location and exit" button now returns to whichever screen you edited from (Setup or this new screen) instead of always assuming Setup. Setup's own compact "locations" tab is unchanged — it stays focused on adding a new location (upload/paste/begin-counting).
+
+### Fixed
+- **BUG-038: Trip Gen's explicit "save project" button silently dropped classifications (including group assignments) on every save.** See `BUGS.md` BUG-038.
+
 ## v3.44.0-alpha.2 — 2026-08-19
 
 ### Fixed
