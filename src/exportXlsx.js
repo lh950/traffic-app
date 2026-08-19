@@ -386,8 +386,8 @@ export function exportTripgenXLSX(entries, siteInfo, projectInfo) {
   summaryAoa.push(['Exported:', exportedStr]);
   summaryAoa.push(['Project:', projectInfo?.projectName || '']);
   summaryAoa.push(['Site:', siteInfo?.location || '']);
-  if (siteInfo?.gsf) summaryAoa.push(['Available GSF:', siteInfo.gsf]);
-  if (siteInfo?.lotSf) summaryAoa.push(['Lot SF:', siteInfo.lotSf]);
+  if (siteInfo?.gsf) summaryAoa.push(['Facility SF:', siteInfo.gsf]);
+  if (siteInfo?.lotSf) summaryAoa.push(['Lot Gross SF:', siteInfo.lotSf]);
   if (siteInfo?.gsf && siteInfo?.lotSf && Number(siteInfo.lotSf) > 0) {
     summaryAoa.push(['FAR:', Math.round((Number(siteInfo.gsf) / Number(siteInfo.lotSf)) * 100) / 100]);
   }

@@ -5587,7 +5587,7 @@ function wireProjectInfoFields() {
 }
 wireProjectInfoFields();
 
-// gsf = facility's own "Available GSF" (building/leasable floor area) — feeds tripRate()
+// gsf = "Facility square footage" (building/leasable floor area) — feeds tripRate()
 // unchanged, exactly as before. lotSf = the site/parcel's total land area — additive
 // context, never fed into the trip-rate calculation. Together they compute FAR (see
 // computeFar() in tripgenSection.js) — that's the "calculation" the two values combine for.
