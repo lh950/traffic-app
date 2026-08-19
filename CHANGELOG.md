@@ -1,5 +1,10 @@
 # Changelog
 
+## v3.43.0-alpha.4 — 2026-08-19
+
+### Fixed
+- **BUG-033: Trip Gen counter and intersection QA/QC recount counter rendered broken/cramped on every visit.** Reported as "reopening a finished Trip Gen location for edit shows a smaller page that doesn't fit screen" — investigation found it wasn't edit-path-specific: both `#tripgen-counter-screen` and `#intersection-qaqc-counter-screen` lost their flex-column layout the moment the screen router touched them (an inline-style-only `display:flex` that `showScreen()` silently clears on every navigation, with no stylesheet `.active{display:flex}` fallback like the main intersection counter has), and each screen's header was independently getting shifted 224px twice (448px total) past the workspace sidebar, squeezing it into ~65% of the screen width. Also fixes the related "focus mode doesn't fit the page" report, which shared the same root cause. See `BUGS.md` BUG-033.
+
 ## v3.43.0-alpha.2 — 2026-08-19
 
 ### Fixed

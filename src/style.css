@@ -970,6 +970,30 @@ body.workspace-mode .counter-body{margin-left:224px}
    workspace was open, which for these two screens is always. */
 body.workspace-mode #tripgen-counter-screen,
 body.workspace-mode #intersection-qaqc-counter-screen{margin-left:224px}
+/* BUG-033 fix (part 1): both screens are bare divs whose ONLY source of flex-column
+   layout was an inline `style="display:none;flex-direction:column;..."` attribute —
+   showScreen() (main.js) clears the `display` longhand to '' on every navigation
+   (`el.style.display = s===id?'':'none'`), which drops "none" but never re-adds "flex",
+   so the div falls back to the UA default `display:block` the moment either screen is
+   shown — unlike `#counter-screen`, which has its own `#counter-screen.active{display:flex}`
+   stylesheet rule (line ~247) that survives the inline-style wipe via the .active class
+   toggle instead. Losing flex-column broke `.tables-area{flex:1}`'s height distribution
+   and made every child a plain block box — this is why the trip-gen counter (and QA/QC
+   recount counter) has looked cramped/misrendered on EVERY visit, not just re-opening a
+   finished location for edit; edit just made it more noticeable since it's the first time
+   a user scrolls a fully data-filled table. */
+#tripgen-counter-screen.active,
+#intersection-qaqc-counter-screen.active{display:flex}
+/* BUG-033 fix (part 2): both screens' <header class="counter-header"> ALSO matches the
+   generic `body.workspace-mode .counter-header{margin-left:224px}` rule above (written
+   for the standalone `#counter-screen`, which uses padding-left:0 on itself + margin-left
+   on children instead — see BUG-016). Because tripgen/qaqc-counter's BUG-028 fix instead
+   put margin-left:224px directly on the OUTER screen container, their nested .counter-header
+   was getting shifted TWICE (224+224=448px), squeezing it into roughly the right 65% of the
+   screen — the concrete "smaller page" / doesn't-fit-screen symptom reported in BUG-033.
+   Cancel the header's own margin here since the container already provides the offset. */
+body.workspace-mode #tripgen-counter-screen .counter-header,
+body.workspace-mode #intersection-qaqc-counter-screen .counter-header{margin-left:0}
 /* BUG-fix: this caption sits outside .counter-body (which gets the 224px
    workspace-sidebar offset above), so it needs its own margin — previously an
    inline style set margin-left:24px directly on the element, which no external
