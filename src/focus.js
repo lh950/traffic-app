@@ -1,21 +1,25 @@
 import {
   vPairs, intersection, cfg, tmcApproach, slot, setSlot, mode,
   focusMode, setFocusMode, vGroup, setVGroup, focusTarget, setFocusTargetState,
-  diagWin, tmcWin, undo as undoImpl, redo as redoImpl, setScrollOnRender,
+  diagWin, tmcWin, undo as undoImpl, redo as redoImpl, setScrollOnRender, keybindCfg,
 } from './state.js';
 import { tmcRecord, vRecord, pedRecord } from './record.js';
-import { render, buildKbd, updateCfgFields, vGroupPrev, vGroupNext } from './counter.js';
+import { render, buildKbd, updateCfgFields, vGroupPrev, vGroupNext, tmcGroupPrev, tmcGroupNext } from './counter.js';
 import { tmcPopupPayload } from './diagram.js';
+import { distinctGroups, vehicleGroupPool, tmcGroupPool } from './keybind.js';
 
 // ═══════════════════════════════════════════
 // KEY MAPS
 // ═══════════════════════════════════════════
 export function buildVKeyMap(){
-  // Only register the active group's keys so shared keys across groups work correctly
+  // Only register the active group's keys (build brief item 1) — group membership is now the
+  // row's explicit `group` field, not a hardcoded floor(index/4) slice.
   const m={};
-  const gs=vGroup*4, ge=Math.min(gs+4,vPairs.length);
-  vPairs.slice(gs,ge).forEach((p,j)=>{
-    const i=gs+j;
+  const pool=vehicleGroupPool();
+  const groupIds=distinctGroups(pool);
+  const gid=groupIds[Math.min(vGroup,groupIds.length-1)]??0;
+  vPairs.forEach((p,i)=>{
+    if(p.isBike||p.group!==gid)return;
     if(p.inKey) m[p.inKey]=()=>vRecord('in',i);
     if(p.outKey)m[p.outKey]=()=>vRecord('out',i);
   });
@@ -33,7 +37,14 @@ export function buildTKeyMap(){
   const m={};
   const app=intersection.approaches.find(a=>a.leg===tmcApproach);
   if(!app||!app.destinations.length)return m;
-  vPairs.filter(p=>p.includeTmc).forEach((p,ti)=>{
+  // Only register the ACTIVE group's TMC keys (build brief item 2 — mirrors buildVKeyMap's
+  // group scoping below). `ti` stays the GLOBAL index into the full includeTmc pool, matching
+  // tmcData's actual column layout — only which keys REGISTER is group-scoped, not the index.
+  const tmcTypes=vPairs.filter(p=>p.includeTmc);
+  const groupIds=distinctGroups(tmcTypes);
+  const gid=groupIds[Math.min(vGroup,groupIds.length-1)]??0;
+  tmcTypes.forEach((p,ti)=>{
+    if(p.group!==gid)return;
     if(p.tmcKey)m[p.tmcKey]=()=>tmcRecord(ti);
   });
   return m;
@@ -71,7 +82,15 @@ export function toggleFocusMode(){
 export function cycleFocus(dir){
   const n=focusCount(); if(!n)return;
   setFocusTargetState((focusTarget+dir+n)%n);
-  if(mode==='vehicle'){setVGroup(Math.floor(focusTarget/4));}
+  if(mode==='vehicle'){
+    // Keep the visible group in sync with whichever group the newly-focused vPair actually
+    // belongs to (its own `group` field), not a hardcoded floor(index/4) — see build brief
+    // item 1.
+    const groupIds=distinctGroups(vehicleGroupPool());
+    const g=vPairs[focusTarget]?.group??0;
+    const gi=groupIds.indexOf(g);
+    setVGroup(gi>=0?gi:0);
+  }
   if(mode==='turning'){
     updateCfgFields();buildKbd();render();
     if(tmcWin&&!tmcWin.closed){const p=tmcPopupPayload();if(p)tmcWin.postMessage(p,'*');}
@@ -175,6 +194,20 @@ export function wireKeydown(){
   document.addEventListener('keydown',e=>{
     if(!isLiveCounterScreenActive())return;
     if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'||e.target.tagName==='SELECT')return;
+    // Group-switch shortcuts (build brief item 5) — dedicated keys, separate from the existing
+    // [ / ] (which stay exactly as before: vehicle-mode group nav when not in focus mode, focus
+    // cycling otherwise). Checked via event.CODE, not event.key, so the numpad preset's Numpad/
+    // and Numpad- can't collide with the QWERTY preset's Minus/Equal (same physical-key
+    // distinction the build brief calls for) regardless of NumLock state. QWERTY's Minus/Equal
+    // were picked because they're unused by any vPair key pool, undo/redo (Z/Y), focus toggle
+    // (\\), focus-cycle ([/]), or arrow nav.
+    if((mode==='vehicle'||mode==='turning')){
+      const isNumpad=keybindCfg.preset==='numpad';
+      const prevCode=isNumpad?'NumpadDivide':'Minus';
+      const nextCode=isNumpad?'NumpadSubtract':'Equal';
+      if(e.code===prevCode){e.preventDefault();(mode==='vehicle'?vGroupPrev:tmcGroupPrev)();return;}
+      if(e.code===nextCode){e.preventDefault();(mode==='vehicle'?vGroupNext:tmcGroupNext)();return;}
+    }
     const k=e.key===';'?';':e.key.toLowerCase();
     // preventDefault here to block browser defaults (scroll, undo, etc.)
     const nav=['arrowdown','arrowup','z','y','\\','[',']'];

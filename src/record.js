@@ -55,8 +55,10 @@ export function tmcRecord(typeIdx){
   pushUndo({type:'tmcount',mode:'turning',leg:app.leg,dest,slot,col:typeIdx});
   tmcData[app.leg][dest][slot][typeIdx]++;
   render();
-  const chips=document.querySelectorAll(`#kbd-grid .kbd-chip`);
-  const chip=chips[typeIdx];
+  // Looked up by the GLOBAL tmcData column index (data-tmc-idx), not chip position — TMC mode
+  // now only renders the active group's chips (build brief item 2), so a positional lookup
+  // would flash the wrong chip (or nothing) once more than one group exists.
+  const chip=document.querySelector(`#kbd-grid .kbd-chip[data-tmc-idx="${typeIdx}"]`);
   if(chip){chip.classList.add('flash');setTimeout(()=>chip.classList.remove('flash'),140);}
   if(tmcWin&&!tmcWin.closed){const p=tmcPopupPayload();if(p)tmcWin.postMessage(p,'*');}
 }

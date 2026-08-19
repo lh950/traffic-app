@@ -3,13 +3,22 @@ import {
   vData, vManual, pedData, pedManual, customInterval, undoStack,
   slot, setSlot, mode, setMode_, kbdCollapsed, setKbdCollapsed, scrollOnRender, setScrollOnRender,
   focusMode, setFocusMode, vGroup, setVGroup, focusTarget, setFocusTargetState,
-  diagWin, setDiagWin, tmcWin, setTmcWin,
+  diagWin, setDiagWin, tmcWin, setTmcWin, keybindCfg,
   slotLabel, initVData, initPedData, initTMCData, resetUndoStacks, updateUndoUI,
 } from './state.js';
 import { classifyTurn, TURN_CLS_LABEL, buildTurningDiagramSVG, tmcPopupPayload, pedCountsForSlot } from './diagram.js';
 import { legLabel, destLabel, initApproaches, checkVKeys, checkPKeys } from './setup.js';
 import { attachEditors, attachContextMenus } from './record.js';
 import { focusCount, setFocusTarget, updateFocusUI } from './focus.js';
+import { distinctGroups, vehicleGroupPool, tmcGroupPool } from './keybind.js';
+import { buildNumpadDiagramHTML } from './numpadDiagram.js';
+
+// Current group-id list for the active mode's grouping pool (vehicle: all non-bike vPairs;
+// turning: includeTmc vPairs) — vGroup is an INDEX into this list, not a raw group id, since
+// group ids are now arbitrary user-editable integers (build brief item 1).
+function activeGroupPool(){ return mode==='turning' ? tmcGroupPool() : vehicleGroupPool(); }
+function activeGroupIds(){ return distinctGroups(activeGroupPool()); }
+function currentGroupId(){ const ids=activeGroupIds(); return ids[Math.min(vGroup,ids.length-1)] ?? 0; }
 
 // ═══════════════════════════════════════════
 // SETUP → COUNTER TRANSITION
@@ -147,26 +156,34 @@ export function updateCfgFields(){
     outer.appendChild(chipsCol);
     wrap.appendChild(outer);
   } else if(mode==='vehicle'){
-    const nG=Math.ceil(vPairs.length/4);
+    const groupIds=distinctGroups(vehicleGroupPool());
+    const nG=groupIds.length;
     if(nG>1){
       const gr=document.createElement('div');
       gr.style.cssText='display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap';
       gr.innerHTML='<span style="font-size:10px;font-weight:600;text-transform:uppercase;color:var(--text3);margin-right:2px">group</span>';
-      for(let g=0;g<nG;g++){
+      groupIds.forEach((gid,g)=>{
         const gb=document.createElement('button');
         gb.className='vgrp-btn'+(g===vGroup?' active':'');
         gb.textContent='Group '+(g+1);
-        const _g=g;
-        gb.onclick=()=>{setVGroup(_g);setFocusTargetState(_g*4);buildKbd();updateCfgFields();};
+        gb.onclick=()=>{
+          setVGroup(g);
+          const first=vPairs.findIndex(p=>!p.isBike&&p.group===gid);
+          setFocusTargetState(first<0?0:first);
+          buildKbd();updateCfgFields();
+        };
         gr.appendChild(gb);
-      }
+      });
       wrap.appendChild(gr);
     }
-    const gs=vGroup*4, ge=Math.min(gs+4,vPairs.length);
-    vPairs.slice(gs,ge).forEach((p,j)=>{
-      const i=gs+j;
+    const gid=currentGroupId();
+    vPairs.forEach((p,i)=>{
+      if(p.isBike||p.group!==gid)return;
       const f=document.createElement('div'); f.className='cfg-field';
-      f.innerHTML=`<label>${p.inKey.toUpperCase()}/${p.outKey===';'?';':p.outKey.toUpperCase()}</label>
+      const keyLbl=keybindCfg.oneHanded==='allkeys'
+        ?p.inKey.toUpperCase()
+        :`${p.inKey.toUpperCase()}/${p.outKey===';'?';':(p.outKey||'').toUpperCase()}`;
+      f.innerHTML=`<label>${keyLbl}</label>
         <input type="text" value="${p.label}" oninput="vPairs[${i}].label=this.value;buildKbd();render()">`;
       wrap.appendChild(f);
     });
@@ -191,42 +208,63 @@ export function buildKbd(){
   let html='';
   const sep='<span class="kbd-group-sep"></span>';
   const dim=(i)=> (focusMode && i!==focusTarget) ? ' dimmed' : '';
+  const groupNavHTML=(nGkbd,label)=>{
+    const canPrev=vGroup>0, canNext=vGroup<nGkbd-1;
+    const btnStyle=`style="font-size:11px;padding:2px 8px;border:.5px solid var(--border2);border-radius:var(--r);background:var(--surface2);color:var(--text);cursor:pointer;opacity:`;
+    return `<span style="display:inline-flex;align-items:center;gap:4px;margin-right:6px">
+        <button ${btnStyle}${canPrev?'1':'0.3'}" onclick="if(${canPrev}){${label}Prev();}" title="previous group">‹</button>
+        <span style="font-size:10px;font-weight:600;color:var(--text2);white-space:nowrap">group ${vGroup+1}/${nGkbd}</span>
+        <button ${btnStyle}${canNext?'1':'0.3'}" onclick="if(${canNext}){${label}Next();}" title="next group">›</button>
+      </span>`;
+  };
   if(mode==='turning'){
     const tApp=intersection.approaches.find(a=>a.leg===tmcApproach);
     if(tApp&&tApp.destinations.length){
       const dest=tApp.destinations[focusTarget];
       const cls=classifyTurn(tApp.leg,dest);
+      // TMC keys now page through groups the same way vehicle mode does (build brief item 2)
+      // instead of rendering every included type flat in one row — only the active group's
+      // types render/register, so tmcKey only needs to be unique WITHIN a group.
+      const tmcIds=distinctGroups(tmcGroupPool());
+      if(tmcIds.length>1) html+=groupNavHTML(tmcIds.length,'tmcGroup');
       html+=`<span class="kbd-group-label"><span class="turn-cls turn-cls-${cls}" style="font-size:9px">${TURN_CLS_LABEL[cls]}</span> → ${legLabel(dest)}</span>`;
-      // flat layout — all types in one row, no groups
-      vPairs.filter(p=>p.includeTmc).forEach((p,i)=>{
+      const tgid=tmcIds[Math.min(vGroup,tmcIds.length-1)]??0;
+      // Iterate the FULL includeTmc pool (not a pre-filtered slice) so `ti` stays the GLOBAL
+      // column index tmcData is actually stored under — tmcRecord()/record.js's chip-flash
+      // lookup both key off that global index, not a per-group-local one.
+      tmcGroupPool().forEach((p,ti)=>{
+        if(p.group!==tgid)return;
         const k=(p.tmcKey||'?')===';'?';':(p.tmcKey||'?').toUpperCase();
-        html+=`<span class="kbd-chip" data-focus-idx="${i}"><kbd>${k}</kbd><span class="key-label">${p.label}</span></span>`;
+        html+=`<span class="kbd-chip" data-tmc-idx="${ti}"><kbd>${k}</kbd><span class="key-label">${p.label}</span></span>`;
       });
     } else {
       html+='<span style="color:var(--text3);font-size:11px">select approach to count</span>';
     }
   } else if(mode==='vehicle'){
-    const nGkbd=Math.ceil(vPairs.length/4);
-    const gskbd=vGroup*4, gekbd=Math.min(gskbd+4,vPairs.length);
-    const grpKbd=vPairs.slice(gskbd,gekbd);
-    if(nGkbd>1){
-      const canPrev=vGroup>0, canNext=vGroup<nGkbd-1;
-      const btnStyle=`style="font-size:11px;padding:2px 8px;border:.5px solid var(--border2);border-radius:var(--r);background:var(--surface2);color:var(--text);cursor:pointer;opacity:`;
-      html+=`<span style="display:inline-flex;align-items:center;gap:4px;margin-right:6px">
-        <button ${btnStyle}${canPrev?'1':'0.3'}" onclick="if(${canPrev}){vGroupPrev();}" title="previous group">‹</button>
-        <span style="font-size:10px;font-weight:600;color:var(--text2);white-space:nowrap">group ${vGroup+1}/${nGkbd}</span>
-        <button ${btnStyle}${canNext?'1':'0.3'}" onclick="if(${canNext}){vGroupNext();}" title="next group">›</button>
-      </span>`;
+    const groupIds=distinctGroups(vehicleGroupPool());
+    const nGkbd=groupIds.length;
+    const gid=groupIds[Math.min(vGroup,nGkbd-1)]??0;
+    const grpKbd=vPairs.filter(p=>!p.isBike&&p.group===gid);
+    const idxOf=p=>vPairs.indexOf(p);
+    if(nGkbd>1) html+=groupNavHTML(nGkbd,'vGroup');
+    const oneKey=keybindCfg.oneHanded==='allkeys';
+    if(oneKey){
+      // all-in/all-out one-handed layout: one key per type, single direction (no in/out split)
+      html+=`<span class="kbd-group-label label-in">keys</span>`;
+      grpKbd.forEach(p=>{const i=idxOf(p);
+        html+=`<span class="kbd-chip${dim(i)}"><kbd id="vk-in-${i}">${p.inKey===';'?';':(p.inKey||'?').toUpperCase()}</kbd><span class="key-label">${p.label}</span></span>`;
+      });
+    } else {
+      html+=`<span class="kbd-group-label label-in">← in</span>`;
+      grpKbd.forEach(p=>{const i=idxOf(p);
+        html+=`<span class="kbd-chip${dim(i)}"><kbd id="vk-in-${i}">${p.inKey===';'?';':p.inKey.toUpperCase()}</kbd><span class="key-label">${p.label}</span></span>`;
+      });
+      html+=sep;
+      html+=`<span class="kbd-group-label label-out">out →</span>`;
+      grpKbd.forEach(p=>{const i=idxOf(p);
+        html+=`<span class="kbd-chip${dim(i)}"><kbd id="vk-out-${i}">${p.outKey===';'?';':(p.outKey||'?').toUpperCase()}</kbd><span class="key-label">${p.label}</span></span>`;
+      });
     }
-    html+=`<span class="kbd-group-label label-in">← in</span>`;
-    grpKbd.forEach((p,j)=>{const i=gskbd+j;
-      html+=`<span class="kbd-chip${dim(i)}"><kbd id="vk-in-${i}">${p.inKey===';'?';':p.inKey.toUpperCase()}</kbd><span class="key-label">${p.label}</span></span>`;
-    });
-    html+=sep;
-    html+=`<span class="kbd-group-label label-out">out →</span>`;
-    grpKbd.forEach((p,j)=>{const i=gskbd+j;
-      html+=`<span class="kbd-chip${dim(i)}"><kbd id="vk-out-${i}">${p.outKey===';'?';':p.outKey.toUpperCase()}</kbd><span class="key-label">${p.label}</span></span>`;
-    });
   } else if(mode==='ped'){
     window.pedPairs.forEach((p,i)=>{
       if(i>0)html+=sep;
@@ -243,15 +281,62 @@ export function buildKbd(){
   html+=`<span class="kbd-chip"><kbd>↓</kbd><span class="key-label">next</span></span>`;
   html+=`<span class="kbd-chip"><kbd>Z</kbd><span class="key-label">undo</span></span>`;
   html+=`<span class="kbd-chip"><kbd>Y</kbd><span class="key-label">redo</span></span>`;
+  // Group-switch shortcut hint (build brief item 5) — only worth showing once there's more
+  // than one group to switch between in the active mode.
+  if(activeGroupIds().length>1){
+    const numpad=keybindCfg.preset==='numpad';
+    const prevLbl=numpad?'Num ÷':'-', nextLbl=numpad?'Num -':'=';
+    html+=`<span class="kbd-chip"><kbd>${prevLbl}</kbd><kbd>${nextLbl}</kbd><span class="key-label">group ‹ ›</span></span>`;
+  }
   grid.innerHTML=html;
+  // Numpad one-handed reference diagram (build brief item 6) — compact live-counting
+  // reference, shown whenever the numpad preset is active and vehicle/turning mode is on
+  // screen, labeled with the CURRENT group's types so it stays accurate as groups switch.
+  const numpadRef=document.getElementById('kbd-numpad-ref');
+  if(numpadRef){
+    if(keybindCfg.preset==='numpad'&&(mode==='vehicle'||mode==='turning')){
+      const pool=mode==='turning'?tmcGroupPool():vehicleGroupPool();
+      const ids=distinctGroups(pool);
+      const gid=ids[Math.min(vGroup,ids.length-1)]??0;
+      const labels=pool.filter(p=>p.group===gid).map(p=>p.label);
+      numpadRef.innerHTML=buildNumpadDiagramHTML(labels);
+      numpadRef.style.display='';
+    } else {
+      numpadRef.style.display='none';
+      numpadRef.innerHTML='';
+    }
+  }
 }
 
 export function vGroupPrev(){
-  if(vGroup>0){setVGroup(vGroup-1);setFocusTargetState(vGroup*4);buildKbd();updateCfgFields();}
+  const ids=distinctGroups(vehicleGroupPool());
+  if(vGroup>0){
+    setVGroup(vGroup-1);
+    const gid=ids[vGroup]??0;
+    const first=vPairs.findIndex(p=>!p.isBike&&p.group===gid);
+    setFocusTargetState(first<0?0:first);
+    buildKbd();updateCfgFields();
+  }
 }
 export function vGroupNext(){
-  const nG=Math.ceil(vPairs.length/4);
-  if(vGroup<nG-1){setVGroup(vGroup+1);setFocusTargetState(vGroup*4);buildKbd();updateCfgFields();}
+  const nG=distinctGroups(vehicleGroupPool()).length;
+  if(vGroup<nG-1){
+    setVGroup(vGroup+1);
+    const ids=distinctGroups(vehicleGroupPool());
+    const gid=ids[vGroup]??0;
+    const first=vPairs.findIndex(p=>!p.isBike&&p.group===gid);
+    setFocusTargetState(first<0?0:first);
+    buildKbd();updateCfgFields();
+  }
+}
+// TMC-mode group nav — mirrors vGroupPrev/Next above but pages the includeTmc pool (build
+// brief item 2: TMC keys/groups now follow the same group-scoped logic as vehicle in/out).
+export function tmcGroupPrev(){
+  if(vGroup>0){ setVGroup(vGroup-1); setFocusTargetState(0); buildKbd(); updateCfgFields(); render(); }
+}
+export function tmcGroupNext(){
+  const nG=distinctGroups(tmcGroupPool()).length;
+  if(vGroup<nG-1){ setVGroup(vGroup+1); setFocusTargetState(0); buildKbd(); updateCfgFields(); render(); }
 }
 
 export function toggleKbd(){

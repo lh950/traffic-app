@@ -32,14 +32,31 @@ export let customInterval = 15;
 export function setCustomInterval(v){ customInterval = v; }
 
 // tmcKey: fixed key bound to this row (not position); includeTmc: show in TMC mode; isBike: bicycle row
+// group: which keybinding group this row belongs to (integer, user-editable — NOT implicitly
+// floor(index/4) any more; see DEVLOG "configurable keybinding groups"). vPairs sharing a group
+// share the same 4-key keyboard cluster (in/out AND tmcKey are only required unique within a
+// group, not project-wide) and page together via the ‹ › group nav during live counting.
 export const vPairs = [
-  {label:'light truck',     def:'Class 2 — passenger cars & light vehicles',   inKey:'a', outKey:'j', icon:null, tmcKey:'a', includeTmc:true,  isBike:false},
-  {label:'single truck',    def:'Class 5 — 2-axle, 6-tire single unit',         inKey:'s', outKey:'k', icon:null, tmcKey:'s', includeTmc:true,  isBike:false},
-  {label:'tractor trailer', def:'Class 8 — 3-axle single trailer combination',  inKey:'d', outKey:'l', icon:null, tmcKey:'d', includeTmc:true,  isBike:false},
-  {label:'tandem trailer',  def:'Class 9 — 4-axle single trailer combination',  inKey:'f', outKey:';', icon:null, tmcKey:'f', includeTmc:true,  isBike:false},
+  {label:'light truck',     def:'Class 2 — passenger cars & light vehicles',   inKey:'a', outKey:'j', icon:null, tmcKey:'a', includeTmc:true,  isBike:false, group:0},
+  {label:'single truck',    def:'Class 5 — 2-axle, 6-tire single unit',         inKey:'s', outKey:'k', icon:null, tmcKey:'s', includeTmc:true,  isBike:false, group:0},
+  {label:'tractor trailer', def:'Class 8 — 3-axle single trailer combination',  inKey:'d', outKey:'l', icon:null, tmcKey:'d', includeTmc:true,  isBike:false, group:0},
+  {label:'tandem trailer',  def:'Class 9 — 4-axle single trailer combination',  inKey:'f', outKey:';', icon:null, tmcKey:'f', includeTmc:true,  isBike:false, group:0},
 ];
 // Mutates in place (not a reassignment) so window.vPairs stays valid for inline HTML handlers.
 export function setVPairs(arr){ vPairs.length=0; vPairs.push(...arr); }
+
+// ═══════════════════════════════════════════
+// KEYBINDING PRESET / ONE-HANDED MODE (per-project)
+// ═══════════════════════════════════════════
+// preset: 'qwerty' (default, A/S/D/F in · J/K/L/; out) | 'numpad' (one-handed numpad layout).
+// oneHanded: 'off' (default, 4 types/group, in+out) | 'allkeys' (up to 4 types/group, ONE key
+// each, single-direction only) | 'pairs' (2 types/group, in+out — same shape as default, just
+// half the types, so all 4 keys fall under one hand).
+// This is deliberately a whole-project setting, not per-group (see build brief: "a whole
+// project is probably simpler and matches how the user described it").
+export let keybindCfg = { preset:'qwerty', oneHanded:'off' };
+export function setKeybindCfg(v){ Object.assign(keybindCfg, v); }
+export function resetKeybindCfg(){ keybindCfg.preset='qwerty'; keybindCfg.oneHanded='off'; }
 
 // Shared intersection definition — consumed by pedestrian and turning modes.
 export let intersection = {
@@ -204,7 +221,9 @@ export function filterUndoStack(predicate){ undoStack=undoStack.filter(predicate
 export let slot=0, mode='vehicle', kbdCollapsed=false;
 export let scrollOnRender=false; // only true when slot changes via navigation
 export let focusMode=false;
-export let vGroup=0;  // active vehicle type group (groups of 4)
+export let vGroup=0;  // index into the sorted list of distinct vPair `group` ids currently
+// relevant to the active mode (vehicle: all non-bike vPairs; turning: includeTmc vPairs) —
+// NOT the raw group id itself, since group ids are now user-editable and may be sparse.
 export let focusTarget=0; // index into pedPairs (ped) or vPairs (vehicle)
 export let diagWin=null;
 export let tmcWin=null;

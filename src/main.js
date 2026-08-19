@@ -14,6 +14,7 @@ import {
   periods, activePeriodIdx, setActivePeriodIdx,
   captureActivePeriod, restoreActivePeriod, initDefaultPeriods,
   resetUndoStacks, updateUndoUI, periodMeta, resetIntersection,
+  keybindCfg, setKeybindCfg, resetKeybindCfg,
 } from './state.js';
 import {
   switchSetupTab, setIntervalLen, updateDerived, updateVCount, applyVPreset,
@@ -24,11 +25,12 @@ import {
   updateTemplateSuboption, setDiagLeg, setMissingLeg, syncTemplateSlotsFromIntersection,
   initApproaches, updateDefaultFilenames, wireSetupFilenameInputs, startCounting, goSetup,
   openLegPopover, closeLegPopover, getOpenLeg, wireLegPopoverDismiss,
-  legLabel,
+  legLabel, setKeybindPreset, setOneHandedMode, setActiveSetupGroup,
 } from './setup.js';
 import { renderSetupDiagram, updateDiagram, toggleDiagram, toggleTurningDiagram, classifyTurn } from './diagram.js';
 import {
   setMode, render, buildKbd, buildCounterUI, updateCfgFields, vGroupPrev, vGroupNext,
+  tmcGroupPrev, tmcGroupNext,
 } from './counter.js';
 import { wireContextMenu } from './record.js';
 import {
@@ -74,6 +76,7 @@ import {
   setClassificationsLocked as tgSetClassificationsLocked,
   renderClassificationsList as tgRenderClassificationsList,
   getClassifications as tgGetClassifications,
+  getTgKeybindCfg, setTgKeybindCfg, resetTgKeybindCfg,
 } from './tripgenCount.js';
 import {
   beginIntersectionRecount as ixBeginRecount, wireKeydown as ixQaqcWireKeydown,
@@ -147,9 +150,10 @@ Object.assign(window, {
   updateCrosswalkField, toggleApproachDestUnified, toggleApproachCount, renderLegConfig,
   updateDefaultFilenames,
   checkTmcKeys, addBikeToVPairs, addAllVPairsToTmc, renderVPairsList, toggleVDescExpand,
+  setKeybindPreset, setOneHandedMode, setActiveSetupGroup,
   openLegPopover, closeLegPopover, getOpenLeg,
   setDiagLeg, setMissingLeg, updateDiagram, toggleDiagram, toggleTurningDiagram,
-  setMode, render, buildKbd, updateCfgFields, vGroupPrev, vGroupNext,
+  setMode, render, buildKbd, updateCfgFields, vGroupPrev, vGroupNext, tmcGroupPrev, tmcGroupNext,
   toggleFocusMode, cycleFocus, setFocusTarget, undo, redo,
   exportCSV, exportXLSX, exportUTDF, confirmReset,
   exportTripgenXLSX: () => exportTripgenXLSX(tripgenEntries, tripgenSiteInfo, projectInfo),
@@ -821,6 +825,7 @@ document.getElementById('home-btn-intersection')?.addEventListener('click', () =
   // diagLeg, and enabled count types the previously-open project (in the same tab) left
   // behind — same leakage shape as BUG-027, different trigger (new project vs. load).
   resetIntersection();
+  resetKeybindCfg(); // don't let a previous project's keybinding preset/one-handed choice leak into a genuinely new one (same leakage class as BUG-032)
   syncTemplateSlotsFromIntersection();
   enabledModes.ped = true; enabledModes.vehicle = true; enabledModes.turning = true;
   syncCountTypeToggles(); // reflect the reset into the ct-ped/ct-vehicle/ct-turning checkboxes' DOM state, not just the JS object
@@ -854,6 +859,7 @@ document.getElementById('home-btn-tripgen')?.addEventListener('click', () => {
   // see the "start a new count" handler below), so a genuinely new project must clear
   // whatever the previous session's project left behind, or it would silently leak in.
   tgResetClassifications();
+  resetTgKeybindCfg();
   enterWorkspace();
   setSidebarMeta('New trip generation', '');
   _sidebarActiveItem = 'tg-setup';
@@ -3257,6 +3263,7 @@ function serializeIntersectionSnapshot() {
   const existingSl = (activeIntersectionIdx >= 0 && areaIntersections[activeIntersectionIdx]?.snapshot?.streetlightComparison) || {};
   return {
     version: 2, projectType: 'intersection', mode,
+    keybindCfg: { ...keybindCfg },
     vPairs: JSON.parse(JSON.stringify(vPairs)),
     intersection: JSON.parse(JSON.stringify(intersection)),
     fnames: { ...fnames },
@@ -4918,11 +4925,14 @@ window.showIntersectionQaqc = showIntersectionQaqc;
 function loadIntersectionIntoView(snap) {
   setVPairs(snap.vPairs || []);
   if (snap.tmcPairs) migrateVPairsFromLegacyTmc(snap.tmcPairs);
-  else vPairs.forEach(p => {
+  else vPairs.forEach((p, i) => {
     if (p.tmcKey   === undefined) p.tmcKey   = p.inKey || '';
     if (p.includeTmc === undefined) p.includeTmc = true;
     if (p.isBike   === undefined) p.isBike   = false;
+    if (p.group === undefined) p.group = Math.floor(i / 4);
   });
+  resetKeybindCfg();
+  if (snap.keybindCfg) setKeybindCfg(snap.keybindCfg);
   Object.assign(intersection, snap.intersection);
   Object.assign(fnames, snap.fnames || {});
   if (snap.periods) {
@@ -5014,6 +5024,8 @@ function loadProject(proj) {
     // when the loaded project genuinely has none, still avoiding the BUG-027-style leak of
     // one project's classifications bleeding into another that has its own (or none).
     tgRestoreClassifications(proj.classifications || []);
+    resetTgKeybindCfg();
+    if (proj.tgKeybindCfg) setTgKeybindCfg(proj.tgKeybindCfg);
     tripgenDistribution = JSON.parse(JSON.stringify(proj.distribution || []));
     tripgenDistNextId = tripgenDistribution.reduce((mx, ix) => Math.max(mx, ix.id + 1), 1);
     if (proj.qaqcReviewerName) { const el = document.getElementById('qaqc-reviewer-name'); if (el) el.value = proj.qaqcReviewerName; }
@@ -5080,12 +5092,19 @@ function loadProject(proj) {
   }
   // intersection project — structural (shared across all periods)
   if (proj.enabledModes) { Object.assign(enabledModes, proj.enabledModes); syncCountTypeToggles(); }
+  resetKeybindCfg();
+  if (proj.keybindCfg) setKeybindCfg(proj.keybindCfg);
   setVPairs(proj.vPairs || []);
   if (proj.tmcPairs) migrateVPairsFromLegacyTmc(proj.tmcPairs);
-  else vPairs.forEach(p => {
+  else vPairs.forEach((p, i) => {
     if (p.tmcKey   === undefined) p.tmcKey   = p.inKey || '';
     if (p.includeTmc === undefined) p.includeTmc = true;
     if (p.isBike   === undefined) p.isBike   = false;
+    // Older saved projects predate the `group` field (configurable keybinding groups) — back-
+    // fill the same floor(index/4) grouping that was previously implicit, so a pre-existing
+    // 8-type project loads into the same two groups it always behaved as, rather than
+    // collapsing into one oversized group-0 with false key conflicts.
+    if (p.group === undefined) p.group = Math.floor(i / 4);
   });
   Object.assign(intersection, proj.intersection);
   Object.assign(fnames, proj.fnames);
@@ -5192,6 +5211,7 @@ function serializeCurrentProject() {
       projectInfo: { ...projectInfo },
       mode,
       enabledModes: { ...enabledModes },
+      keybindCfg: { ...keybindCfg },
       vPairs: JSON.parse(JSON.stringify(vPairs)),
       intersection: JSON.parse(JSON.stringify(intersection)),
       fnames: { ...fnames },
@@ -5237,6 +5257,7 @@ function serializeCurrentProject() {
       // BUG-035: classifications (labels/keys/descriptions) are project-wide config, not
       // count data — must always be captured regardless of whether any count exists yet.
       classifications: tgGetClassifications(),
+      tgKeybindCfg: getTgKeybindCfg(),
       peakWindows: JSON.parse(JSON.stringify(tripgenPeakWindows)),
       qaqc: { ...tripgenQaqc },
       qaqcReviewerName: document.getElementById('qaqc-reviewer-name')?.value || '',
@@ -5266,6 +5287,18 @@ window.scheduleAutosave = function () {
   clearTimeout(_autosaveTimer);
   _autosaveTimer = setTimeout(() => {
     try {
+      // Keep an in-progress Trip Gen location's OWN entry current in the Locations list
+      // itself (not just the separate pendingLocation reload-resume side-channel BUG-034
+      // already established) — see DEVLOG "Trip Gen begin-counting entry-first fix": the
+      // entry is now created the moment counting starts, so it needs its data refreshed on
+      // the same cadence as everything else, or it would sit visibly stale/zeroed in the
+      // Locations list while a real count is happening.
+      if (projectType === 'tripgen' && tgPendingLocation && tgPendingLocation.kind === 'edit' && tgPendingLocation.entryId != null) {
+        const entry = tripgenEntries.find((e) => e.id === tgPendingLocation.entryId);
+        const day = entry?.days?.[tgPendingLocation.dayIdx ?? 0];
+        const live = tgCaptureLiveSnapshot();
+        if (day && live) { day.parsed = live.parsed; day.editSnapshot = live.editSnapshot; }
+      }
       const proj = serializeCurrentProject();
       if (proj) {
         localStorage.setItem(LS_KEY, JSON.stringify(proj));
@@ -5537,6 +5570,11 @@ const projectInfo = {
   qaCounterName: '', qaCounterTitle: '',
   logoUrl: '',
 };
+// Exposed on window so modules that can't import this file's non-exported const directly
+// (exportUtdf.js's getUTDFFilename(), setup.js's updateDefaultFilenames()) can read the
+// current project name without a circular import. (Previously only exportUtdf.js referenced
+// window.projectInfo, but nothing ever assigned it — this line makes that read actually work.)
+window.projectInfo = projectInfo;
 
 function renderLogoPreview() {
   ['logo-preview', 'logo-preview-tg'].forEach((id) => {
@@ -5789,7 +5827,8 @@ function renderTripgenLocationsList() {
         <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-top:.5px solid var(--border);flex-wrap:wrap">
           <div style="flex:1;min-width:160px">
             <span style="font-size:13px">${d.date ? formatDateLong(d.date) : escapeHtmlMain(d.sheetName)}</span>
-            ${d.editSnapshot ? `<button data-tg-edit-entry="${e.id}" data-tg-edit-day="${i}" style="font-size:11px;margin-left:8px">edit counts</button>` : ''}
+            ${d.inProgress ? `<span class="in-progress-badge" title="Count in progress — not finished yet. Click Resume count to continue.">&#9679; in progress</span>` : ''}
+            ${d.editSnapshot ? `<button data-tg-edit-entry="${e.id}" data-tg-edit-day="${i}" style="font-size:11px;margin-left:8px">${d.inProgress ? 'resume count' : 'edit counts'}</button>` : ''}
           </div>
           <div style="display:flex;align-items:center;gap:8px">
             ${d.cameraImageUrl
@@ -5982,20 +6021,42 @@ document.getElementById('btn-tg-begin-counting')?.addEventListener('click', () =
   if (!ctx) return;
   const dayType = dayTypeFromDate(ctx.date);
   tgCounterBackTarget = 'tripgen-setup-screen';
-  tgPendingLocation = { kind: 'new', address: ctx.address, date: ctx.date, dayType };
+  // entryId is assigned AFTER tgBeginCounting succeeds (below) but the finish callback closes
+  // over this outer variable, so it sees the real id once counting actually starts.
+  let entryId = null;
   const started = tgBeginCounting((parsed, editSnapshot) => {
-    tripgenEntries.push({
-      id: tripgenNextId++, filename: '(live count)', locationLabel: ctx.address,
-      meta: {}, days: [{ sheetName: formatDateLong(ctx.date), dayType, date: ctx.date, parsed, editSnapshot }],
-    });
+    const entry = tripgenEntries.find((e) => e.id === entryId);
+    const day = entry?.days?.[0];
+    if (day) { day.parsed = parsed; day.editSnapshot = editSnapshot; day.inProgress = false; }
     tgPendingLocation = null;
-    clearLocationContext();
     renderTripgenLocationsList();
     // "finish location" takes you straight into the data view, not back to a bare list.
     goToTripgenAnalyze();
     window.scheduleAutosave?.();
   });
-  if (started) showScreen('tripgen-counter-screen');
+  if (!started) return;
+  // BUG fix: create the location's entry in the Locations list IMMEDIATELY (zeroed data),
+  // rather than waiting for "finish location" to create it. Previously an in-progress count
+  // was invisible in the list until finished (tracked only via the separate tgPendingLocation
+  // side-channel) — a user who stepped away mid-count (e.g. back to setup to fix a
+  // classification, without finishing) saw no evidence anything had started, and re-clicking
+  // "begin counting" silently re-zeroed the live in-progress state out from under them. Now
+  // the entry shows up immediately as an "in progress" card they can click straight back into
+  // (via the same editTripgenDay resume path finished entries already use) instead of
+  // accidentally starting a second, conflicting session.
+  const snap = tgCaptureLiveSnapshot(); // tgData is freshly zeroed at this point — safe placeholder
+  entryId = tripgenNextId++;
+  tripgenEntries.push({
+    id: entryId, filename: '(live count)', locationLabel: ctx.address,
+    meta: {}, days: [{ sheetName: formatDateLong(ctx.date), dayType, date: ctx.date, parsed: snap?.parsed || null, editSnapshot: snap?.editSnapshot || null, inProgress: true }],
+  });
+  // Reuse the exact same pending shape editTripgenDay() already uses to resume a finished
+  // entry for editing — an in-progress entry is now just a special case of "editing an
+  // existing entry," not a separate code path.
+  tgPendingLocation = { kind: 'edit', entryId, dayIdx: 0 };
+  clearLocationContext();
+  renderTripgenLocationsList();
+  showScreen('tripgen-counter-screen');
 });
 
 // Re-opens a previously-finished live count for editing (only entries that were live-counted
@@ -6011,6 +6072,7 @@ function editTripgenDay(entryId, dayIdx) {
   tgBeginEditing(day.editSnapshot, day.parsed, (parsed, editSnapshot) => {
     day.parsed = parsed;
     day.editSnapshot = editSnapshot;
+    day.inProgress = false; // clears the "in progress" badge if this was the begin-counting placeholder entry
     tgPendingLocation = null;
     renderTripgenLocationsList();
     goToTripgenAnalyze();
@@ -6145,7 +6207,7 @@ async function renderQaqcScreen() {
       const started = tgBeginRecount(classificationList, recountCfg, (parsed) => {
         tripgenQaqc[key] = tripgenQaqc[key] || { recounts: [] };
         tripgenQaqc[key].recounts.push({ id: tgQaqcNextId++, classifications: classificationList, cfg: recountCfg, parsed });
-        document.getElementById('tg-btn-finish').textContent = '✓ finish location';
+        document.getElementById('tg-btn-finish').textContent = '✓ save location and exit';
         document.getElementById('tg-counter-sub').textContent = '';
         showScreen('tripgen-qaqc-screen');
         renderQaqcScreen();

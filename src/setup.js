@@ -2,9 +2,12 @@ import {
   TEMPLATES, PED_COLORS, cfg, vPairs, setVPairs, intersection,
   fnames, customInterval, setCustomInterval, setXwalkAssign,
   vData, pedData, tmcData, periods, activePeriodIdx,
+  keybindCfg, setKeybindCfg,
 } from './state.js';
 import { classifyTurn, renderSetupDiagram, buildLegDestinationsSVG } from './diagram.js';
 import { startCounting, goSetup } from './counter.js';
+import { distinctGroups, vehicleGroupPool, getKeyPools } from './keybind.js';
+import { buildNumpadDiagramHTML } from './numpadDiagram.js';
 
 // ═══════════════════════════════════════════
 // SETUP SCREEN LOGIC
@@ -41,11 +44,18 @@ export function updateDerived(){
 }
 
 // vehicle pairs in setup
+// Key assignment now goes through getKeyPools() (keybind.js) so it reflects the project's
+// chosen keybinding preset (QWERTY default / Numpad one-handed) and one-handed mode, instead
+// of a hardcoded QWERTY-only pool — see build brief item 4 ("key-pool algorithm... not a
+// one-time hardcoded stamp"). `group` is assigned by POSITION within the pool's groupSize so
+// rows still land in sensible groups by default, but stays fully user-editable afterward (the
+// per-row group field in renderVPairsList) rather than being recomputed on every render.
 export function updateVCount(n){
-  const G1_IN=['a','s','d','f'], G1_OUT=['j','k','l',';'];
+  const {inPool,outPool,groupSize,oneKeyOnly}=getKeyPools();
   while(vPairs.length<n){
-    const gi=vPairs.length%4;
-    vPairs.push({label:`type ${vPairs.length+1}`,def:'',inKey:G1_IN[gi],outKey:G1_OUT[gi],icon:null});
+    const idx=vPairs.length;
+    const gi=idx%groupSize;
+    vPairs.push({label:`type ${idx+1}`,def:'',inKey:inPool[gi]||'?',outKey:oneKeyOnly?null:(outPool[gi]||'?'),icon:null,tmcKey:inPool[gi]||'?',includeTmc:true,isBike:false,group:Math.floor(idx/groupSize)});
   }
   setVPairs(vPairs.slice(0,n));
   renderVPairsList();
@@ -63,9 +73,46 @@ const FHWA_COMBINED=[
   {label:'combination (7–13)',def:'All multi-unit combinations classes 7–13',         inKey:'f',outKey:';',icon:null},
 ];
 export function applyVPreset(p){
-  setVPairs((p==='precise'?FHWA_PRECISE:FHWA_COMBINED).map(x=>({...x})));
+  const {inPool,outPool}=getKeyPools();
+  const base=(p==='precise'?FHWA_PRECISE:FHWA_COMBINED);
+  setVPairs(base.map((x,i)=>({...x,inKey:inPool[i]||x.inKey,outKey:outPool?(outPool[i]||x.outKey):null,tmcKey:inPool[i]||x.inKey,includeTmc:true,isBike:false,group:0})));
   document.getElementById('v-count').value=vPairs.length;
   renderVPairsList();
+}
+
+// ═══════════════════════════════════════════
+// KEYBINDING PRESET / ONE-HANDED MODE UI (setup, vehicle-types tab)
+// ═══════════════════════════════════════════
+// Whole-project setting (build brief item 3: "a whole project is probably simpler"). Switching
+// the preset does NOT retroactively rewrite existing rows' keys — only NEW rows (add-type /
+// apply-preset) pick up the new pool, matching the "not a one-time hardcoded stamp" / position-
+// based-not-value-based intent from build brief item 4. Existing rows can always be hand-edited.
+export function setKeybindPreset(p){
+  setKeybindCfg({preset:p});
+  renderVPairsList();
+}
+export function setOneHandedMode(v){
+  setKeybindCfg({oneHanded:v});
+  renderVPairsList();
+}
+function renderKeybindCfgControls(wrap){
+  const row=document.createElement('div'); row.className='keybind-cfg-row';
+  row.innerHTML=`
+    <span class="keybind-cfg-label">key preset:</span>
+    <button type="button" class="preset-btn${keybindCfg.preset==='qwerty'?' active':''}" onclick="setKeybindPreset('qwerty')" title="A/S/D/F in · J/K/L/; out — default">QWERTY</button>
+    <button type="button" class="preset-btn${keybindCfg.preset==='numpad'?' active':''}" onclick="setKeybindPreset('numpad')" title="7/9, 4/6, 1/3, 0/. — one-handed numpad layout">Numpad one-handed</button>
+    <span class="keybind-cfg-label" style="margin-left:10px">group layout:</span>
+    <button type="button" class="preset-btn${keybindCfg.oneHanded==='off'?' active':''}" onclick="setOneHandedMode('off')" title="4 types per group, each with its own in + out key">standard (4 types, in/out)</button>
+    <button type="button" class="preset-btn${keybindCfg.oneHanded==='pairs'?' active':''}" onclick="setOneHandedMode('pairs')" title="2 types per group, each with its own in + out key — fits on one hand">one-handed (2 types, in/out)</button>
+    <button type="button" class="preset-btn${keybindCfg.oneHanded==='allkeys'?' active':''}" onclick="setOneHandedMode('allkeys')" title="Up to 4 types per group, one key each, single direction only">one-handed (4 types, all-in/all-out)</button>
+  `;
+  wrap.appendChild(row);
+  if(keybindCfg.preset==='numpad'){
+    const diagWrap=document.createElement('div'); diagWrap.style.marginBottom='10px';
+    const grp0Labels=vehicleGroupPool().filter(p=>(p.group??0)===distinctGroups(vehicleGroupPool())[0]).map(p=>p.label);
+    diagWrap.innerHTML=buildNumpadDiagramHTML(grp0Labels);
+    wrap.appendChild(diagWrap);
+  }
 }
 
 export async function copyVPairsFromProject(file){
@@ -104,21 +151,41 @@ export function toggleVDescExpand(i){
   renderVPairsList();
 }
 
+// Which group is "active" (highlighted) in the setup list — pure UI state, not persisted
+// (same spirit as vDescExpanded above). Defaults to the first group present; clicking a group
+// separator switches it. Per the build brief's follow-up request: with multiple groups, the
+// setup list should make clear at a glance which group's rows you're looking at, the same way
+// the live counter's group nav does — without requiring a live-counting-style ‹ › pager here.
+let activeSetupGroup=null;
+export function setActiveSetupGroup(g){ activeSetupGroup=g; renderVPairsList(); }
+
 export function renderVPairsList(){
   const wrap=document.getElementById('v-pairs-list'); if(!wrap) return;
   wrap.innerHTML='';
+  renderKeybindCfgControls(wrap);
   const locked=hasCountData();
-  const multiGroup=vPairs.length>4;
+  const groupList=distinctGroups(vehicleGroupPool());
+  const multiGroup=groupList.length>1;
+  if(activeSetupGroup==null||!groupList.includes(activeSetupGroup))activeSetupGroup=groupList[0]??0;
   if(multiGroup){
     const notice=document.createElement('div'); notice.className='group-notice';
-    notice.innerHTML=`<strong>Keybinding groups</strong> — types 1–4 use one set of keys; types 5–8 reuse the same keys as a second group. Use ‹ › during counting to switch groups.`;
+    notice.innerHTML=`<strong>Keybinding groups</strong> — each group shares one set of keys; types in a different group may reuse the same keys. Use ‹ › during counting to switch groups. Edit the # field on a row to move it to a different group (drag &#9776; to keep same-group rows adjacent). Click a group heading below to highlight its rows.`;
     wrap.appendChild(notice);
   }
   let dragSrc=-1;
+  let lastGroup=null;
   vPairs.forEach((p,i)=>{
-    if(multiGroup&&!p.isBike&&i%4===0){
-      const sep=document.createElement('div'); sep.className='group-sep';
-      sep.textContent=`Group ${Math.floor(i/4)+1}`; wrap.appendChild(sep);
+    if(p.group==null)p.group=0;
+    if(multiGroup&&!p.isBike&&p.group!==lastGroup){
+      lastGroup=p.group;
+      const sep=document.createElement('div');
+      const gi=groupList.indexOf(p.group);
+      sep.className='group-sep'+(p.group===activeSetupGroup?' group-sep-active':'');
+      sep.textContent=`Group ${gi>=0?gi+1:'?'}`;
+      sep.title='Click to highlight this group’s rows';
+      sep.style.cursor='pointer';
+      sep.onclick=()=>setActiveSetupGroup(p.group);
+      wrap.appendChild(sep);
     }
     const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
     const labelEl=locked||p.isBike
@@ -137,10 +204,14 @@ export function renderVPairsList(){
       ?`<span class="key-input key-input-blank"></span>`
       :`<input type="text" class="key-input" maxlength="1" value="${(p.outKey||'')===';'?';':(p.outKey||'').toUpperCase()}" placeholder="out" oninput="vPairs[${i}].outKey=this.value.toLowerCase();checkVKeys()">`;
     const tmcKey=(p.tmcKey||'')===';'?';':(p.tmcKey||'').toUpperCase();
-    const row=document.createElement('div'); row.className='pair-row vpair-row'; row.dataset.idx=i;
+    const groupEl=p.isBike
+      ?`<span class="group-field-blank"></span>`
+      :`<input type="number" class="group-field" min="0" value="${p.group??0}" title="Keybinding group — rows sharing a group share one set of keys" oninput="vPairs[${i}].group=parseInt(this.value)||0;renderVPairsList()">`;
+    const inActiveGroup=multiGroup&&!p.isBike&&p.group===activeSetupGroup;
+    const row=document.createElement('div'); row.className='pair-row vpair-row'+(inActiveGroup?' group-row-active':''); row.dataset.idx=i;
     row.innerHTML=`
       <span class="drag-handle${locked?' drag-locked':''}" title="${locked?'locked — count data exists':'drag to reorder'}">⣿</span>
-      ${labelEl}${defEl}${inKeyEl}${outKeyEl}
+      ${groupEl}${labelEl}${defEl}${inKeyEl}${outKeyEl}
       <label class="tmc-incl-label" title="Include in TMC turning mode">
         <input type="checkbox" class="tmc-incl-chk" ${p.includeTmc?'checked':''} ${locked||p.isBike?'disabled':''}>
         <span>tmc</span>
@@ -200,17 +271,25 @@ export function addBikeToVPairs(){
   renderVPairsList();
 }
 
+// Grouped by the row's explicit `group` field (build brief item 1) rather than a hardcoded
+// floor(index/4) — two vPairs sharing a group must have distinct in/out keys, but two vPairs
+// in DIFFERENT groups are free to reuse the same key (that's the whole point of grouping).
 export function checkVKeys(){
   const dupeSet=new Set();
-  for(let g=0;g<vPairs.length;g+=4){
-    const grp=vPairs.slice(g,g+4).filter(p=>!p.isBike);
+  const byGroup=new Map();
+  vPairs.filter(p=>!p.isBike).forEach(p=>{
+    const g=p.group??0;
+    if(!byGroup.has(g))byGroup.set(g,[]);
+    byGroup.get(g).push(p);
+  });
+  byGroup.forEach((grp,g)=>{
     const gk=grp.flatMap(p=>[p.inKey,p.outKey]);
     gk.forEach((k,i)=>{if(k&&k!=='?'&&gk.indexOf(k)!==i)dupeSet.add(g+'_'+k);});
-  }
+  });
   document.querySelectorAll('#v-pairs-list .vpair-row input.key-input:not(.tmc-key-input)').forEach(inp=>{
     const row=inp.closest('[data-idx]');
     const idx=row?parseInt(row.dataset.idx):-1;
-    const g=Math.floor(idx/4)*4; // group START index (0,4,8,...) — must match the loop above's g
+    const g=idx>=0?(vPairs[idx]?.group??0):0;
     inp.classList.toggle('key-conflict',idx>=0&&dupeSet.has(g+'_'+inp.value.toLowerCase()));
   });
   const conf=document.getElementById('v-conflict');
@@ -218,20 +297,35 @@ export function checkVKeys(){
   return dupeSet.size===0;
 }
 
+// TMC keys now follow the same group-scoped uniqueness as vehicle in/out keys (build brief
+// item 2) — only unique WITHIN a group, since TMC mode now pages through groups the same way
+// vehicle mode does, instead of rendering every included type in one flat row project-wide.
 export function checkTmcKeys(){
-  const seen=new Set(),dupes=new Set();
+  const dupeSet=new Set();
+  const byGroup=new Map();
   vPairs.filter(p=>p.includeTmc).forEach(p=>{
-    if(p.tmcKey&&seen.has(p.tmcKey))dupes.add(p.tmcKey);
-    seen.add(p.tmcKey);
+    const g=p.group??0;
+    if(!byGroup.has(g))byGroup.set(g,[]);
+    byGroup.get(g).push(p);
   });
-  const navKeys=new Set(['arrowup','arrowdown','z','y','\\',']','[']);
-  document.querySelectorAll('#v-pairs-list input.tmc-key-input').forEach(inp=>{
+  byGroup.forEach((grp,g)=>{
+    const seen=new Set();
+    grp.forEach(p=>{
+      if(p.tmcKey&&p.tmcKey!=='?'&&seen.has(p.tmcKey))dupeSet.add(g+'_'+p.tmcKey);
+      seen.add(p.tmcKey);
+    });
+  });
+  const navKeys=new Set(['arrowup','arrowdown','z','y','\\',']','[','-','=']);
+  document.querySelectorAll('#v-pairs-list .vpair-row input.tmc-key-input').forEach(inp=>{
+    const row=inp.closest('[data-idx]');
+    const idx=row?parseInt(row.dataset.idx):-1;
+    const g=idx>=0?(vPairs[idx]?.group??0):0;
     const k=inp.value.toLowerCase();
-    inp.classList.toggle('key-conflict',dupes.has(k)||navKeys.has(k));
+    inp.classList.toggle('key-conflict',dupeSet.has(g+'_'+k)||navKeys.has(k));
   });
   const conf=document.getElementById('tmc-conflict');
-  if(conf)conf.classList.toggle('visible',dupes.size>0);
-  return dupes.size===0;
+  if(conf)conf.classList.toggle('visible',dupeSet.size>0);
+  return dupeSet.size===0;
 }
 
 // stubs kept so any stale callers don't throw
@@ -267,8 +361,14 @@ export function streetSlug(s){
   return (s||'').trim().replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_]/g,'');
 }
 export function updateDefaultFilenames(){
+  // Project name first, falling back to street names — same precedence already used by the
+  // UTDF export (exportUtdf.js's getUTDFFilename()) and the xlsx report exports. Previously
+  // this was the only filename-deriving path in the app that ignored projectInfo.projectName
+  // entirely (BUG fix — see CHANGELOG).
+  const pn=streetSlug(window.projectInfo?.projectName||'');
   const s1=streetSlug(intersection.street1),s2=streetSlug(intersection.street2);
-  const pfx=s1&&s2?s1+'_'+s2:s1||s2||'';
+  const streetPfx=s1&&s2?s1+'_'+s2:s1||s2||'';
+  const pfx=pn||streetPfx;
   fnames.vehicle=pfx?pfx+'_vehicle':'traffic_counts';
   fnames.ped    =pfx?pfx+'_ped':'ped_counts';
   fnames.tmc    =pfx?pfx+'_tmc':'tmc_counts';

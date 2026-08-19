@@ -6,7 +6,9 @@
 // finishing converts the result into the same {types, intervals} shape parseTripGen.js
 // produces, so it drops straight into the existing trip-gen analysis pipeline.
 
-let classifications = []; // [{label, inKey, outKey, def}]
+import { buildNumpadDiagramHTML } from './numpadDiagram.js';
+
+let classifications = []; // [{label, inKey, outKey, def, group}]
 // Whether the classification list is locked against reordering — set by main.js (which owns
 // tripgenEntries, not visible from this module per this file's own header comment) via
 // setClassificationsLocked() before each render, mirroring vPairs' hasCountData() lock in
@@ -35,11 +37,33 @@ let focusMode = false;
 let focusTarget = 0;
 
 // ── Keybinding groups ──
-// When classifications.length > 4, keys are reused across groups of 4 (same mechanic as
-// vPairs' vGroup in state.js / vGroupPrev/Next in counter.js), local to this module rather
-// than sharing state.js's vGroup, per this file's own standalone-from-state.js header
-// comment. Reset alongside focusTarget at the start of every begin*() below.
+// Group membership is now each classification's own explicit `group` field (build brief item
+// 1 — "same idea" as vPairs' group field in state.js), not an implicit floor(index/4) slice.
+// tgGroup itself stays an INDEX into the sorted list of distinct group ids present (mirrors
+// counter.js's vGroup semantics), local to this module per this file's own
+// standalone-from-state.js header comment. Reset alongside focusTarget at the start of every
+// begin*() below.
 let tgGroup = 0;
+function distinctTgGroups(){ return [...new Set(classifications.map(c=>c.group??0))].sort((a,b)=>a-b); }
+
+// ── Keybinding preset (build brief item 4) — QWERTY default vs. Numpad one-handed. Local to
+// this module, same standalone rationale as everything else here. Only affects NEW rows
+// (addClassification) — see keybind.js's getKeyPools() header comment for the same
+// "position-based, not a one-time stamp" rationale, mirrored here for Trip Gen.
+let tgKeybindCfg = { preset: 'qwerty' };
+export function getTgKeybindCfg(){ return { ...tgKeybindCfg }; }
+export function setTgKeybindCfg(v){ Object.assign(tgKeybindCfg, v); renderClassificationsList(); }
+export function resetTgKeybindCfg(){ tgKeybindCfg.preset='qwerty'; }
+function tgKeyPools(){
+  return tgKeybindCfg.preset==='numpad'
+    ? { inPool:['7','4','1','0'], outPool:['9','6','3','.'] }
+    : { inPool:['a','s','d','f'], outPool:['j','k','l',';'] };
+}
+
+// Which group is "active"/highlighted in the setup list — pure UI state (same spirit as
+// descExpanded above), not persisted. Defaults to the first group present.
+let activeTgSetupGroup = null;
+export function setActiveTgSetupGroup(g){ activeTgSetupGroup = g; renderClassificationsList(); }
 
 function isActiveScreen() {
   const el = document.getElementById('tripgen-counter-screen');
@@ -62,30 +86,64 @@ function slotStartEnd(i) {
 // used for the parallel vPairs editor).
 function esc(s) { return (s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;'); }
 
+function renderTgKeybindCfgControls(wrap) {
+  const row = document.createElement('div'); row.className = 'keybind-cfg-row';
+  row.innerHTML = `
+    <span class="keybind-cfg-label">key preset:</span>
+    <button type="button" class="preset-btn${tgKeybindCfg.preset==='qwerty'?' active':''}" data-tg-preset="qwerty" title="A/S/D/F entry · J/K/L/; exit — default">QWERTY</button>
+    <button type="button" class="preset-btn${tgKeybindCfg.preset==='numpad'?' active':''}" data-tg-preset="numpad" title="7/9, 4/6, 1/3, 0/. — one-handed numpad layout">Numpad one-handed</button>
+  `;
+  wrap.appendChild(row);
+  row.querySelectorAll('[data-tg-preset]').forEach((btn) => {
+    btn.addEventListener('click', () => setTgKeybindCfg({ preset: btn.dataset.tgPreset }));
+  });
+  if (tgKeybindCfg.preset === 'numpad') {
+    const diagWrap = document.createElement('div'); diagWrap.style.marginBottom = '10px';
+    const ids = distinctTgGroups();
+    const grp0Labels = classifications.filter(c => (c.group ?? 0) === (ids[0] ?? 0)).map(c => c.label);
+    diagWrap.innerHTML = buildNumpadDiagramHTML(grp0Labels);
+    wrap.appendChild(diagWrap);
+  }
+}
+
 export function renderClassificationsList() {
   const wrap = document.getElementById('tg-classifications-list');
   if (!wrap) return;
   wrap.innerHTML = '';
+  renderTgKeybindCfgControls(wrap);
   const locked = classificationsLocked;
-  const multiGroup = classifications.length > 4;
+  const groupIds = distinctTgGroups();
+  const multiGroup = groupIds.length > 1;
+  if (activeTgSetupGroup == null || !groupIds.includes(activeTgSetupGroup)) activeTgSetupGroup = groupIds[0] ?? 0;
   if (multiGroup) {
     const notice = document.createElement('div'); notice.className = 'group-notice';
-    notice.innerHTML = `<strong>Keybinding groups</strong> — classifications 1–4 use one set of keys; 5–8 reuse the same keys as a second group. Use ‹ › during counting to switch groups.`;
+    notice.innerHTML = `<strong>Keybinding groups</strong> — each group shares one set of keys; classifications in a different group may reuse the same keys. Use ‹ › during counting to switch groups. Edit the # field on a row to move it to a different group. Click a group heading to highlight its rows.`;
     wrap.appendChild(notice);
   }
   let dragSrc = -1;
+  let lastGroup = null;
   classifications.forEach((c, i) => {
-    if (multiGroup && i % 4 === 0) {
-      const sep = document.createElement('div'); sep.className = 'group-sep';
-      sep.textContent = `Group ${Math.floor(i / 4) + 1}`; wrap.appendChild(sep);
+    if (c.group == null) c.group = 0;
+    if (multiGroup && c.group !== lastGroup) {
+      lastGroup = c.group;
+      const sep = document.createElement('div');
+      const gi = groupIds.indexOf(c.group);
+      sep.className = 'group-sep' + (c.group === activeTgSetupGroup ? ' group-sep-active' : '');
+      sep.textContent = `Group ${gi >= 0 ? gi + 1 : '?'}`;
+      sep.title = 'Click to highlight this group’s rows';
+      sep.style.cursor = 'pointer';
+      sep.addEventListener('click', () => setActiveTgSetupGroup(c.group));
+      wrap.appendChild(sep);
     }
+    const inActiveGroup = multiGroup && c.group === activeTgSetupGroup;
     const row = document.createElement('div');
-    row.className = 'pair-row tg-pair-row';
+    row.className = 'pair-row tg-pair-row' + (inActiveGroup ? ' group-row-active' : '');
     row.dataset.tgIdx = i;
     const expanded = descExpanded.has(i);
     const descBtnLabel = expanded ? '▾ desc' : (c.def ? '✎ desc' : '+ desc');
     row.innerHTML = `
       <span class="drag-handle${locked ? ' drag-locked' : ''}" title="${locked ? 'locked — count data exists' : 'drag to reorder'}">⣿</span>
+      <input type="number" class="group-field" min="0" value="${c.group ?? 0}" title="Keybinding group — rows sharing a group share one set of keys" data-tg-field="group" data-tg-idx="${i}">
       <input type="text" value="${esc(c.label)}" placeholder="label" data-tg-field="label" data-tg-idx="${i}">
       <button type="button" class="desc-toggle-btn" data-tg-desc-toggle="${i}" title="${expanded ? 'Hide description' : (c.def ? 'Edit description' : 'Add description')}">${descBtnLabel}</button>
       <input type="text" class="key-input" maxlength="1" value="${(c.inKey || '').toUpperCase()}" placeholder="in" data-tg-field="inKey" data-tg-idx="${i}">
@@ -118,6 +176,7 @@ export function renderClassificationsList() {
   wrap.querySelectorAll('[data-tg-field]').forEach((el) => {
     el.addEventListener('input', () => {
       const i = Number(el.dataset.tgIdx), field = el.dataset.tgField;
+      if (field === 'group') { classifications[i].group = parseInt(el.value) || 0; renderClassificationsList(); window.scheduleAutosave?.(); return; }
       classifications[i][field] = field === 'label' ? el.value : el.value.toLowerCase();
       checkKeyConflicts();
       window.scheduleAutosave?.();
@@ -148,36 +207,42 @@ export function renderClassificationsList() {
 
 // Default keys split left-hand (Entry) / right-hand (Exit) — same convention as the
 // intersection counter's vehicle types (A/J, S/K, D/L, F/;, ...), so the muscle memory
-// carries over between count types.
-const IN_KEY_POOL = ['a', 's', 'd', 'f', 'q', 'w', 'e', 'r', 'z', 'x', 'c', 'v'];
-const OUT_KEY_POOL = ['j', 'k', 'l', ';', 'u', 'i', 'o', 'p', 'm', ',', '.', '/'];
-
+// carries over between count types. Pool + group size now come from tgKeyPools() (build
+// brief item 4 — Numpad one-handed preset), not a hardcoded QWERTY-only pool; a new row's
+// `group` is assigned by POSITION within a 4-per-group block, same as vPairs.
 export function addClassification() {
+  const { inPool, outPool } = tgKeyPools();
+  const idx = classifications.length;
+  const gi = idx % 4;
   const used = new Set(classifications.flatMap((c) => [c.inKey, c.outKey]));
-  const inKey = IN_KEY_POOL.find((k) => !used.has(k)) || '?';
-  const outKey = OUT_KEY_POOL.find((k) => !used.has(k)) || '?';
-  classifications.push({ label: `classification ${classifications.length + 1}`, inKey, outKey, def: '' });
+  let inKey = inPool[gi] || '?', outKey = outPool[gi] || '?';
+  if (used.has(inKey)) inKey = inPool.find((k) => !used.has(k)) || '?';
+  if (used.has(outKey)) outKey = outPool.find((k) => !used.has(k)) || '?';
+  classifications.push({ label: `classification ${idx + 1}`, inKey, outKey, def: '', group: Math.floor(idx / 4) });
   renderClassificationsList();
   window.scheduleAutosave?.();
 }
 
-// Scoped PER GROUP (same shape as setup.js's checkVKeys g+=4 loop) — two classifications in
+// Scoped PER GROUP (same shape as setup.js's checkVKeys byGroup Map) — two classifications in
 // DIFFERENT groups are allowed to share a key (that's the point of grouping); only same-group
-// conflicts are flagged. dupeSet keys use the group's START index (0,4,8,...) consistently on
-// both the write side (the loop below) and the read side (the per-input scan), which matters:
-// deriving the read-side group id via a different formula (e.g. group NUMBER 0,1,2 instead of
-// group START index 0,4,8) would silently stop matching for group 2 and beyond.
+// conflicts are flagged. Grouped by the row's explicit `group` field (build brief item 1),
+// not a hardcoded floor(index/4) slice.
 function checkKeyConflicts() {
   const dupeSet = new Set();
-  for (let g = 0; g < classifications.length; g += 4) {
-    const grp = classifications.slice(g, g + 4);
+  const byGroup = new Map();
+  classifications.forEach((c) => {
+    const g = c.group ?? 0;
+    if (!byGroup.has(g)) byGroup.set(g, []);
+    byGroup.get(g).push(c);
+  });
+  byGroup.forEach((grp, g) => {
     const gk = grp.flatMap((c) => [c.inKey, c.outKey]);
     gk.forEach((k, i) => { if (k && k !== '?' && gk.indexOf(k) !== i) dupeSet.add(g + '_' + k); });
-  }
-  document.querySelectorAll('#tg-classifications-list input.key-input').forEach((inp) => {
+  });
+  document.querySelectorAll('#tg-classifications-list .tg-pair-row input.key-input').forEach((inp) => {
     const row = inp.closest('[data-tg-idx]');
     const idx = row ? parseInt(row.dataset.tgIdx) : -1;
-    const g = Math.floor(idx / 4) * 4;
+    const g = idx >= 0 ? (classifications[idx]?.group ?? 0) : 0;
     inp.classList.toggle('key-conflict', idx >= 0 && dupeSet.has(g + '_' + inp.value.toLowerCase()));
   });
   const warn = document.getElementById('tg-key-conflict');
@@ -254,7 +319,7 @@ export function snapshotForEdit() {
 export function defaultClassificationsFor(types) {
   const inPool = ['a', 's', 'd', 'f', 'q', 'w', 'e', 'r', 'z', 'x', 'c', 'v'];
   const outPool = ['j', 'k', 'l', ';', 'u', 'i', 'o', 'p', 'm', ',', '.', '/'];
-  return types.map((label, i) => ({ label, inKey: inPool[i] || '?', outKey: outPool[i] || '?', def: '' }));
+  return types.map((label, i) => ({ label, inKey: inPool[i] || '?', outKey: outPool[i] || '?', def: '', group: Math.floor(i / 4) }));
 }
 
 // Starts a fresh (zeroed) count using a GIVEN classification list and timing — used for
@@ -305,10 +370,12 @@ function buildKbdGroupNav(nG) {
 function buildKbd() {
   const grid = document.getElementById('tg-kbd-grid');
   if (!grid) return;
-  const nG = Math.ceil(classifications.length / 4) || 1;
-  const gs = tgGroup * 4, ge = Math.min(gs + 4, classifications.length);
-  grid.innerHTML = classifications.slice(gs, ge).map((c, j) => {
-    const i = gs + j;
+  const groupIds = distinctTgGroups();
+  const nG = groupIds.length;
+  const gid = groupIds[Math.min(tgGroup, nG - 1)] ?? 0;
+  const idxOf = (c) => classifications.indexOf(c);
+  grid.innerHTML = classifications.filter((c) => (c.group ?? 0) === gid).map((c) => {
+    const i = idxOf(c);
     const dim = (focusMode && i !== focusTarget) ? ' dimmed' : '';
     return `
     <span class="kbd-chip${dim}"><span class="ck">in</span><kbd id="tgk-in-${i}">${c.inKey.toUpperCase()}</kbd><span class="key-label">${c.label}</span></span>
@@ -321,20 +388,47 @@ function buildKbd() {
     <span class="kbd-chip"><kbd>↓</kbd><span class="key-label">next</span></span>
     <span class="kbd-chip"><kbd>Z</kbd><span class="key-label">undo</span></span>
     <span class="kbd-chip"><kbd>Y</kbd><span class="key-label">redo</span></span>
-  `;
+  ` + (nG > 1 ? `
+    <span class="kbd-chip"><kbd>${tgKeybindCfg.preset === 'numpad' ? 'Num ÷' : '-'}</kbd><kbd>${tgKeybindCfg.preset === 'numpad' ? 'Num -' : '='}</kbd><span class="key-label">group ‹ ›</span></span>
+  ` : '');
   if (nG > 1) grid.insertBefore(buildKbdGroupNav(nG), grid.firstChild);
+  const numpadRef = document.getElementById('tg-kbd-numpad-ref');
+  if (numpadRef) {
+    if (tgKeybindCfg.preset === 'numpad') {
+      const labels = classifications.filter((c) => (c.group ?? 0) === gid).map((c) => c.label);
+      numpadRef.innerHTML = buildNumpadDiagramHTML(labels);
+      numpadRef.style.display = '';
+    } else {
+      numpadRef.style.display = 'none'; numpadRef.innerHTML = '';
+    }
+  }
 }
 
-// Only shown/reachable when classifications.length > 4 (nG>1) — mirrors vPairs' own
+// Only shown/reachable when there's more than one group (nG>1) — mirrors vPairs' own
 // vGroupPrev/Next gate. Switching groups also moves focusTarget to the new group's first
-// slot (setFocusTargetState(vGroup*4) equivalent) so focus mode — if later toggled on —
-// never points at a classification that's no longer in the visible group.
+// member so focus mode — if later toggled on — never points at a classification that's no
+// longer in the visible group. tgGroup is an INDEX into distinctTgGroups(), not a raw group
+// id (build brief item 1 — group ids are now arbitrary user-editable integers).
 function tgGroupPrev() {
-  if (tgGroup > 0) { tgGroup--; focusTarget = tgGroup * 4; buildKbd(); }
+  if (tgGroup > 0) {
+    tgGroup--;
+    const ids = distinctTgGroups();
+    const gid = ids[tgGroup] ?? 0;
+    const first = classifications.findIndex((c) => (c.group ?? 0) === gid);
+    focusTarget = first < 0 ? 0 : first;
+    buildKbd();
+  }
 }
 function tgGroupNext() {
-  const nG = Math.ceil(classifications.length / 4);
-  if (tgGroup < nG - 1) { tgGroup++; focusTarget = tgGroup * 4; buildKbd(); }
+  const nG = distinctTgGroups().length;
+  if (tgGroup < nG - 1) {
+    tgGroup++;
+    const ids = distinctTgGroups();
+    const gid = ids[tgGroup] ?? 0;
+    const first = classifications.findIndex((c) => (c.group ?? 0) === gid);
+    focusTarget = first < 0 ? 0 : first;
+    buildKbd();
+  }
 }
 
 // ── Focus mode: toggle/cycle/UI, mirroring focus.js's interaction model ──
@@ -351,9 +445,13 @@ function toggleFocusMode() {
 function cycleFocus(dir) {
   const n = focusCount(); if (!n) return;
   focusTarget = (focusTarget + dir + n) % n;
-  // Keep the visible group in sync with the newly focused target — same as focus.js's
-  // cycleFocus, which calls setVGroup(Math.floor(focusTarget/4)) for mode==='vehicle'.
-  tgGroup = Math.floor(focusTarget / 4);
+  // Keep the visible group in sync with whichever group the newly-focused classification
+  // actually belongs to (its own `group` field) — same as focus.js's cycleFocus, updated for
+  // build brief item 1 (group ids are no longer implicitly floor(index/4)).
+  const ids = distinctTgGroups();
+  const g = classifications[focusTarget]?.group ?? 0;
+  const gi = ids.indexOf(g);
+  tgGroup = gi >= 0 ? gi : 0;
   updateFocusUI();
 }
 function setFocusTarget(i) {
@@ -484,12 +582,14 @@ function record(dir, idx) {
 // Only register the ACTIVE group's keys — same principle as focus.js's buildVKeyMap, so a
 // key press only counts for a classification if it's in the currently-visible/active group.
 // Without this, two different-group classifications sharing a physical key (the whole point
-// of grouping) would double-count or misattribute whichever key was pressed.
+// of grouping) would double-count or misattribute whichever key was pressed. Grouped by each
+// classification's own `group` field (build brief item 1), not floor(index/4).
 function buildKeyMap() {
   const m = {};
-  const gs = tgGroup * 4, ge = Math.min(gs + 4, classifications.length);
-  classifications.slice(gs, ge).forEach((c, j) => {
-    const i = gs + j;
+  const ids = distinctTgGroups();
+  const gid = ids[Math.min(tgGroup, ids.length - 1)] ?? 0;
+  classifications.forEach((c, i) => {
+    if ((c.group ?? 0) !== gid) return;
     if (c.inKey) m[c.inKey] = () => record('in', i);
     if (c.outKey) m[c.outKey] = () => record('out', i);
   });
@@ -500,6 +600,15 @@ export function wireKeydown() {
   document.addEventListener('keydown', (e) => {
     if (!isActiveScreen()) return;
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+    // Group-switch shortcuts (build brief item 5) — dedicated keys, separate from the existing
+    // [ / ] (unchanged below: group nav outside focus mode, focus-cycle inside it). Checked via
+    // event.CODE so the numpad preset's Numpad/ and Numpad- can't collide with the QWERTY
+    // preset's Minus/Equal, matching the intersection counter's focus.js implementation.
+    const isNumpad = tgKeybindCfg.preset === 'numpad';
+    const prevCode = isNumpad ? 'NumpadDivide' : 'Minus';
+    const nextCode = isNumpad ? 'NumpadSubtract' : 'Equal';
+    if (e.code === prevCode) { e.preventDefault(); tgGroupPrev(); return; }
+    if (e.code === nextCode) { e.preventDefault(); tgGroupNext(); return; }
     const k = e.key.toLowerCase();
     if (k === 'arrowdown') { e.preventDefault(); if (slot < cfg.slots - 1) { slot++; render(); } return; }
     if (k === 'arrowup') { e.preventDefault(); if (slot > 0) { slot--; render(); } return; }
@@ -567,7 +676,10 @@ export function resetClassifications() {
 // classification the user configured (labels, keys, descriptions) was silently dropped from
 // both autosave AND an explicit "save project" export, project-wide config, not count data.
 export function restoreClassifications(list) {
-  classifications = (list || []).map((c) => ({ ...c }));
+  // Older saved projects predate the `group` field (configurable keybinding groups) —
+  // backfill the same floor(index/4) grouping that was previously implicit (mirrors
+  // main.js's loadProject() vPairs backfill for the intersection counter).
+  classifications = (list || []).map((c, i) => ({ group: Math.floor(i / 4), ...c }));
   renderClassificationsList();
 }
 

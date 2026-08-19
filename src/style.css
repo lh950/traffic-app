@@ -172,16 +172,16 @@ input.warn{border-color:var(--warn-border)!important;background:var(--warn-bg)!i
 .tmc-label-ro{font-size:12px;color:var(--text);padding:5px 0}
 .tmc-def-ro{font-size:11px;color:var(--text3);padding:5px 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* trip gen classification rows — same drag/lock/description pattern as vpair-row above */
-.tg-pair-header{grid-template-columns:22px 1fr auto 46px 46px 28px!important}
-.tg-pair-row{display:grid;grid-template-columns:22px 1fr auto 46px 46px 28px;gap:6px;align-items:center;margin-bottom:6px;padding:4px 0;border-bottom:.5px solid var(--border)}
+.tg-pair-header{grid-template-columns:22px 34px 1fr auto 46px 46px 28px!important}
+.tg-pair-row{display:grid;grid-template-columns:22px 34px 1fr auto 46px 46px 28px;gap:6px;align-items:center;margin-bottom:6px;padding:4px 0;border-bottom:.5px solid var(--border)}
 .tg-pair-row:last-child{border-bottom:none}
 .tg-pair-row.dragging{opacity:.4}
 .tg-pair-row.drag-over{outline:2px solid var(--accent);outline-offset:-2px;border-radius:3px}
 .tg-pair-row input{width:100%;font-size:12px;padding:4px 6px;box-sizing:border-box}
 .tg-pair-row input.key-input{text-align:center;font-family:var(--mono);font-size:11px}
 /* master vpair rows (new single-list layout) */
-.vpair-header{grid-template-columns:22px 1fr 1fr 46px 46px 40px 60px 28px!important}
-.vpair-row{display:grid;grid-template-columns:22px 1fr 1fr 46px 46px 40px 60px 28px;gap:6px;align-items:center;margin-bottom:6px;padding:4px 0;border-bottom:.5px solid var(--border)}
+.vpair-header{grid-template-columns:22px 34px 1fr 1fr 46px 46px 40px 60px 28px!important}
+.vpair-row{display:grid;grid-template-columns:22px 34px 1fr 1fr 46px 46px 40px 60px 28px;gap:6px;align-items:center;margin-bottom:6px;padding:4px 0;border-bottom:.5px solid var(--border)}
 .vpair-row:last-child{border-bottom:none}
 .drag-handle{cursor:grab;font-size:14px;color:var(--text3);text-align:center;line-height:1;user-select:none;touch-action:none}
 .drag-handle.drag-locked{cursor:default;opacity:.3}
@@ -239,7 +239,33 @@ input.warn{border-color:var(--warn-border)!important;background:var(--warn-bg)!i
 .warn-banner.visible{display:block}
 .group-notice{font-size:11px;color:var(--text2);background:var(--surface2);border:.5px solid var(--border);border-radius:var(--r);padding:6px 10px;margin-bottom:8px;line-height:1.5}
 .group-sep{font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text3);margin:10px 0 4px;padding-bottom:3px;border-bottom:.5px solid var(--border)}
+.group-sep-active{color:var(--blue-text)}
+/* Active-group highlight in setup lists (vPairs list, Trip Gen classifications list) — subtle
+   left-border + background tint, same visual language as .focus-chip.active / .app-sel-btn.active
+   elsewhere in the app, so "this is the group you're looking at" reads at a glance. */
+.group-row-active{background:var(--blue-bg);border-left:3px solid var(--blue-border);border-radius:var(--r);padding-left:4px;margin-left:-7px}
+
+/* Trip Gen: "in progress" badge on a location card whose count was started but not
+   finished (see DEVLOG "Trip Gen begin-counting entry-first fix") */
+.in-progress-badge{font-size:10px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;color:var(--warn-text,#a06a10);background:var(--warn-bg,rgba(200,150,20,.12));border:.5px solid var(--warn-border,rgba(200,150,20,.35));border-radius:var(--r);padding:1px 6px;margin-left:8px}
 .bike-label-locked{opacity:0.55;cursor:default;background:var(--surface2)!important}
+
+/* keybinding preset / one-handed setup controls + numpad reference diagram */
+.keybind-cfg-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:10px 0}
+.keybind-cfg-label{font-size:11px;font-weight:600;color:var(--text2);margin-right:2px}
+.group-field{width:34px!important;text-align:center;padding:3px 2px!important;font-size:11px!important}
+.numpad-diag{display:inline-flex;flex-direction:column;gap:3px;background:var(--surface2);border:.5px solid var(--border);border-radius:var(--r);padding:8px 12px;font-family:var(--mono)}
+.numpad-diag-hd{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:2px}
+.numpad-diag-hd-title{font-family:var(--font);font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text3)}
+.numpad-diag-hd-in{font-family:var(--font);font-size:9px;font-weight:600;text-transform:uppercase;color:var(--in-text)}
+.numpad-diag-hd-out{font-family:var(--font);font-size:9px;font-weight:600;text-transform:uppercase;color:var(--out-text)}
+.numpad-diag-row{display:grid;grid-template-columns:26px 1fr 26px;align-items:center;gap:8px}
+.numpad-diag-key{display:inline-flex;align-items:center;justify-content:center;height:22px;border-radius:5px;font-size:12px;font-weight:600}
+.numpad-diag-key.numpad-diag-in{background:var(--in-bg);border:.5px solid var(--in-border);color:var(--in-text)}
+.numpad-diag-key.numpad-diag-out{background:var(--out-bg);border:.5px solid var(--out-border);color:var(--out-text)}
+.numpad-diag-label{font-family:var(--font);font-size:11px;color:var(--text);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.numpad-diag-hint{font-family:var(--font);font-size:9px;color:var(--text3);margin-top:2px;text-align:center}
+.numpad-diag-live{position:sticky;top:0}
 
 /* ════════════════════════════════════
    COUNTER SCREEN
@@ -329,19 +355,23 @@ input.warn{border-color:var(--warn-border)!important;background:var(--warn-bg)!i
 .kbd-collapse-btn:hover{background:var(--surface2);color:var(--text2)}
 .kbd-collapse-btn::before{content:'';display:inline-block;width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-bottom:4px solid currentColor;transition:transform .15s}
 .kbd-collapse-btn.collapsed::before{transform:rotate(180deg)}
-.kbd-inner{padding:8px 1.5rem;transition:max-height .25s,opacity .2s,padding .2s;max-height:200px;overflow-y:auto;overflow-x:hidden}
+.kbd-inner{padding:5px 1.5rem;transition:max-height .25s,opacity .2s,padding .2s;max-height:200px;overflow-y:auto;overflow-x:hidden}
 .kbd-inner.collapsed{max-height:0;opacity:0;padding-top:0;padding-bottom:0}
-/* compact chip grid */
-.kbd-grid{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center}
-.kbd-chip{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);white-space:nowrap}
-.kbd-chip .ck{font-size:9px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text3);margin-right:2px}
-.kbd-group-sep{width:.5px;height:20px;background:var(--border);margin:0 2px}
-.kbd-group-label{font-size:9px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;margin-right:4px}
+/* compact chip grid — tightened per user feedback that the reference bar read as too spread
+   out for its information density: smaller chip gaps, a smaller <kbd> key badge, and tighter
+   type to read as "compact and scannable" rather than airy. Applies to both the intersection
+   counter (#kbd-grid) and Trip Gen (#tg-kbd-grid / #ixqaqc-kbd-grid) since they share these
+   classes. */
+.kbd-grid{display:flex;flex-wrap:wrap;gap:3px 8px;align-items:center}
+.kbd-chip{display:inline-flex;align-items:center;gap:3px;font-size:10px;color:var(--text2);white-space:nowrap}
+.kbd-chip .ck{font-size:8px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;color:var(--text3);margin-right:1px}
+.kbd-group-sep{width:.5px;height:15px;background:var(--border);margin:0 1px}
+.kbd-group-label{font-size:8px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;margin-right:3px}
 .label-in{color:var(--in-text)}.label-out{color:var(--out-text)}.label-nav{color:var(--text2)}
-.key-label{font-size:11px;color:var(--text2)}
-kbd{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;padding:0 5px;
-  background:var(--surface2);border:.5px solid var(--border2);border-radius:5px;
-  font-family:var(--mono);font-size:11px;color:var(--text);transition:background .12s,border-color .12s,color .12s;flex-shrink:0}
+.key-label{font-size:10px;color:var(--text2)}
+kbd{display:inline-flex;align-items:center;justify-content:center;min-width:17px;height:17px;padding:0 4px;
+  background:var(--surface2);border:.5px solid var(--border2);border-radius:4px;
+  font-family:var(--mono);font-size:10px;color:var(--text);transition:background .12s,border-color .12s,color .12s;flex-shrink:0}
 kbd.flash-in{background:var(--in-bg);border-color:var(--in-border);color:var(--in-text)}
 kbd.flash-out{background:var(--out-bg);border-color:var(--out-border);color:var(--out-text)}
 

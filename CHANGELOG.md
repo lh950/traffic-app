@@ -1,5 +1,25 @@
 # Changelog
 
+## v3.44.0-alpha.1 — 2026-08-19
+
+### Added
+- **Configurable keybinding groups (intersection counter + Trip Gen).** Group membership is now an explicit, user-editable `group` field on each vehicle type / classification (a `#` column in the setup list, drag-to-reorder + click-to-edit), instead of a fixed `floor(index/4)` block — e.g. 3 vehicles in group 1, all freight vehicles in group 2. Custom group membership is respected identically in setup and live counting.
+- **TMC mode now pages through keybinding groups.** Turning-movement counting used to render every included vehicle type flat in one row, requiring every TMC key to be unique project-wide. It now pages through groups the same way vehicle mode already does (‹ › group nav, both mouse and keyboard), so TMC keys only need to be unique WITHIN a group.
+- **One-handed group layouts (intersection counter, per-project).** New "group layout" setting on the vehicle-types tab: standard (4 types/group, in+out — the existing default), one-handed 2-types-in/out (fits one hand's 4 keys), or one-handed all-in/all-out (up to 4 types/group, one key each, single direction only — for counting when only one direction matters).
+- **Numpad one-handed keybinding preset (intersection counter + Trip Gen), selectable at setup.** Class 1: `7`/`9`, Class 2: `4`/`6`, Class 3: `1`/`3`, Class 4: `0`/`.`. QWERTY (A/S/D/F in, J/K/L/; out) stays the default for new projects. Implemented as a position-based key-pool algorithm (mirroring the existing QWERTY default-key logic), not a one-time stamp — reordering types/classifications or changing group membership re-applies cleanly.
+- **Keyboard shortcuts for switching keybinding groups**, tied to the active preset — previously mouse-only. Numpad preset: Numpad `/` (previous) / Numpad `-` (next). QWERTY preset: `-` (previous) / `=` (next). Distinguished via `event.code` (`NumpadDivide`/`NumpadSubtract` vs `Minus`/`Equal`) so the two presets' shortcuts never collide with each other or with existing keys (undo/redo, focus toggle, focus-cycle `[`/`]`, arrow nav). Works in both vehicle and TMC modes for the intersection counter, and in Trip Gen's counter.
+- **Numpad reference diagram.** A small labeled grid showing the numpad's physical layout with each key's assigned class/classification and in/out at a glance — shown in setup when the Numpad preset is selected, and as a compact live-counting reference (updates with the active group) in both the intersection counter and Trip Gen.
+- **Active-group highlight in setup lists.** When a vehicle-types or classifications list spans more than one keybinding group, clicking a group heading highlights that group's rows (subtle background tint + accent border), so it's clear at a glance which group you're looking at while editing — mirrors the same visual language used for other "active" states in the app.
+- **Trip Gen: an in-progress location now appears in the Locations list immediately.** "Begin counting" creates the location's entry right away (zeroed data, marked "in progress"), instead of waiting until "finish location." Autosave keeps that entry's data current while counting continues. See BUG-036.
+
+### Changed
+- **Live keyboard reference bar is significantly more compact.** Smaller `<kbd>` key badges (22px→17px), tighter chip/gap spacing, and smaller type across the board — applies to the intersection counter, Trip Gen, and the intersection QA/QC recount screen (all share the same `.kbd-grid`/`.kbd-chip` classes). Addresses standing feedback that the bar took up more visual space than its information density justified.
+- **Trip Gen's "finish location" button is now "save location and exit."** Since the location's entry is created the moment counting starts (see Added, above), clicking this button no longer means "this count is complete" — it just saves current progress and returns to setup, which is safe regardless of whether counting is actually finished.
+
+### Fixed
+- **Export filenames didn't default to include the project name.** `updateDefaultFilenames()` only derived vehicle/ped/TMC filenames from street names, unlike the UTDF and xlsx exports (which already prefer the project name first, falling back to street names). Brought in line with that precedence.
+- **BUG-036 (Critical): a second "begin counting" click on a Trip Gen location could silently discard the first, unfinished count.** Because an in-progress count was invisible in the Locations list until "finish location" ran, a user who stepped back to setup mid-count (e.g. to fix a classification) without finishing saw no evidence anything had started, and re-clicking "begin counting" reset the live count state out from under the first session. Fixed by creating the location's entry immediately when counting begins (see Added, above) — resuming it now reuses the same "edit counts" path a finished location already uses, so a second start can no longer silently clobber the first. See `BUGS.md` BUG-036.
+
 ## v3.43.0-alpha.6 — 2026-08-19
 
 ### Fixed

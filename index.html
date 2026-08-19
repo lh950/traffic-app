@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Traffic App v3.43.0-alpha.6</title>
+<title>Traffic App v3.44.0-alpha.1</title>
 <link rel="manifest" href="./manifest.json">
 <meta name="theme-color" content="#131b23">
 <script>
@@ -117,7 +117,7 @@
   <div class="home-inner">
     <div class="home-wordmark">
       <h1>Traffic App</h1>
-      <div class="home-version">v3.43.0-alpha.6</div>
+      <div class="home-version">v3.44.0-alpha.1</div>
       <button id="home-btn-tour" title="Take the tour" style="margin-left:auto;font-size:12px;color:var(--text3);background:none;border:none;cursor:pointer;text-decoration:underline;flex-shrink:0">Take the tour</button>
       <button id="home-btn-help" title="Help / instructions" style="margin-left:12px;font-size:13px;font-weight:600;color:var(--text3);background:none;border:.5px solid var(--border);border-radius:50%;width:26px;height:26px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">?</button>
     </div>
@@ -185,7 +185,7 @@
     <!-- wordmark -->
     <div style="margin-bottom:2rem">
       <h1 style="font-size:22px;font-weight:500;letter-spacing:-.01em">Traffic App</h1>
-      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v3.43.0-alpha.6</span>
+      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v3.44.0-alpha.1</span>
     </div>
 
     <!-- autosave / resume banner -->
@@ -383,7 +383,7 @@
       <h3>Classifications</h3>
       <div class="stat-detail" style="margin-bottom:10px">What's being counted at any location in this project — add one row per classification, with the keyboard keys used for Entry/Exit while counting. No starting set is prescribed; add whatever this study needs. Define these before adding a location, or edit them any time from here.</div>
       <div class="pair-header tg-pair-header">
-        <span></span><span>label</span><span></span><span>entry key</span><span>exit key</span><span></span>
+        <span></span><span title="Keybinding group — rows in the same group share one set of keys">grp</span><span>label</span><span></span><span>entry key</span><span>exit key</span><span></span>
       </div>
       <div id="tg-classifications-list"></div>
       <button id="btn-tg-add-classification" style="margin-top:8px;font-size:12px">+ add classification</button>
@@ -564,7 +564,7 @@
         <span class="stack-count" id="tg-undo-count">0</span>
         <button title="redo (Y)" id="tg-btn-redo" disabled>?</button>
       </div>
-      <button class="btn-blue" id="tg-btn-finish" title="Finish and save this count" style="white-space:nowrap">? finish location</button>
+      <button class="btn-blue" id="tg-btn-finish" title="Save current progress and return to setup — safe to click whether or not counting is complete; the location's entry is already saved and can be resumed any time" style="white-space:nowrap">? save location and exit</button>
       <button class="btn-focus" id="tg-btn-focus" title="Focus mode (\)">? focus</button>
       <button class="btn-icon" id="tg-btn-to-setup" title="Back" style="font-size:12px">setup</button>
     </div>
@@ -580,6 +580,7 @@
   <div class="kbd-sticky">
     <div class="kbd-inner" style="max-height:none">
       <div class="kbd-grid" id="tg-kbd-grid"></div>
+      <div id="tg-kbd-numpad-ref" style="display:none;margin-top:6px"></div>
     </div>
   </div>
   <div class="tables-area">
@@ -809,7 +810,7 @@
         <input type="file" id="copy-vpairs-input" accept=".json" style="display:none">
       </div>
       <div class="pair-header vpair-header">
-        <span></span><span>label</span><span>definition</span><span>IN</span><span>OUT</span><span>TMC</span><span>TMC key</span><span></span>
+        <span></span><span title="Keybinding group — rows in the same group share one set of keys">grp</span><span>label</span><span>definition</span><span>IN</span><span>OUT</span><span>TMC</span><span>TMC key</span><span></span>
       </div>
       <div id="v-pairs-list"></div>
       <div class="conflict-msg" id="v-conflict">&#9888; duplicate keys &#8212; each key must be unique</div>
@@ -924,7 +925,7 @@
 
   <header class="counter-header">
     <button id="btn-back-to-project" style="font-size:12px;padding:4px 10px;margin-right:8px">? Project</button>
-    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v3.43.0-alpha.6</span></h1>
+    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v3.44.0-alpha.1</span></h1>
     <div class="hcontrols">
       <div class="mode-toggle" style="display:none">
         <button class="mode-btn active" id="btn-count-mode" onclick="goToCountMode()">count</button>
@@ -996,6 +997,7 @@
     </button>
     <div class="kbd-inner" id="kbd-inner">
       <div class="kbd-grid" id="kbd-grid"></div>
+      <div id="kbd-numpad-ref" style="display:none;margin-top:6px"></div>
     </div>
   </div>
 

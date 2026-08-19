@@ -4,6 +4,77 @@ Key decisions, scope constraints, and architectural choices.
 
 ---
 
+## 2026-08-19 — v3.44.0-alpha.1: configurable keybinding groups (design decisions)
+
+A large, coherent feature batch (customizable group membership, group-scoped TMC keys, one-handed
+layouts, a Numpad one-handed preset, group-switch keyboard shortcuts, a numpad reference diagram,
+a compact kbd bar, and a Trip Gen begin-counting data-loss fix — BUG-036). Recording the judgment
+calls made along the way, since several were "most conservative, consistent-with-existing-patterns
+choice" decisions per the build brief rather than explicit spec:
+
+- **Group membership is now an explicit `group` field on each vPair/classification row**, not a
+  recomputed `floor(index/4)`. `vGroup`/`tgGroup` (the "which group is active" state) changed
+  meaning: they're now an INDEX into the sorted list of distinct group ids present, not the raw
+  group id itself — group ids are arbitrary user-editable integers now, possibly sparse or
+  reordered. Every consumer (`buildKbd`, `buildVKeyMap`/`buildTKeyMap`, `updateCfgFields`,
+  `checkVKeys`/`checkTmcKeys`, Trip Gen's equivalents) was switched from array slicing to
+  filtering by this field. Setup lists still render top-to-bottom in raw array order (not
+  re-sorted by group) — reordering into contiguous same-group blocks is left to drag-and-drop,
+  which already existed; re-sorting the display by group would have made drag-reorder confusing
+  about what position a drop actually lands at.
+- **TMC group scoping keeps the GLOBAL column index, only gates which keys REGISTER.**
+  `tmcData`'s storage is a flat array indexed by position across ALL `includeTmc` vPairs
+  (unchanged schema). `buildTKeyMap()`/`buildKbd()`'s turning branch iterate the FULL pool and
+  skip non-active-group rows, rather than pre-filtering to a group-local slice — the alternative
+  (re-indexing per group) would have required a `tmcData` schema migration. The kbd-chip
+  flash-on-record lookup (`record.js`'s `tmcRecord`) was switched from positional
+  `document.querySelectorAll(...)[typeIdx]` to a `data-tmc-idx` attribute selector for the same
+  reason — positional indexing silently breaks once the visible chip count no longer equals the
+  full type count.
+- **One-handed "all-in/all-out" mode reuses the existing in/out data model** — a single-key type
+  just never gets an `outKey` (stays `null`) and only ever calls `vRecord('in', i)`; the "out"
+  table column for that type simply stays zero. Considered hiding the out column entirely for a
+  cleaner look, but that would touch `buildVehicleTable`'s shared in/out table structure for a
+  purely cosmetic gain — not worth it per the brief's "keep reasonably simple" instruction.
+- **One-handed mode is a whole-project setting** (`keybindCfg.oneHanded`), not per-group, per the
+  brief's own suggestion that this is simpler and matches how the feature was described. Same for
+  the key preset (`keybindCfg.preset`) — one QWERTY/Numpad choice per project, applied only to
+  NEW rows going forward (`getKeyPools()` in the new `keybind.js`), never retroactively rewriting
+  existing keys.
+- **Group-switch shortcuts are NEW dedicated keys, not a repurposing of `[`/`]`.** `[`/`]`
+  already had a secondary group-nav role (vehicle mode, non-focus) before this batch; per the
+  brief's explicit instruction to avoid colliding with `[`/`]`, new shortcuts were added
+  alongside rather than replacing them: **QWERTY: `-` (previous) / `=` (next)**, chosen because
+  neither is used by any key pool, undo/redo, focus toggle, or arrow nav. **Numpad: Numpad `/` /
+  Numpad `-`**, per the user's exact spec. Both checked via `event.code`
+  (`Minus`/`Equal`/`NumpadDivide`/`NumpadSubtract`), not `event.key`, so the two presets'
+  shortcuts can never collide with each other regardless of NumLock state.
+- **`keybind.js` is a new small shared module** (group-id helpers + key-pool logic + shortcut
+  codes) rather than duplicating this logic across `setup.js`/`counter.js`/`focus.js`/`main.js` —
+  all four needed the identical group-id-list-by-position semantics, and drift between copies
+  would have silently broken group-switch/key-registration consistency.
+- **Trip Gen mirrors the intersection counter's group/preset design** (own local `group` field,
+  own local `tgKeybindCfg`), consistent with `tripgenCount.js`'s existing "deliberately standalone
+  from state.js" architecture (see the file's own header comment) — duplicated, not shared,
+  same as `tgGroup`/`vGroup` already were before this batch. One-handed layouts were NOT added to
+  Trip Gen — the brief only specified this for the intersection counter's vehicle types, and Trip
+  Gen has no in/out-per-type visual distinction that one-handed's "shape" concept maps onto as
+  cleanly; left out per "don't invent additional configuration surfaces."
+- **`window.projectInfo` was never actually assigned anywhere**, despite `exportUtdf.js`'s
+  `getUTDFFilename()` reading it — a latent bug (silently falling back to street names) that
+  predates this batch. Fixed as a side effect of wiring the export-filename fix (item 8) through
+  the same `window.projectInfo` pattern, since duplicating `projectInfo` as an import into
+  `setup.js` would have created a `setup.js` ⇄ `main.js` circular import.
+- **BUG-036 (Trip Gen begin-counting data loss) fix, per the user's own preferred design**
+  (superseding an earlier "block or resume" proposal mid-session): the location's `tripgenEntries`
+  row is now created the moment counting begins, not when it finishes — so an in-progress count
+  is always visible and resumable from the Locations list, structurally preventing the silent
+  second-session clobber rather than trying to detect and block it after the fact. The
+  "finish location" button was renamed **"save location and exit"** since it no longer signals
+  completion.
+
+---
+
 ## 2026-08-19 — BUG-035: a stale design comment justified a real data-loss bug
 
 **The classifications-not-saving bug had a comment explaining exactly why it was "correct" — and that explanation was wrong by the time it mattered.** The code unconditionally wiped classifications on every project load, with a comment saying this was deliberate: classifications were originally just "whatever's queued for the next new location," disposable scratch state, reset to prevent leaking between projects. That was true when it was written. It stopped being true once classifications became their own dedicated project-wide config tab — but nobody revisited the comment or the behavior it justified when that change happened, so a real bug shipped with a confident-sounding explanation for why it wasn't one.
