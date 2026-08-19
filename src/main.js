@@ -575,6 +575,12 @@ function enterWorkspace() {
 function exitWorkspace() {
   projectUUID = null;
   document.body.classList.remove('workspace-mode');
+  // BUG: enterWorkspace() adds one of these four per project type but this function never
+  // removed them, so a stale project-type-* class lingered on <body> after leaving a project
+  // — style.css's per-project-type --accent custom properties aren't gated on .workspace-mode,
+  // so the home screen kept rendering with whichever project's accent color was last active
+  // instead of falling back to the neutral default (see the CSS comment above those rules).
+  document.body.classList.remove('project-type-area', 'project-type-intersection', 'project-type-tripgen', 'project-type-parking');
   document.getElementById('app-sidebar')?.classList.remove('visible');
 }
 
@@ -5810,7 +5816,7 @@ function renderTripgenLocationsList() {
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
         <div>
-          <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Zoning reference PDF <span style="color:var(--text3)">(optional — site zoning reference)</span></div>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Access-point reference document <span style="color:var(--text3)">(optional PDF — e.g. a curb-cut permit or site plan specific to THIS location; not the same as the project-wide ZOLA screenshot in Project Info, which applies to the whole site)</span></div>
           ${e.zolaPdfName
             ? `<div style="display:flex;align-items:center;gap:6px;font-size:12px">
                  <a href="${e.zolaPdfData}" download="${escapeHtmlMain(e.zolaPdfName)}" style="color:var(--blue-text)">${escapeHtmlMain(e.zolaPdfName)}</a>
@@ -5874,7 +5880,9 @@ function renderTripgenLocationsList() {
       editTripgenDay(Number(el.dataset.tgEditEntry), Number(el.dataset.tgEditDay));
     });
   });
-  // Zoning reference PDF upload
+  // Access-point reference document upload (relabeled from "Zoning reference PDF" — see
+  // BUGS.md for the perceived-duplication writeup against the project-wide ZOLA screenshot;
+  // field name kept as zolaPdfData/zolaPdfName to avoid a save/load migration)
   root.querySelectorAll('[data-tg-zola-upload]').forEach((input) => {
     input.addEventListener('change', (e) => {
       const file = e.target.files?.[0];

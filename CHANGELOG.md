@@ -1,5 +1,16 @@
 # Changelog
 
+## v3.44.0-alpha.4 — 2026-08-19
+
+### Added
+- **Trip Gen: a pop-out vehicle reference window**, modeled directly on the intersection counter's TMC turning-diagram popup (`diagram.js`'s `toggleTurningDiagram`) — same `window.open()`+Blob-URL mechanism, keyboard-passthrough back to the opener, and open-window reuse/focus behavior. New `src/tripgenDiagram.js` builds the popup (a simple 3-column table: classification / In key+count / Out key+count), scoped to the currently active keybinding group so a physical key column is never ambiguous across groups. Shows the live interval label and the active group badge, flashes the exact In/Out cell just incremented (mirroring the crosswalk popup's per-keystroke flash, not the TMC popup's persistent-highlight style — Trip Gen has no single "focused movement" the way TMC does), and stays in sync on every record/undo/redo/interval-nav/group-switch. New "⊞ reference" button in the Trip Gen counter header (`tg-btn-diag`). Along the way, fixed a real cross-module bug the new popup's keyboard-passthrough exposed: `focus.js`'s global `message` listener (forwarding popup keystrokes to the intersection counter) had no active-screen guard, so it also fired — and threw — while the Trip Gen popup's passthrough was posting to the same `window`; now gated by the same `isLiveCounterScreenActive()` check its own keydown listener already used.
+
+### Changed
+- **Trip Gen's per-location "Zoning reference PDF" upload relabeled to "Access-point reference document"**, with an explicit note that it's not the project-wide ZOLA screenshot in Project Info. User-reported perceived duplication ("in project info there is an upload for zola information... it looks like theres a separate space for this upload in locations"). The two fields are genuinely different data (one project-wide zoning-lookup screenshot vs. one PDF per access-point/location) and the field name/data (`entry.zolaPdfData`/`zolaPdfName`) is unchanged — only the label, since the old wording ("Zoning reference PDF... site zoning reference") read as the same thing as the ZOLA screenshot. See `DEVLOG.md` for the full reasoning, including why consolidation was considered and rejected.
+
+### Fixed
+- **BUG-039: home screen kept the last project's accent color (e.g. Trip Gen's purple) after leaving it, instead of the neutral default.** `exitWorkspace()` removed `workspace-mode` but never removed the `project-type-*` class `enterWorkspace()` had added. See `BUGS.md` BUG-039.
+
 ## v3.44.0-alpha.3 — 2026-08-19
 
 ### Added

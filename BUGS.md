@@ -8,6 +8,16 @@ Severity levels:
 
 ---
 
+## BUG-039
+**Status:** Fixed (v3.44.0-alpha.4, user-reported: "going from trip gen count to main menu changes the interface to purple instead of orange (looks like each count screen does this), but the actual color scheme of the count interface does not change, only the main page")
+**Severity:** Minor (wrong accent color on the home screen after leaving a project — cosmetic, no data impact)
+**Found in:** `main.js`'s `exitWorkspace()`
+**Description / root cause:** `enterWorkspace()` adds one of `project-type-area`/`project-type-intersection`/`project-type-tripgen`/`project-type-parking` to `document.body.classList` per the active project's type (each maps to its own `--accent` in `style.css`, e.g. Trip Gen = violet/purple `#7C4FC4`/`#A47DDB`). `exitWorkspace()` removed `workspace-mode` but never removed the `project-type-*` class — so after leaving a project, the stale class lingered on `<body>` and the home screen kept rendering with the last project's accent color (purple, after a Trip Gen session) instead of falling back to the neutral default amber (`#ffb400`, which itself reads as an orange/amber hue — the color the user expected). Confirmed live: after resuming a Trip Gen project, `document.body.className` was `"workspace-mode project-type-tripgen"` and `getComputedStyle(document.body).getPropertyValue('--accent')` was `#A47DDB` (dark-mode Trip Gen purple); clicking "All Projects" left `project-type-tripgen` on `<body>` with the old code.
+**Fix:** `exitWorkspace()` now also removes all four `project-type-*` classes.
+**Verified live:** dev server, resumed an existing Trip Gen project (`body.className` → `workspace-mode project-type-tripgen`, `--accent` → `#A47DDB`), clicked "All Projects" back to home — `body.className` → `""`, `--accent` → `#ffb400` (correct neutral amber). No console errors.
+
+---
+
 ## BUG-038
 **Status:** Fixed (v3.44.0-alpha.3, user reported: "something weird happens to classification when you reload the save. it lost its grouping")
 **Severity:** Critical (data loss on explicit save/load — classification config, including group assignments, silently dropped)

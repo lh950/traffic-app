@@ -7,6 +7,11 @@
 // produces, so it drops straight into the existing trip-gen analysis pipeline.
 
 import { buildNumpadDiagramHTML } from './numpadDiagram.js';
+// Pop-out vehicle reference window (build brief item 1) — modeled on diagram.js's TMC turning
+// popup. One-directional-in-practice import: tripgenDiagram.js also imports back from this
+// file (tgLiveState/slotLabel/distinctTgGroups) to read live counting state, the same
+// established circular-import pattern this codebase already uses for counter.js<->focus.js.
+import { toggleTgDiagram, updateTgDiagram, flashTgCell } from './tripgenDiagram.js';
 
 let classifications = []; // [{label, inKey, outKey, def, group}]
 // Whether the classification list is locked against reordering — set by main.js (which owns
@@ -44,7 +49,19 @@ let focusTarget = 0;
 // standalone-from-state.js header comment. Reset alongside focusTarget at the start of every
 // begin*() below.
 let tgGroup = 0;
-function distinctTgGroups(){ return [...new Set(classifications.map(c=>c.group??0))].sort((a,b)=>a-b); }
+// Exported for tripgenDiagram.js's popup — the popup filters its rows to the currently
+// active group the same way this file's own buildKbd() does, since a physical key is
+// only meaningful within its group (two different-group classifications may share a key).
+export function distinctTgGroups(){ return [...new Set(classifications.map(c=>c.group??0))].sort((a,b)=>a-b); }
+
+// Read-only snapshot of everything the popup reference window (tripgenDiagram.js) needs to
+// render itself — the module-local vars above (classifications, tgData, slot, cfg, tgGroup)
+// aren't exported directly since nothing outside this file should mutate them, but the popup
+// only ever reads them to build a display payload. Mirrors diagram.js's tmcPopupPayload()
+// pulling straight from state.js's exported live bindings; this file just doesn't have a
+// shared state module to pull from (see file header — deliberately standalone), so this
+// getter is the equivalent seam.
+export function tgLiveState() { return { classifications, tgData, slot, cfg, tgGroup }; }
 
 // ── Keybinding preset (build brief item 4) — QWERTY default vs. Numpad one-handed. Local to
 // this module, same standalone rationale as everything else here. Only affects NEW rows
@@ -70,7 +87,9 @@ function isActiveScreen() {
   return el && el.style.display !== 'none';
 }
 
-function slotLabel(i) {
+// Exported (not just local) so tripgenDiagram.js's popup builder can render the same
+// interval label the on-screen counter shows, without duplicating the format logic.
+export function slotLabel(i) {
   const s = cfg.startMinutes + i * cfg.intervalMin, e = s + cfg.intervalMin;
   const fmt = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
   return `${fmt(s)} – ${fmt(e)}`;
@@ -402,6 +421,10 @@ function buildKbd() {
       numpadRef.style.display = 'none'; numpadRef.innerHTML = '';
     }
   }
+  // buildKbd() (not render()) is what runs on group switch (tgGroupPrev/Next) and on
+  // beginCounting/beginEditing/beginRecount — covering the popup-sync cases render()'s own
+  // updateTgDiagram() call above doesn't reach.
+  updateTgDiagram();
 }
 
 // Only shown/reachable when there's more than one group (nG>1) — mirrors vPairs' own
@@ -529,6 +552,10 @@ function buildTable() {
 function render() {
   buildTable();
   document.getElementById('tg-cur-interval').textContent = slotLabel(slot);
+  // Keeps the popup in sync on every slot navigation, undo, and redo (all three call
+  // render()) — matches the TMC popup's own update cadence (record.js/focus.js post a fresh
+  // tmcPopupPayload after every state-changing action).
+  updateTgDiagram();
 }
 
 function pushUndo(action) { undoStack.push(action); redoStack = []; updateUndoUI(); }
@@ -577,6 +604,11 @@ function record(dir, idx) {
   const chipFlash = dir === 'in' ? 'tg-flash-in' : 'tg-flash-out';
   if (kbd) { kbd.classList.add(flashCls); setTimeout(() => kbd.classList.remove(flashCls), 200); }
   if (chip) { chip.classList.add(chipFlash); setTimeout(() => chip.classList.remove(chipFlash), 200); }
+  // Popup gets its own flash on the exact In/Out cell just incremented — mirrors the
+  // crosswalk popup's buildDiagramHTML 'flash' message (diagram.js), not the TMC popup (which
+  // has no per-keystroke flash, only a persistent active-column highlight); a per-keystroke
+  // flash reads better here since Trip Gen has no single "focused movement" the way TMC does.
+  flashTgCell(idx, dir);
 }
 
 // Only register the ACTIVE group's keys — same principle as focus.js's buildVKeyMap, so a
@@ -596,6 +628,30 @@ function buildKeyMap() {
   return m;
 }
 
+// Shared by the real document keydown listener below AND the popup's keyboard-passthrough
+// message forwarder, mirroring focus.js's processKey(k) split (called from both
+// wireKeydown's own listener and its 'kbd-passthrough' message handler). Deliberately does
+// NOT include the Numpad-code-based group-switch shortcut (e.code isn't available from a
+// forwarded e.key string) — the TMC/ped popups have this exact same gap already (see
+// focus.js's wireKeydown message handler), so this isn't a new limitation.
+function processTgKey(k) {
+  if (k === 'arrowdown') { if (slot < cfg.slots - 1) { slot++; render(); } return; }
+  if (k === 'arrowup') { if (slot > 0) { slot--; render(); } return; }
+  if (k === 'z') { undo(); return; }
+  if (k === 'y') { redo(); return; }
+  if (k === '\\') { toggleFocusMode(); return; }
+  if (focusMode) {
+    if (k === '[') { cycleFocus(-1); return; }
+    if (k === ']') { cycleFocus(1); return; }
+    if (!isKeyAllowed(k)) return;
+  } else {
+    if (k === '[') { tgGroupPrev(); return; }
+    if (k === ']') { tgGroupNext(); return; }
+  }
+  const action = buildKeyMap()[k];
+  if (action) action();
+}
+
 export function wireKeydown() {
   document.addEventListener('keydown', (e) => {
     if (!isActiveScreen()) return;
@@ -610,28 +666,23 @@ export function wireKeydown() {
     if (e.code === prevCode) { e.preventDefault(); tgGroupPrev(); return; }
     if (e.code === nextCode) { e.preventDefault(); tgGroupNext(); return; }
     const k = e.key.toLowerCase();
-    if (k === 'arrowdown') { e.preventDefault(); if (slot < cfg.slots - 1) { slot++; render(); } return; }
-    if (k === 'arrowup') { e.preventDefault(); if (slot > 0) { slot--; render(); } return; }
-    if (k === 'z') { e.preventDefault(); undo(); return; }
-    if (k === 'y') { e.preventDefault(); redo(); return; }
-    if (k === '\\') { e.preventDefault(); toggleFocusMode(); return; }
-    if (focusMode) {
-      if (k === '[') { e.preventDefault(); cycleFocus(-1); return; }
-      if (k === ']') { e.preventDefault(); cycleFocus(1); return; }
-      if (!isKeyAllowed(k)) return;
-    } else {
-      // Group switching only applies outside focus mode — same precedence as focus.js's
-      // processKey (mode==='vehicle'&&!focusMode branch for [ / ]). No-ops when there's
-      // only one group (tgGroupPrev/Next self-guard).
-      if (k === '[') { e.preventDefault(); tgGroupPrev(); return; }
-      if (k === ']') { e.preventDefault(); tgGroupNext(); return; }
-    }
-    const action = buildKeyMap()[k];
-    if (action) { e.preventDefault(); action(); }
+    const nav = ['arrowdown', 'arrowup', 'z', 'y', '\\', '[', ']'];
+    if (nav.includes(k) || buildKeyMap()[k]) e.preventDefault();
+    processTgKey(k);
   });
   document.getElementById('tg-btn-undo')?.addEventListener('click', undo);
   document.getElementById('tg-btn-redo')?.addEventListener('click', redo);
   document.getElementById('tg-btn-focus')?.addEventListener('click', toggleFocusMode);
+  document.getElementById('tg-btn-diag')?.addEventListener('click', toggleTgDiagram);
+  // Forward counting keys typed directly into the popup reference window back to this
+  // window — same mechanism as focus.js's wireKeydown message handler (diagram.js's popup
+  // keydown listener posts {type:'kbd-passthrough', key}).
+  window.addEventListener('message', (e) => {
+    if (e.data?.type === 'kbd-passthrough' && isActiveScreen()) {
+      const k = e.data.key === ';' ? ';' : e.data.key.toLowerCase();
+      processTgKey(k);
+    }
+  });
 }
 
 // Builds the same {types, defs, intervals} shape finishLocation() commits, without calling

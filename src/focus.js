@@ -214,9 +214,16 @@ export function wireKeydown(){
     if(nav.includes(k)||buildVKeyMap()[k]||buildPKeyMap()[k]||buildTKeyMap()[k]) e.preventDefault();
     processKey(k);
   });
-  // Forward counting keys from popup diagram windows back to this window
+  // Forward counting keys from popup diagram windows back to this window. Guarded by the
+  // same isLiveCounterScreenActive() check as the real keydown listener above (added
+  // alongside tripgenDiagram.js's own popup) — 'kbd-passthrough' is a plain, unscoped
+  // postMessage type, and tripgenCount.js's Trip Gen popup now posts it too. Without this
+  // guard, typing in the Trip Gen popup fired the SAME message this listener reacts to,
+  // running intersection-mode processKey() (touching #tbl-in/#tbl-out etc.) while the
+  // intersection counter screen wasn't even the active one — a null-element crash in
+  // practice, and an unrelated intersection-state mutation in principle.
   window.addEventListener('message',e=>{
-    if(e.data?.type==='kbd-passthrough'){
+    if(e.data?.type==='kbd-passthrough'&&isLiveCounterScreenActive()){
       const k=e.data.key===';'?';':e.data.key.toLowerCase();
       processKey(k);
     }
