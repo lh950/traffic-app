@@ -76,7 +76,10 @@ export function buildTgPopupHTML() {
 html,body{background:${bg};color:${fg};width:100%;height:100%;overflow:hidden;font-family:-apple-system,sans-serif}
 .focus-warn{display:none;position:fixed;top:0;left:0;right:0;background:#c0392b;color:#fff;font-size:12px;font-weight:500;text-align:center;padding:6px;z-index:99}
 .focus-warn.visible{display:block}
-.wrap{display:flex;flex-direction:column;height:100vh;padding:10px;gap:8px}
+/* .wrap's top padding is permanently reserved at the focus-warn banner's own height (not just
+   applied while it's visible) so the bar underneath never shifts when the banner toggles —
+   simpler than syncing padding to visibility, and avoids a layout jump either way. */
+.wrap{display:flex;flex-direction:column;height:100vh;padding:34px 10px 10px;gap:8px}
 .bar{display:flex;align-items:center;gap:8px;padding-bottom:8px;border-bottom:.5px solid ${bd};flex-shrink:0;flex-wrap:wrap}
 .title{font-size:10px;font-weight:600;color:${fg2};letter-spacing:.08em;text-transform:uppercase;font-family:monospace;flex:1}
 .grp-nav{display:inline-flex;align-items:center;gap:4px}
@@ -95,17 +98,17 @@ html,body{background:${bg};color:${fg};width:100%;height:100%;overflow:hidden;fo
   font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .close-btn:hover{background:${bd}}
 .table-wrap{flex:1;min-height:0;overflow:auto}
-table{border-collapse:collapse;width:100%;font-family:monospace;font-size:13px}
-th{background:${surf};color:${fg2};font-size:10px;font-weight:600;text-transform:uppercase;
-   letter-spacing:.05em;padding:6px 10px;border-bottom:.5px solid ${bd};text-align:left}
+table{border-collapse:collapse;width:100%;font-family:monospace;font-size:14px}
+th{background:${surf};color:${fg2};font-size:10.5px;font-weight:600;text-transform:uppercase;
+   letter-spacing:.05em;padding:8px 12px;border-bottom:.5px solid ${bd};text-align:left}
 th.num{text-align:center}
-td{padding:6px 10px;border-bottom:.5px solid ${bd};vertical-align:middle}
-td.label{font-size:13px;font-weight:600}
-td.dir{text-align:center;min-width:80px}
-.dir-inner{display:inline-flex;align-items:center;gap:8px;justify-content:center}
-kbd{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 4px;
-  border-radius:4px;border:.5px solid ${bd};background:${surf2};font-size:11px;font-weight:700;font-family:monospace}
-.cnt{font-size:16px;font-weight:700;font-variant-numeric:tabular-nums;min-width:22px;text-align:right;
+td{padding:11px 12px;border-bottom:.5px solid ${bd};vertical-align:middle}
+td.label{font-size:15px;font-weight:600}
+td.dir{text-align:center;min-width:88px}
+.dir-inner{display:inline-flex;align-items:center;gap:9px;justify-content:center}
+kbd{display:inline-flex;align-items:center;justify-content:center;min-width:25px;height:25px;padding:0 5px;
+  border-radius:5px;border:.5px solid ${bd};background:${surf2};font-size:13px;font-weight:700;font-family:monospace}
+.cnt{font-size:19px;font-weight:700;font-variant-numeric:tabular-nums;min-width:26px;text-align:right;
   transition:background-color .18s ease, color .18s ease}
 .cnt.in{color:${blue}}
 .cnt.out{color:${green}}

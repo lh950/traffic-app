@@ -1,5 +1,16 @@
 # Changelog
 
+## v3.45.0-alpha.2 — 2026-08-19
+
+### Added
+- **Numpad 7/9 fixed shortcut in focus mode.** While a classification is focused, `Numpad7`/`Numpad9` now always record in/out for it — regardless of that classification's own assigned key or the active preset. Additive: its real key still works too.
+- **Numpad is now Trip Gen's default keybinding preset** (was QWERTY), since Trip Gen counting is often one-handed field work. Scoped to Trip Gen only — the intersection counter's own preset default is unchanged.
+- **Two new Help tabs: "number pad" and "key bindings"** — what the numpad layout is for and how it works, and how to switch/override key presets. Opening Help from the Trip Gen counter now lands on "number pad" directly instead of the generic tab.
+
+### Changed
+- **Vehicle reference popup: taller, clearer rows.** Row padding, label text, key chips, and count digits all enlarged for legibility.
+- **Focus-warn banner no longer covers the popup's top bar** — its height is now permanently reserved in the layout instead of overlapping the group-nav/focus-toggle/interval row when it appears.
+
 ## v3.45.0-alpha.1 — 2026-08-19
 
 ### Added

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Traffic App v3.45.0-alpha.1</title>
+<title>Traffic App v3.45.0-alpha.2</title>
 <link rel="manifest" href="./manifest.json">
 <meta name="theme-color" content="#131b23">
 <script>
@@ -117,7 +117,7 @@
   <div class="home-inner">
     <div class="home-wordmark">
       <h1>Traffic App</h1>
-      <div class="home-version">v3.45.0-alpha.1</div>
+      <div class="home-version">v3.45.0-alpha.2</div>
       <button id="home-btn-tour" title="Take the tour" style="margin-left:auto;font-size:12px;color:var(--text3);background:none;border:none;cursor:pointer;text-decoration:underline;flex-shrink:0">Take the tour</button>
       <button id="home-btn-help" title="Help / instructions" style="margin-left:12px;font-size:13px;font-weight:600;color:var(--text3);background:none;border:.5px solid var(--border);border-radius:50%;width:26px;height:26px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">?</button>
     </div>
@@ -185,7 +185,7 @@
     <!-- wordmark -->
     <div style="margin-bottom:2rem">
       <h1 style="font-size:22px;font-weight:500;letter-spacing:-.01em">Traffic App</h1>
-      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v3.45.0-alpha.1</span>
+      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v3.45.0-alpha.2</span>
     </div>
 
     <!-- autosave / resume banner -->
@@ -941,7 +941,7 @@
 
   <header class="counter-header">
     <button id="btn-back-to-project" style="font-size:12px;padding:4px 10px;margin-right:8px">? Project</button>
-    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v3.45.0-alpha.1</span></h1>
+    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v3.45.0-alpha.2</span></h1>
     <div class="hcontrols">
       <div class="mode-toggle" style="display:none">
         <button class="mode-btn active" id="btn-count-mode" onclick="goToCountMode()">count</button>
@@ -1042,6 +1042,8 @@
       <div class="modal-tab-btns">
         <button class="modal-tab-btn active" onclick="switchHelpTab('general',this)">general</button>
         <button class="modal-tab-btn" onclick="switchHelpTab('setup',this)">setup</button>
+        <button class="modal-tab-btn" onclick="switchHelpTab('numpad',this)">number pad</button>
+        <button class="modal-tab-btn" onclick="switchHelpTab('keybinds',this)">key bindings</button>
         <button class="modal-tab-btn" onclick="switchHelpTab('vehicle',this)">vehicle</button>
         <button class="modal-tab-btn" onclick="switchHelpTab('ped',this)">pedestrian</button>
         <button class="modal-tab-btn" onclick="switchHelpTab('tmc',this)">TMC</button>
@@ -1134,6 +1136,64 @@
         <div class="modal-section">
           <h3>export filenames</h3>
           <p>Filenames default to <em>Street1_Street2_TypeOfCount</em> once street names are entered. All three can be changed mid-session via the settings button.</p>
+        </div>
+      </div>
+
+      <!-- NUMBER PAD -->
+      <div class="modal-tab" id="htab-numpad">
+        <div class="modal-section">
+          <h3>what it's for</h3>
+          <p>The <strong>numpad one-handed</strong> layout puts every type's IN and OUT key on the number pad, in pairs, so you can count with one hand while the other holds a clicker, scrubs video, or does something else entirely. It's the default for Trip Gen counting; the intersection counter offers it as an option under "counting types."</p>
+        </div>
+        <div class="modal-divider"></div>
+        <div class="modal-section">
+          <h3>layout</h3>
+          <div class="numpad-diag">
+            <div class="numpad-diag-hd">
+              <span class="numpad-diag-hd-in">in</span>
+              <span class="numpad-diag-hd-title">numpad one-handed</span>
+              <span class="numpad-diag-hd-out">out</span>
+            </div>
+            <div class="numpad-diag-row"><span class="numpad-diag-key numpad-diag-in">7</span><span class="numpad-diag-label">type 1</span><span class="numpad-diag-key numpad-diag-out">9</span></div>
+            <div class="numpad-diag-row"><span class="numpad-diag-key numpad-diag-in">4</span><span class="numpad-diag-label">type 2</span><span class="numpad-diag-key numpad-diag-out">6</span></div>
+            <div class="numpad-diag-row"><span class="numpad-diag-key numpad-diag-in">1</span><span class="numpad-diag-label">type 3</span><span class="numpad-diag-key numpad-diag-out">3</span></div>
+            <div class="numpad-diag-row"><span class="numpad-diag-key numpad-diag-in">0</span><span class="numpad-diag-label">type 4</span><span class="numpad-diag-key numpad-diag-out">.</span></div>
+            <div class="numpad-diag-hint">left key = in · right key = out · one key-cluster per type</div>
+          </div>
+          <p style="margin-top:10px">More than 4 types split into groups the same way QWERTY does — switch groups with <kbd>Numpad /</kbd> / <kbd>Numpad -</kbd>, or the ‹ › buttons next to the keyboard reference.</p>
+        </div>
+        <div class="modal-divider"></div>
+        <div class="modal-section">
+          <h3>in focus mode</h3>
+          <p>While focus mode is on, <kbd>Numpad 7</kbd> and <kbd>Numpad 9</kbd> always record IN / OUT for whichever type is currently focused — regardless of that type's own assigned keys, and even on the QWERTY preset. One fixed pair to reach for, no matter what's focused.</p>
+        </div>
+        <div class="modal-divider"></div>
+        <div class="modal-section">
+          <h3>density options</h3>
+          <p>Alongside the QWERTY/Numpad preset, a density picker controls how many types share each keybinding group: <strong>standard</strong> (4 types per group, in + out each), <strong>one-handed pairs</strong> (2 types per group, in + out each — fits entirely under one hand), or <strong>all-in/all-out</strong> (up to 4 types per group, one key each, single direction only).</p>
+        </div>
+      </div>
+
+      <!-- KEY BINDINGS -->
+      <div class="modal-tab" id="htab-keybinds">
+        <div class="modal-section">
+          <h3>changing the preset</h3>
+          <p>Both the intersection counter's "counting types" tab and Trip Gen's "classifications" tab have a <strong>key preset</strong> row — QWERTY or Numpad one-handed — plus the density options described in the number pad tab. Click a preset button to switch.</p>
+        </div>
+        <div class="modal-divider"></div>
+        <div class="modal-section">
+          <h3>what switching actually does</h3>
+          <p>Only <strong>new</strong> rows pick up the new preset's keys — switching presets never rewrites keys already assigned to existing types or classifications, so it's safe to change mid-project without scrambling data you've already recorded under the old keys.</p>
+        </div>
+        <div class="modal-divider"></div>
+        <div class="modal-section">
+          <h3>editing one row's key directly</h3>
+          <p>Every row has its own IN/OUT key input — type into it to override the preset's default for just that row. A key already in use elsewhere in the same group is flagged in red; fix the conflict before counting, since two rows sharing a key means only one of them can ever register.</p>
+        </div>
+        <div class="modal-divider"></div>
+        <div class="modal-section">
+          <h3>groups</h3>
+          <p>More than 4 types (or 2, under the one-handed-pairs density) split into groups that reuse the same physical keys — switch the active group with the dedicated group-switch keys, or the ‹ › buttons next to the keyboard reference. See the vehicle tab for the exact default group-1 keys.</p>
         </div>
       </div>
 

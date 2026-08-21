@@ -709,6 +709,11 @@ function contextualHelpTab() {
     if (_currentScreen === 'counter-screen') return mode === 'ped' ? 'ped' : mode === 'turning' ? 'tmc' : 'vehicle';
     if (_currentScreen === 'ix-analysis-screen') return 'export';
   }
+  // Trip Gen's live counter now defaults to the numpad preset (per-project, not shared with
+  // the intersection counter's own keybindCfg) — route Help there directly instead of the
+  // generic fallback, since "what do these keys mean" is exactly what a first-time Trip Gen
+  // counter would want on open.
+  if (projectType === 'tripgen' && _currentScreen === 'tripgen-counter-screen') return 'numpad';
   return 'general';
 }
 

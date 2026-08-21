@@ -63,14 +63,18 @@ export function distinctTgGroups(){ return [...new Set(classifications.map(c=>c.
 // getter is the equivalent seam.
 export function tgLiveState() { return { classifications, tgData, slot, cfg, tgGroup, focusMode, focusTarget, undoStack, redoStack }; }
 
-// ── Keybinding preset (build brief item 4) — QWERTY default vs. Numpad one-handed. Local to
-// this module, same standalone rationale as everything else here. Only affects NEW rows
-// (addClassification) — see keybind.js's getKeyPools() header comment for the same
-// "position-based, not a one-time stamp" rationale, mirrored here for Trip Gen.
-let tgKeybindCfg = { preset: 'qwerty' };
+// ── Keybinding preset (build brief item 4) — Numpad one-handed default (changed from QWERTY:
+// Trip Gen counting is field work, often one-handed alongside a video scrub or clicker, which
+// is exactly what the numpad layout is for). Local to this module, same standalone rationale
+// as everything else here. Only affects NEW rows (addClassification) — see keybind.js's
+// getKeyPools() header comment for the same "position-based, not a one-time stamp" rationale,
+// mirrored here for Trip Gen. The intersection counter's own equivalent (state.js's
+// keybindCfg) is untouched — still defaults to QWERTY; this default change is scoped to Trip
+// Gen only, not a change to the shared keybinding-preset concept generally.
+let tgKeybindCfg = { preset: 'numpad' };
 export function getTgKeybindCfg(){ return { ...tgKeybindCfg }; }
 export function setTgKeybindCfg(v){ Object.assign(tgKeybindCfg, v); renderClassificationsList(); }
-export function resetTgKeybindCfg(){ tgKeybindCfg.preset='qwerty'; }
+export function resetTgKeybindCfg(){ tgKeybindCfg.preset='numpad'; }
 function tgKeyPools(){
   return tgKeybindCfg.preset==='numpad'
     ? { inPool:['7','4','1','0'], outPool:['9','6','3','.'] }
@@ -634,7 +638,10 @@ function buildKeyMap() {
 // NOT include the Numpad-code-based group-switch shortcut (e.code isn't available from a
 // forwarded e.key string) — the TMC/ped popups have this exact same gap already (see
 // focus.js's wireKeydown message handler), so this isn't a new limitation.
-function processTgKey(k) {
+// `code` (event.code) is optional at call sites that don't have it — only the focus-mode
+// Numpad 7/9 override below depends on it, so its absence just means that one shortcut is
+// unavailable there, not a crash (matches the group-switch code's own optional-parameter shape).
+function processTgKey(k, code) {
   if (k === 'arrowdown') { if (slot < cfg.slots - 1) { slot++; render(); } return; }
   if (k === 'arrowup') { if (slot > 0) { slot--; render(); } return; }
   if (k === 'z') { undo(); return; }
@@ -643,6 +650,15 @@ function processTgKey(k) {
   if (focusMode) {
     if (k === '[') { cycleFocus(-1); return; }
     if (k === ']') { cycleFocus(1); return; }
+    // Fixed focus-mode shortcut, independent of the focused classification's own assigned
+    // keys or the active keybinding preset — always Numpad 7 = in / Numpad 9 = out for
+    // whichever classification is currently focused. Checked via e.code (not e.key) for the
+    // same reason groupSwitchCodes() is: e.key for the numpad "7"/"9" keys is just "7"/"9",
+    // identical to the top-row digits, so only the physical code tells them apart. This is
+    // additive — the classification's real key (if different) still works via isKeyAllowed
+    // below; Numpad 7/9 is a second, always-available path to the same two actions.
+    if (code === 'Numpad7') { record('in', focusTarget); return; }
+    if (code === 'Numpad9') { record('out', focusTarget); return; }
     if (!isKeyAllowed(k)) return;
   } else {
     if (k === '[') { tgGroupPrev(); return; }
@@ -672,8 +688,8 @@ export function wireKeydown() {
     if (e.code === nextCode) { e.preventDefault(); tgGroupNext(); return; }
     const k = e.key.toLowerCase();
     const nav = ['arrowdown', 'arrowup', 'z', 'y', '\\', '[', ']'];
-    if (nav.includes(k) || buildKeyMap()[k]) e.preventDefault();
-    processTgKey(k);
+    if (nav.includes(k) || buildKeyMap()[k] || (focusMode && (e.code === 'Numpad7' || e.code === 'Numpad9'))) e.preventDefault();
+    processTgKey(k, e.code);
   });
   document.getElementById('tg-btn-undo')?.addEventListener('click', undo);
   document.getElementById('tg-btn-redo')?.addEventListener('click', redo);
@@ -696,7 +712,7 @@ export function wireKeydown() {
       if (d.code === prevCode) { tgGroupPrev(); return; }
       if (d.code === nextCode) { tgGroupNext(); return; }
       const k = d.key === ';' ? ';' : d.key.toLowerCase();
-      processTgKey(k);
+      processTgKey(k, d.code);
     } else if (d?.type === 'tg-group-nav') {
       // Dedicated message type rather than simulating the group-switch key — that key is now
       // configurable per-preset (Minus/Equal or NumpadDivide/NumpadSubtract, matched by e.code,
