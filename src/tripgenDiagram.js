@@ -23,7 +23,7 @@ let tgWin = null;
 // *types*, not group-scoped keys the way Trip Gen's in/out keys are — so unlike TMC, filtering
 // here is the correct read of "mirror whatever pattern it uses" rather than a literal copy.)
 function tgPopupPayload(flash) {
-  const { classifications, tgData, slot, cfg, tgGroup } = tgLiveState();
+  const { classifications, tgData, slot, cfg, tgGroup, focusMode, focusTarget } = tgLiveState();
   const groupIds = distinctTgGroups();
   const nG = groupIds.length;
   const gid = groupIds[Math.min(tgGroup, nG - 1)] ?? 0;
@@ -37,11 +37,18 @@ function tgPopupPayload(flash) {
       outKey: (c.outKey || '?').toUpperCase(),
       inCount: (tgData.in[slot] && tgData.in[slot][i]) || 0,
       outCount: (tgData.out[slot] && tgData.out[slot][i]) || 0,
+      // focused: this row is the one live-counter input is locked to. dimmed: focus mode is on
+      // and it's some OTHER row — mirrors buildTable()'s own fcxi/ped-focus-col/ped-dimmed
+      // logic in tripgenCount.js, recomputed here since the popup has no access to that table.
+      focused: focusMode && i === focusTarget,
+      dimmed: focusMode && i !== focusTarget,
     }));
   const payload = {
     type: 'tgUpdate',
     interval: slotLabel(slot),
-    groupLabel: nG > 1 ? `group ${tgGroup + 1}/${nG}` : null,
+    groupIndex: tgGroup,
+    groupCount: nG,
+    focusMode,
     rows,
   };
   if (flash) payload.flash = flash; // {idx, dir}
@@ -72,10 +79,18 @@ html,body{background:${bg};color:${fg};width:100%;height:100%;overflow:hidden;fo
 .wrap{display:flex;flex-direction:column;height:100vh;padding:10px;gap:8px}
 .bar{display:flex;align-items:center;gap:8px;padding-bottom:8px;border-bottom:.5px solid ${bd};flex-shrink:0;flex-wrap:wrap}
 .title{font-size:10px;font-weight:600;color:${fg2};letter-spacing:.08em;text-transform:uppercase;font-family:monospace;flex:1}
-.group-badge{font-size:11px;font-weight:600;color:${fg2};font-family:monospace;background:${surf2};
-  border:.5px solid ${bd};border-radius:4px;padding:2px 8px}
-.interval-badge{font-size:14px;font-weight:700;color:${fg};font-variant-numeric:tabular-nums;font-family:monospace;
-  background:${surf2};border:.5px solid ${bd};border-radius:4px;padding:2px 8px}
+.grp-nav{display:inline-flex;align-items:center;gap:4px}
+.grp-btn{background:${surf};border:.5px solid ${bd};border-radius:4px;width:22px;height:22px;color:${fg};
+  font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.grp-btn:hover:not(:disabled){background:${bd}}
+.grp-btn:disabled{opacity:.35;cursor:default}
+.grp-label{font-size:11px;font-weight:600;color:${fg2};font-family:monospace;white-space:nowrap}
+.focus-btn{background:${surf};border:.5px solid ${bd};border-radius:4px;color:${fg2};font-size:11px;font-weight:600;
+  font-family:monospace;padding:3px 9px;cursor:pointer;display:flex;align-items:center;gap:4px;white-space:nowrap}
+.focus-btn:hover{background:${bd}}
+.focus-btn.active{background:${blueBg};border-color:${blue};color:${blue}}
+.interval-badge{font-size:22px;font-weight:800;color:${blue};font-variant-numeric:tabular-nums;font-family:monospace;
+  background:${blueBg};border:.5px solid ${blue};border-radius:5px;padding:3px 12px;line-height:1.3}
 .close-btn{background:${surf};border:.5px solid ${bd};border-radius:50%;width:22px;height:22px;color:${fg2};
   font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .close-btn:hover{background:${bd}}
@@ -97,12 +112,22 @@ kbd{display:inline-flex;align-items:center;justify-content:center;min-width:20px
 .cnt.flash-in{background:${blueBg};border-radius:4px}
 .cnt.flash-out{background:${greenBg};border-radius:4px}
 .empty-hint{font-size:12px;color:${fg2};padding:16px 10px}
+/* focus-mode row treatment — same visual language as the live counter's own ped-focus-col /
+   ped-dimmed classes (counter.js's renderPed()), reimplemented locally since this popup is a
+   self-contained HTML string with no access to the app's shared stylesheet. */
+tr.row-focused{background:${blueBg}}
+tr.row-dimmed{opacity:.4}
 </style></head><body>
 <div class="focus-warn" id="focus-warn">⚠ window not focused — keystrokes will not register · click here to resume</div>
 <div class="wrap">
   <div class="bar">
     <span class="title">vehicle reference</span>
-    <span class="group-badge" id="group-badge" style="display:none">–</span>
+    <span class="grp-nav" id="grp-nav" style="display:none">
+      <button class="grp-btn" id="grp-prev" onclick="postGroupNav(-1)" title="previous group">‹</button>
+      <span class="grp-label" id="grp-label">–</span>
+      <button class="grp-btn" id="grp-next" onclick="postGroupNav(1)" title="next group">›</button>
+    </span>
+    <button class="focus-btn" id="focus-toggle-btn" onclick="postFocusToggle()" title="Toggle focus mode">○ focus</button>
     <span class="interval-badge" id="tg-diag-interval">–</span>
     <button class="close-btn" onclick="window.close()">×</button>
   </div>
@@ -116,14 +141,31 @@ kbd{display:inline-flex;align-items:center;justify-content:center;min-width:20px
 ${'<' + 'script>'}
 let state=${initData};
 const flashTimers={};
+function postGroupNav(dir){
+  if(window.opener&&!window.opener.closed)window.opener.postMessage({type:'tg-group-nav',dir:dir},'*');
+}
+function postFocusToggle(){
+  if(window.opener&&!window.opener.closed)window.opener.postMessage({type:'tg-focus-toggle'},'*');
+}
 function render(d){
   if(!d)return;
   state=d;
   document.getElementById('tg-diag-interval').textContent=d.interval||'–';
-  const gb=document.getElementById('group-badge');
-  if(gb){
-    if(d.groupLabel){gb.textContent=d.groupLabel;gb.style.display='';}
-    else{gb.style.display='none';}
+  const gn=document.getElementById('grp-nav');
+  if(gn){
+    if(d.groupCount>1){
+      gn.style.display='';
+      document.getElementById('grp-label').textContent='group '+(d.groupIndex+1)+'/'+d.groupCount;
+      document.getElementById('grp-prev').disabled=d.groupIndex<=0;
+      document.getElementById('grp-next').disabled=d.groupIndex>=d.groupCount-1;
+    } else {
+      gn.style.display='none';
+    }
+  }
+  const fb=document.getElementById('focus-toggle-btn');
+  if(fb){
+    fb.classList.toggle('active',!!d.focusMode);
+    fb.textContent=d.focusMode?'◎ focus on':'○ focus';
   }
   const tb=document.getElementById('tg-diag-body');
   if(!tb)return;
@@ -131,12 +173,15 @@ function render(d){
     tb.innerHTML='<tr><td colspan="3" class="empty-hint">no classifications in this group</td></tr>';
     return;
   }
-  tb.innerHTML=d.rows.map(r=>\`
-    <tr>
+  tb.innerHTML=d.rows.map(r=>{
+    const rowCls=r.focused?' class="row-focused"':r.dimmed?' class="row-dimmed"':'';
+    return \`
+    <tr\${rowCls}>
       <td class="label">\${r.label}</td>
       <td class="dir"><span class="dir-inner"><kbd>\${r.inKey}</kbd><span class="cnt in" id="tg-diag-in-\${r.idx}">\${r.inCount}</span></span></td>
       <td class="dir"><span class="dir-inner"><kbd>\${r.outKey}</kbd><span class="cnt out" id="tg-diag-out-\${r.idx}">\${r.outCount}</span></span></td>
-    </tr>\`).join('');
+    </tr>\`;
+  }).join('');
   if(d.flash)applyFlash(d.flash);
 }
 function applyFlash(f){
@@ -159,7 +204,7 @@ window.addEventListener('blur',()=>{
 window.addEventListener('keydown',e=>{
   if(window.opener&&!window.opener.closed){
     e.preventDefault();
-    window.opener.postMessage({type:'kbd-passthrough',key:e.key},'*');
+    window.opener.postMessage({type:'kbd-passthrough',key:e.key,code:e.code},'*');
   }
 });
 window.addEventListener('message',e=>{

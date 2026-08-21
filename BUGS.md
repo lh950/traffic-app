@@ -8,6 +8,16 @@ Severity levels:
 
 ---
 
+## BUG-040
+**Status:** Fixed (v3.45.0-alpha.1, user-reported: "the keystrokes/bindings to change groups currently does not work" in the new Trip Gen vehicle reference popup)
+**Severity:** Minor (a workaround existed — switch groups from the main counter window instead — but the popup is specifically meant to work as a standalone window, so this defeated part of its purpose)
+**Found in:** v3.44.0-alpha.4 (`tripgenDiagram.js`'s pop-out vehicle reference window, shipped same-day)
+**Description:** The popup forwards keystrokes back to the opener via `postMessage({type:'kbd-passthrough', key:e.key})`. The dedicated group-switch shortcut (added earlier the same day — configurable per keybinding preset: Minus/Equal for QWERTY, NumpadDivide/NumpadSubtract for Numpad) is matched by `e.code`, not `e.key`, specifically so the numpad preset's `Numpad-` can't collide with the QWERTY preset's plain `-`. A forwarded `e.key` string has no way to reconstruct `e.code`, so `tripgenCount.js`'s passthrough handler had nothing to check it against and the keystroke silently did nothing when typed into the popup — while the same key worked correctly in the main counter window. (This is the same category of gap the TMC/ped popups already have and haven't hit in practice, per `tripgenDiagram.js`'s own header comment — but Trip Gen's popup is explicitly meant to be usable as a self-sufficient standalone window, which is exactly the scenario that makes the gap user-visible.)
+**Fix:** The popup's keydown listener now forwards `e.code` alongside `e.key`. `tripgenCount.js`'s passthrough handler checks it against the same `groupSwitchCodes()` the real keydown listener uses (extracted into a shared helper so the two can't drift) before falling through to the key-based path. Also added an explicit ‹ group N/M › button pair directly in the popup (posting a dedicated `tg-group-nav` message rather than simulating a keypress, since which physical key means "switch group" is now a per-preset setting the popup shouldn't need to know) — so group switching works by click even for a user who doesn't know the shortcut, not just by keystroke.
+**Verified live:** Playwright-driven, with a same-origin iframe standing in for the (sandbox-blocked) real popup window, wired to the actual app window via the same `postMessage` channel the real popup uses. Confirmed clicking the popup's ‹ › buttons switches groups and the change reflects back in the main counter's own keyboard reference bar; confirmed typing the real group-switch key (`=`, QWERTY preset) directly into the popup now switches groups (previously a no-op) — the exact reported failure, reproduced and fixed.
+
+---
+
 ## BUG-039
 **Status:** Fixed (v3.44.0-alpha.4, user-reported: "going from trip gen count to main menu changes the interface to purple instead of orange (looks like each count screen does this), but the actual color scheme of the count interface does not change, only the main page")
 **Severity:** Minor (wrong accent color on the home screen after leaving a project — cosmetic, no data impact)

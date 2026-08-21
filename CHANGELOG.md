@@ -1,5 +1,14 @@
 # Changelog
 
+## v3.45.0-alpha.1 — 2026-08-19
+
+### Added
+- **Trip Gen vehicle reference popup: group-switch button and focus-mode toggle.** The pop-out reference window (shipped earlier today) could show a read-only "group N/M" badge but had no way to actually switch groups, and no way to toggle focus mode, without going back to the main counter window — working against the popup's own purpose as a standalone window for limited screen space. Added a ‹ › button pair and a focus toggle button, both fully two-way synced with the live counter.
+- **Interval badge enlarged** (14px → 22px, with an accent border) so the currently-counting time period reads as the popup's dominant element, not a secondary label.
+
+### Fixed
+- **BUG-040: the dedicated group-switch keystroke didn't work when typed directly into the reference popup.** The shortcut is matched by the physical key (`e.code`, so the Numpad preset can't collide with QWERTY), but the popup's passthrough channel only forwarded the key value — now forwards the code too, so the same shortcut that works in the main counter works identically inside the popup.
+
 ## v3.44.0-alpha.4 — 2026-08-19
 
 ### Added

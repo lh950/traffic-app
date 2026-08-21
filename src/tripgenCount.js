@@ -61,7 +61,7 @@ export function distinctTgGroups(){ return [...new Set(classifications.map(c=>c.
 // pulling straight from state.js's exported live bindings; this file just doesn't have a
 // shared state module to pull from (see file header — deliberately standalone), so this
 // getter is the equivalent seam.
-export function tgLiveState() { return { classifications, tgData, slot, cfg, tgGroup }; }
+export function tgLiveState() { return { classifications, tgData, slot, cfg, tgGroup, focusMode, focusTarget, undoStack, redoStack }; }
 
 // ── Keybinding preset (build brief item 4) — QWERTY default vs. Numpad one-handed. Local to
 // this module, same standalone rationale as everything else here. Only affects NEW rows
@@ -652,6 +652,13 @@ function processTgKey(k) {
   if (action) action();
 }
 
+// Shared by the real keydown listener and the popup's passthrough handler below, so the two
+// can't drift out of sync on which physical key means "switch group" for the active preset.
+function groupSwitchCodes() {
+  const isNumpad = tgKeybindCfg.preset === 'numpad';
+  return { prevCode: isNumpad ? 'NumpadDivide' : 'Minus', nextCode: isNumpad ? 'NumpadSubtract' : 'Equal' };
+}
+
 export function wireKeydown() {
   document.addEventListener('keydown', (e) => {
     if (!isActiveScreen()) return;
@@ -660,9 +667,7 @@ export function wireKeydown() {
     // [ / ] (unchanged below: group nav outside focus mode, focus-cycle inside it). Checked via
     // event.CODE so the numpad preset's Numpad/ and Numpad- can't collide with the QWERTY
     // preset's Minus/Equal, matching the intersection counter's focus.js implementation.
-    const isNumpad = tgKeybindCfg.preset === 'numpad';
-    const prevCode = isNumpad ? 'NumpadDivide' : 'Minus';
-    const nextCode = isNumpad ? 'NumpadSubtract' : 'Equal';
+    const { prevCode, nextCode } = groupSwitchCodes();
     if (e.code === prevCode) { e.preventDefault(); tgGroupPrev(); return; }
     if (e.code === nextCode) { e.preventDefault(); tgGroupNext(); return; }
     const k = e.key.toLowerCase();
@@ -676,11 +681,31 @@ export function wireKeydown() {
   document.getElementById('tg-btn-diag')?.addEventListener('click', toggleTgDiagram);
   // Forward counting keys typed directly into the popup reference window back to this
   // window — same mechanism as focus.js's wireKeydown message handler (diagram.js's popup
-  // keydown listener posts {type:'kbd-passthrough', key}).
+  // keydown listener posts {type:'kbd-passthrough', key, code}).
   window.addEventListener('message', (e) => {
-    if (e.data?.type === 'kbd-passthrough' && isActiveScreen()) {
-      const k = e.data.key === ';' ? ';' : e.data.key.toLowerCase();
+    if (!isActiveScreen()) return;
+    const d = e.data;
+    if (d?.type === 'kbd-passthrough') {
+      // Group-switch shortcuts are matched by e.code (see groupSwitchCodes() above), not
+      // e.key — the popup now forwards code too (previously only key), so this reproduces the
+      // exact same check the real listener does instead of silently falling through to
+      // processTgKey's key-based fallback, which only recognizes [ / ] and would never fire for
+      // the Numpad/Minus-Equal shortcuts at all. This was a real, reported gap: typing the
+      // group-switch key directly into the popup did nothing.
+      const { prevCode, nextCode } = groupSwitchCodes();
+      if (d.code === prevCode) { tgGroupPrev(); return; }
+      if (d.code === nextCode) { tgGroupNext(); return; }
+      const k = d.key === ';' ? ';' : d.key.toLowerCase();
       processTgKey(k);
+    } else if (d?.type === 'tg-group-nav') {
+      // Dedicated message type rather than simulating the group-switch key — that key is now
+      // configurable per-preset (Minus/Equal or NumpadDivide/NumpadSubtract, matched by e.code,
+      // which a forwarded e.key string can't reconstruct) and the popup shouldn't have to know
+      // which preset is active. Calls the exact same functions the live counter's own ‹ ›
+      // buttons call (buildKbdGroupNav), so behavior (including the focusTarget reset) matches.
+      if (d.dir < 0) tgGroupPrev(); else tgGroupNext();
+    } else if (d?.type === 'tg-focus-toggle') {
+      toggleFocusMode();
     }
   });
 }
