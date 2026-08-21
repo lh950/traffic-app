@@ -1,5 +1,10 @@
 # Changelog
 
+## v3.45.0-alpha.4 — 2026-08-21
+
+### Fixed
+- **BUG-042 (critical): QA/QC recount data leaked between two different Trip Gen locations.** Two locations could end up sharing the same internal id after a project load, causing them to share the exact same QA/QC storage — recounts entered for one location appeared under, and could be deleted from, the other. Root cause: the location-id counter was never resynced when a project was loaded. See `BUGS.md` BUG-042.
+
 ## v3.45.0-alpha.3 — 2026-08-19
 
 ### Fixed

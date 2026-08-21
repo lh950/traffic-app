@@ -5029,6 +5029,12 @@ function loadProject(proj) {
     Object.assign(tripgenQaqc, proj.qaqc || {});
     tripgenEntries.length = 0;
     tripgenEntries.push(...(proj.entries || []));
+    // BUG-042: without this resync, tripgenNextId stays at its module-init value of 1 on every
+    // load, so any location added after loading a project collides with entry id 1 (whichever
+    // entry happened to load first) — same class of bug tripgenDistNextId already guards
+    // against just below. The collision lets tripgenQaqc's `${entryId}__...` keys (and any
+    // future per-entry-id lookup) silently address the wrong location's data.
+    tripgenNextId = tripgenEntries.reduce((mx, e) => Math.max(mx, e.id + 1), 1);
     // BUG-035: classifications are real project-wide config (labels/keys/descriptions the
     // user configured), not disposable "whatever's queued for the next location" staging
     // state — the previous design treated it as the latter and unconditionally reset it on
