@@ -18,6 +18,20 @@ Key decisions, scope constraints, and architectural choices.
 
 Version bumped `-alpha.4` → `-alpha.5`, same MINOR (`3.45.0`), across all 4 `index.html` locations plus `package.json` and `public/sw.js`'s cache key. This remote session still cannot push (see `CLAUDE.md`) — handed off as a patch alongside this entry for the local/main session to apply.
 
+## 2026-08-21 — Item 5 scoping: read-only shareable dashboard (no code — scoping only, handed off separately)
+
+**Explicitly not built in this session** — user asked to scope it out and "save this larger project for the main session." Decisions below, condensed; full write-up (including the Firebase project config and security rules, kept out of this file deliberately) delivered directly to the user as a standalone handoff document for the main session.
+
+**Scope decided via a short back-and-forth (AskUserQuestion), not assumed:** dashboard = a leveled-up version of the app's existing one-study shareable export, not a new multi-project portfolio and not live field-monitoring. Delivered as a **link**, not a downloadable file, so a client/PM can't accidentally edit anything. Content reuses the existing Analysis/Summary/QA-QC screens rather than a separate bespoke layout to maintain in parallel.
+
+**Freshness model — the real architectural fork.** Walked the user through "Tier 1: you re-export, I republish" vs. "Tier 2: real-time sync, needs a real backend." Their own answer landed on a third, better option: **fetch-on-open** — the shared page does one read against an external store whenever it's opened, no live socket needed, but the counting app still needs to push its current data somewhere fetchable first (piggybacking on the existing autosave write). Simpler than Tier 2, not as stale as Tier 1.
+
+**Store: Firebase (Firestore), decided over Gist/Supabase/Dropbox** — the only one built for "app writes, public reads via security rules" without hand-rolling an access-scoping layer. The user has since fully provisioned it themselves (project created, web app registered, Auth enabled with one user, Firestore in production mode, security rules drafted with their real UID) — none of that setup work happened in this session; this session only wrote the setup instructions and collected the resulting config values, which live in the separate handoff doc, not here.
+
+**One real open question flagged, not answered:** the security rules require an authenticated write, meaning whichever browser is running a live count needs to be signed in as that one Firebase user to push data — this app has been deliberately account-free since v3.0, so "does using the app now involve a login step" is a real UX call that needs a deliberate answer, not a default picked on this session's own initiative.
+
+**Scope-fit check** (per this file's own "Scope" section above, and the v3.24.0 precedent of two features built then removed as scope creep): this fits goal #2 (visualization/organization of existing data) cleanly, not a new analysis capability — worth re-confirming as it's actually built, not just at scoping time.
+
 ## 2026-08-21 — v3.45.0-alpha.4 (BUG-042: QA/QC data leaking between Trip Gen locations — critical, live data corruption)
 
 **Reported live, mid-field-count, with real corruption already in progress.** User was running two Trip Gen locations ("Flatlands Ave" — completed, QA'd — and "Fountain Ave" — just created, no count started) in the same project. After entering QA/QC recounts for Flatlands, the Analysis screen's QA/QC summary showed Fountain Ave (all-zero, no count started) with the exact same non-"Incomplete" scores as Flatlands. User's own follow-up observation was the key diagnostic: "it looks like it copies into fountain ave, and when i delete them from fountain ave, it deletes them from flatlands ave" — ruling out a display-only bug and confirming genuinely shared storage.
