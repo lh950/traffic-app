@@ -1,4 +1,4 @@
-const CACHE = 'traffic-app-v3.45.0a4';
+const CACHE = 'traffic-app-v3.45.0a5';
 
 self.addEventListener('install', () => self.skipWaiting());
 

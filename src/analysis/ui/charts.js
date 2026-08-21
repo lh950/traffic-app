@@ -244,6 +244,78 @@ export function renderStackedBarChart({ labels, series, width = 900, height = 26
   `;
 }
 
+// Multi-series line chart — e.g. in/out counts per interval, one line per (classification,
+// direction) pair. `series` is [{label, values, colorVar, dashed}], values parallel to
+// `labels`. `colorVar` is one of SERIES_COLOR_VARS (exported below so callers can assign the
+// SAME class->color mapping already used by the stacked/grouped bar charts on the same page —
+// a classification keeps one color everywhere on the Analysis screen, not a different one per
+// chart type). `dashed: true` draws the line dashed (this app's existing convention for
+// encoding a second dimension — see .chart-bar-stack's per-class fill vs. this chart's
+// per-direction dash — rather than doubling the color count, which the app's own categorical
+// palette can't support past ~6 distinct hues anyway).
+export function renderLineChart({ labels, series, width = 900, height = 240 }) {
+  const padL = 40, padB = 28, padT = 10, padR = 10;
+  const innerW = width - padL - padR;
+  const innerH = height - padT - padB;
+  const n = labels.length;
+  const max = Math.max(1, ...series.flatMap((s) => s.values));
+  const xAt = (i) => padL + (n <= 1 ? innerW / 2 : (i / (n - 1)) * innerW);
+  const yAt = (v) => padT + innerH - (v / max) * innerH;
+
+  const gridLines = [];
+  const steps = 4;
+  for (let i = 0; i <= steps; i++) {
+    const y = padT + innerH - (i / steps) * innerH;
+    const val = Math.round((i / steps) * max);
+    gridLines.push(
+      `<line class="chart-gridline" x1="${padL}" y1="${y}" x2="${width - padR}" y2="${y}" />` +
+      `<text class="chart-axis-label" x="${padL - 6}" y="${y + 3}" text-anchor="end">${val}</text>`
+    );
+  }
+
+  const lines = series.map((s) => {
+    if (!s.values.length) return '';
+    const color = `var(${s.colorVar})`;
+    const d = s.values.map((v, i) => `${i === 0 ? 'M' : 'L'}${xAt(i).toFixed(2)},${yAt(v).toFixed(2)}`).join(' ');
+    const path = `<path class="chart-line" style="stroke:${color}${s.dashed ? ';stroke-dasharray:5,4' : ''}" d="${d}" fill="none" />`;
+    // Small hit-circle per point for hover — same native-<title> convention the bar charts
+    // above already use instead of a custom JS tooltip layer, kept deliberately small (r=2.5)
+    // rather than the usual "marker" size since a 96-interval line can carry hundreds of
+    // these; the line itself, not the markers, is what should read at a glance.
+    const points = s.values.map((v, i) =>
+      `<circle class="chart-line-pt" style="fill:${color}" cx="${xAt(i).toFixed(2)}" cy="${yAt(v).toFixed(2)}" r="2.5"><title>${escapeAttr(s.label)} — ${escapeAttr(labels[i])}: ${v.toLocaleString()}</title></circle>`
+    ).join('');
+    return path + points;
+  }).join('');
+
+  const labelEvery = Math.max(1, Math.ceil(n / 12));
+  const xLabels = labels.map((l, i) => {
+    if (i % labelEvery !== 0) return '';
+    return `<text class="chart-axis-label" x="${xAt(i).toFixed(2)}" y="${height - 8}" text-anchor="middle">${escapeAttr(l.split(' ')[0])}</text>`;
+  }).join('');
+
+  const legend = series.map((s) => {
+    const color = `var(${s.colorVar})`;
+    const swatchStyle = s.dashed
+      ? `background:transparent;border-bottom:2px dashed ${color};height:0;width:14px;margin-right:4px`
+      : `background:${color}`;
+    return `<span class="legend-item"><span class="legend-swatch" style="${swatchStyle}"></span>${escapeAttr(s.label)}</span>`;
+  }).join('');
+
+  return `
+    <div class="chart-wrap">
+      <svg class="chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMinYMin meet">
+        ${gridLines.join('')}
+        ${lines}
+        ${xLabels}
+      </svg>
+    </div>
+    <div class="legend">${legend}</div>
+  `;
+}
+
+export { SERIES_COLOR_VARS };
+
 function escapeAttr(s) {
   return String(s).replace(/"/g, '&quot;');
 }

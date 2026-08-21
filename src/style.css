@@ -631,6 +631,12 @@ tfoot td:first-child{text-align:left;color:var(--text2)}
 .kbd-chip.tg-flash-in .key-label{color:var(--in-text);font-weight:600;transition:color .15s}
 .kbd-chip.tg-flash-out .key-label{color:var(--out-text);font-weight:600;transition:color .15s}
 
+/* trip-gen per-interval notes (build brief item 11) — deliberately narrow, rarely used */
+.tg-note-col{width:44px}
+.tg-note-btn{font-size:10px;padding:2px 6px;border-radius:3px;border:.5px solid var(--border2);background:var(--surface2);color:var(--text3);cursor:pointer;white-space:nowrap}
+.tg-note-btn:hover{background:var(--blue-bg);color:var(--text)}
+.tg-note-btn.tg-note-set{background:var(--accent-bg,rgba(212,130,10,.14));color:var(--accent,#d4820a);border-color:var(--accent,#d4820a);font-weight:600}
+
 /* ── AREA-WIDE STUDY ── */
 .area-ix-row{display:flex;align-items:center;gap:12px;padding:12px 20px;border-bottom:.5px solid var(--border)}
 .area-ix-row:last-child{border-bottom:none}

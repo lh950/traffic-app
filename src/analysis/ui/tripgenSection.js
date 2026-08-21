@@ -1,5 +1,5 @@
 import * as data from './dataAdapter.js';
-import { renderMultiSeriesBarChart, renderStackedBarChart } from './charts.js';
+import { renderMultiSeriesBarChart, renderStackedBarChart, renderLineChart, SERIES_COLOR_VARS } from './charts.js';
 import { weekdayShort, dateLabelWithWeekday } from './dateUtils.js';
 import { intervalBar, pctOfPeakCell } from './intervalDetail.js';
 import { runVehicleQA, renderQASection } from '../../qa.js';
@@ -368,6 +368,111 @@ function renderTgClassStackedSection(container, { parsed, days, dayType, peakWin
   paint();
 }
 
+// ── In/out over time — line chart (build brief item 12) ──────────────────────────────────
+// "add a line chart for the recorded period or periods selected to show in/out counts for
+// vehicle class (user should be able to select multiple vehicles and multiple periods)".
+// Scoped to one day-block (this location's one day-sheet), same as the stacked chart above —
+// periods here are that day's own peak windows (AM/Midday/PM weekday or Weekend peak 1/2/3),
+// which is what "period" already means everywhere else on this screen (Peak periods card,
+// classSeriesAcrossTgDays' 'peak' grouping), not an arbitrary date range. Multiple selected
+// periods are concatenated in chronological order (their own interval order is already
+// chronological; periods themselves don't overlap by construction), so the x-axis reads as
+// one continuous timeline with a gap in the labels wherever the selection skips intervals —
+// same visual language the existing "Interval detail" table already uses for out-of-window
+// rows, just extended to a chart.
+function renderTgLineChartSection(container, { parsed, dayType, peakWindows }) {
+  const { types, intervals } = parsed;
+  if (!types.length || !intervals.length) {
+    container.innerHTML = '<div style="color:var(--text2);font-size:13px;padding:10px 0">No data available.</div>';
+    return;
+  }
+  const selectedClasses = new Set(types); // default: every classification shown
+  const selectedPeriods = new Set(['__fullday__']); // default: the whole day, always resolvable
+
+  async function paint() {
+    const chartRoot = container.querySelector('.tg-linechart-root');
+    if (!chartRoot) return;
+    const intervalMinutes = inferIntervalMinutes(intervals);
+    let idxSet;
+    if (selectedPeriods.has('__fullday__') || selectedPeriods.size === 0) {
+      idxSet = intervals.map((_, i) => i);
+    } else {
+      const ranges = [];
+      for (const w of (peakWindows[dayType] || [])) {
+        if (!selectedPeriods.has(w.label)) continue;
+        const peak = await resolvePeak(parsed, intervalMinutes, w);
+        if (peak.startIdx >= 0) ranges.push(peak);
+      }
+      const idxSetInner = new Set();
+      ranges.forEach((r) => { for (let i = r.startIdx; i <= r.endIdx; i++) idxSetInner.add(i); });
+      idxSet = [...idxSetInner].sort((a, b) => a - b);
+    }
+    if (!idxSet.length || selectedClasses.size === 0) {
+      chartRoot.innerHTML = '<div style="color:var(--text2);font-size:13px;padding:10px 0">Select at least one vehicle class and one period.</div>';
+      return;
+    }
+    const labels = idxSet.map((i) => intervals[i].label || `${intervals[i].start}–${intervals[i].end}`);
+    const series = [];
+    types.forEach((label, ci) => {
+      if (!selectedClasses.has(label)) return;
+      const colorVar = SERIES_COLOR_VARS[ci % SERIES_COLOR_VARS.length];
+      series.push({ label: `${label} In`, colorVar, dashed: false, values: idxSet.map((i) => intervals[i].inbound[ci] || 0) });
+      series.push({ label: `${label} Out`, colorVar, dashed: true, values: idxSet.map((i) => intervals[i].outbound[ci] || 0) });
+    });
+    chartRoot.innerHTML = renderLineChart({ labels, series });
+  }
+
+  const periodOptions = [{ key: '__fullday__', label: 'Full day' }, ...(peakWindows[dayType] || []).map((w) => ({ key: w.label, label: w.label }))];
+
+  container.innerHTML = `
+    <div class="no-print" style="display:flex;flex-wrap:wrap;gap:18px;margin-bottom:12px">
+      <div>
+        <div style="font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text2);margin-bottom:6px">vehicle classes</div>
+        <div style="display:flex;flex-wrap:wrap;gap:10px">
+          ${types.map((t, i) => `<label style="display:flex;align-items:center;gap:4px;font-size:12px"><input type="checkbox" class="tg-lc-class" value="${escapeHtml(t)}" checked>${escapeHtml(t)}</label>`).join('')}
+        </div>
+      </div>
+      <div>
+        <div style="font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text2);margin-bottom:6px">period(s)</div>
+        <div style="display:flex;flex-wrap:wrap;gap:10px">
+          ${periodOptions.map((p) => `<label style="display:flex;align-items:center;gap:4px;font-size:12px"><input type="checkbox" class="tg-lc-period" value="${escapeHtml(p.key)}" ${p.key === '__fullday__' ? 'checked' : ''}>${escapeHtml(p.label)}</label>`).join('')}
+        </div>
+      </div>
+    </div>
+    <div class="tg-linechart-root"></div>
+  `;
+
+  container.querySelectorAll('.tg-lc-class').forEach((cb) => {
+    cb.addEventListener('change', () => {
+      if (cb.checked) selectedClasses.add(cb.value); else selectedClasses.delete(cb.value);
+      paint();
+    });
+  });
+  container.querySelectorAll('.tg-lc-period').forEach((cb) => {
+    cb.addEventListener('change', () => {
+      if (cb.value === '__fullday__' && cb.checked) {
+        // "Full day" is exclusive with named periods — mixing them would double-count
+        // intervals that fall inside a peak window, since full-day already includes them.
+        selectedPeriods.clear();
+        container.querySelectorAll('.tg-lc-period').forEach((other) => { if (other !== cb) other.checked = false; });
+      } else if (cb.checked) {
+        selectedPeriods.delete('__fullday__');
+        container.querySelector('.tg-lc-period[value="__fullday__"]').checked = false;
+      }
+      if (cb.checked) selectedPeriods.add(cb.value); else selectedPeriods.delete(cb.value);
+      // Unchecking the last named period leaves nothing selected — fall back to "Full day"
+      // visibly (re-check its box) rather than silently rendering full-day data next to an
+      // unchecked, empty-looking period list.
+      if (selectedPeriods.size === 0) {
+        selectedPeriods.add('__fullday__');
+        container.querySelector('.tg-lc-period[value="__fullday__"]').checked = true;
+      }
+      paint();
+    });
+  });
+  paint();
+}
+
 // ── Interval Detail table with "% of peak hour" column ───────────────────────────────────
 // Trip Gen's counterpart to main.js's buildIntervalDetailMarkup()/pctOfPeakCell(). Trip Gen
 // has up to 3 named peak windows per day type (AM/Midday/PM weekday, or Weekend peak 1/2/3)
@@ -392,6 +497,14 @@ async function buildTgIntervalDetailMarkup(day, peakWindows) {
 
   const rows = intervals.map((iv, i) => {
     const p = peakForIdx(i);
+    const note = iv.note || '';
+    // Build brief item 11: notes entered per-interval in the live counter must stay visible
+    // in analysis, not just on the counting screen itself — shown here as a short truncated
+    // label with the full text as a hover tooltip (covers both "table" and "hover window"
+    // framing from the request without needing two separate UI treatments).
+    const noteCell = note
+      ? `<span title="${escapeHtml(note)}" style="color:var(--text2);font-size:11px">${escapeHtml(note.length > 28 ? note.slice(0, 28) + '…' : note)}</span>`
+      : '';
     return `
       <tr class="ix-tr${p ? ' ix-tr-peak' : ''}">
         <td class="ix-td ix-td-time">${iv.start}–${iv.end}</td>
@@ -399,6 +512,7 @@ async function buildTgIntervalDetailMarkup(day, peakWindows) {
         <td class="ix-td" style="font-size:11px;color:var(--text3)">${p ? escapeHtml(p.label) : ''}</td>
         <td class="ix-td ix-td-num">${pctOfPeakCell(i, totals, p)}</td>
         <td class="ix-td ix-td-bar">${intervalBar(totals[i], maxT)}</td>
+        <td class="ix-td">${noteCell}</td>
       </tr>`;
   }).join('');
 
@@ -407,7 +521,7 @@ async function buildTgIntervalDetailMarkup(day, peakWindows) {
       <summary class="interval-detail-summary">Show all ${intervals.length} interval${intervals.length !== 1 ? 's' : ''}</summary>
       <div class="interval-detail-wrap">
         <table class="ix-table">
-          <thead><tr><th class="ix-th">Interval</th><th class="ix-th ix-th-r">Total (in+out)</th><th class="ix-th">Peak window</th><th class="ix-th ix-th-r">% of peak hour</th><th class="ix-th"></th></tr></thead>
+          <thead><tr><th class="ix-th">Interval</th><th class="ix-th ix-th-r">Total (in+out)</th><th class="ix-th">Peak window</th><th class="ix-th ix-th-r">% of peak hour</th><th class="ix-th"></th><th class="ix-th">Note</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
       </div>
@@ -557,6 +671,11 @@ async function renderDayBlock(entry, day, dayIdx, ctx) {
         <h3>Volume by classification — stacked, by grouping</h3>
         <div class="stat-detail" style="margin-bottom:10px">Stacked by raw classification (not the group rollup above). "Day"/"Day of week"/"Peak window" groupings combine this location's other counted days.</div>
         <div class="tg-vcls-root" data-tg-classchart="${dayKey}"></div>
+      </div>
+      <div class="card no-print" style="margin-bottom:14px">
+        <h3>In/out over time</h3>
+        <div class="stat-detail" style="margin-bottom:10px">In (solid) and out (dashed) counts per interval for the selected vehicle classes and period(s) — same color per class as the stacked chart above.</div>
+        <div class="tg-linechart-wrap" data-tg-linechart="${dayKey}"></div>
       </div>
       <div class="section no-print" style="margin-bottom:14px">
         <div class="section-head"><h2 style="font-size:14px;font-weight:600;margin:0">Interval detail</h2></div>
@@ -924,6 +1043,10 @@ export async function renderTripGenSection(container, entries, ctx) {
       const classChartEl = container.querySelector(`[data-tg-classchart="${dayKey}"]`);
       if (classChartEl) {
         renderTgClassStackedSection(classChartEl, { parsed: day.parsed, days: entry.days, dayType: day.dayType, peakWindows: ctx.peakWindows });
+      }
+      const lineChartEl = container.querySelector(`[data-tg-linechart="${dayKey}"]`);
+      if (lineChartEl) {
+        renderTgLineChartSection(lineChartEl, { parsed: day.parsed, dayType: day.dayType, peakWindows: ctx.peakWindows });
       }
       const qaEl = container.querySelector(`[data-tg-qa="${dayKey}"]`);
       if (qaEl) {

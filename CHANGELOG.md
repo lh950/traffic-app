@@ -1,5 +1,12 @@
 # Changelog
 
+## v3.45.0-alpha.5 — 2026-08-21
+
+### Added
+- **Item 11: per-interval notes in the Trip Gen counter.** Each row in the live counting table now has a small note button — unobtrusive "+" when empty, "note*" once set, full text as a hover tooltip. Notes persist through save/load and stay visible in Analysis's "Show all intervals" raw table.
+- **Item 12: "In/out over time" line chart in Trip Gen Analysis.** Per day-block, select any combination of vehicle classifications and any combination of that day's peak-window periods (or "Full day") to plot in (solid) / out (dashed) counts per interval. Same class-to-color mapping as the existing stacked chart on the same page.
+- **Item 13: locations can now be added directly from the Location Counts screen**, not just Setup. The whole "add a location" form (start new count / upload .xlsx / paste table) moved there; Setup's "locations" tab is now a compact read-only summary with a "Go to Location Counts →" link.
+
 ## v3.45.0-alpha.4 — 2026-08-21
 
 ### Fixed

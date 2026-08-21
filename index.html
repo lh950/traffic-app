@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Traffic App v3.45.0-alpha.4</title>
+<title>Traffic App v3.45.0-alpha.5</title>
 <link rel="manifest" href="./manifest.json">
 <meta name="theme-color" content="#131b23">
 <script>
@@ -117,7 +117,7 @@
   <div class="home-inner">
     <div class="home-wordmark">
       <h1>Traffic App</h1>
-      <div class="home-version">v3.45.0-alpha.4</div>
+      <div class="home-version">v3.45.0-alpha.5</div>
       <button id="home-btn-tour" title="Take the tour" style="margin-left:auto;font-size:12px;color:var(--text3);background:none;border:none;cursor:pointer;text-decoration:underline;flex-shrink:0">Take the tour</button>
       <button id="home-btn-help" title="Help / instructions" style="margin-left:12px;font-size:13px;font-weight:600;color:var(--text3);background:none;border:.5px solid var(--border);border-radius:50%;width:26px;height:26px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">?</button>
     </div>
@@ -185,7 +185,7 @@
     <!-- wordmark -->
     <div style="margin-bottom:2rem">
       <h1 style="font-size:22px;font-weight:500;letter-spacing:-.01em">Traffic App</h1>
-      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v3.45.0-alpha.4</span>
+      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v3.45.0-alpha.5</span>
     </div>
 
     <!-- autosave / resume banner -->
@@ -393,78 +393,13 @@
 
   <!-- TAB: locations -->
   <div class="tg-panel" id="tgp-locations">
+    <!-- Build brief item 13: adding a location now happens on the Location Counts screen
+         (left sidebar), not here — per direct user request, Setup stays scoped to one-time
+         configuration (project info / classifications), not somewhere you come back to for
+         routine work like adding the next location. -->
     <div class="card">
-      <h3>Add a location</h3>
-      <div class="stat-detail" style="margin-bottom:8px">Every location needs its real address (e.g. "Driveway — 123 Main St" or the actual access-point name used in the field) and the real calendar date(s) counted — not placeholder labels.</div>
-      <div class="setup-grid" style="margin-bottom:14px">
-        <div class="setup-field"><label>Location / access point address <span style="color:var(--danger,#c0392b)">*</span></label><input type="text" id="tg-location-address" placeholder="e.g. Driveway — 123 Main St"></div>
-        <div class="setup-field"><label>Date counted <span style="color:var(--danger,#c0392b)">*</span></label><input type="date" id="tg-location-date"></div>
-      </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
-        <button class="btn-primary" id="btn-tripgen-start-new">Start a new count…</button>
-        <input type="file" id="tripgen-xlsx-input" accept=".xlsx" style="display:none" />
-        <button id="btn-tripgen-upload-xlsx">Upload .xlsx file…</button>
-        <button id="btn-tripgen-paste-toggle">Paste a table instead…</button>
-      </div>
-
-      <!-- start-new-count config: classifications + timing, then "begin counting" -->
-      <div id="tripgen-new-count-area" style="display:none;margin-top:10px;border-top:.5px solid var(--border);padding-top:14px">
-        <div style="font-size:12px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text2);margin-bottom:10px">timing</div>
-        <div class="setup-grid" style="margin-bottom:14px">
-          <div class="setup-field">
-            <label>start time</label>
-            <input type="time" id="tg-set-start" value="00:00">
-          </div>
-          <div class="setup-field">
-            <label>interval length</label>
-            <select id="tg-set-interval">
-              <option value="5">5 min</option><option value="10">10 min</option>
-              <option value="15" selected>15 min</option><option value="20">20 min</option>
-              <option value="30">30 min</option><option value="60">60 min</option>
-            </select>
-          </div>
-          <div class="setup-field">
-            <label>study duration</label>
-            <div class="dur-wrap">
-              <input type="number" id="tg-set-dur-h" min="0" max="72" value="24" style="width:72px">
-              <span>h</span>
-              <input type="number" id="tg-set-dur-m" min="0" max="59" value="0" style="width:72px">
-              <span>m</span>
-            </div>
-          </div>
-        </div>
-
-        <div style="font-size:12px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text2);margin-bottom:10px">classifications</div>
-        <div class="stat-detail" id="tg-classifications-summary" style="margin-bottom:10px">No classifications defined yet.</div>
-        <div style="margin-bottom:1rem">
-          <button type="button" id="btn-tg-jump-classifications" style="font-size:12px">Edit classifications →</button>
-        </div>
-
-        <div style="display:flex;justify-content:flex-end;margin-top:1rem">
-          <button class="btn-primary" id="btn-tg-begin-counting">begin counting ?</button>
-        </div>
-      </div>
-
-      <div id="tripgen-paste-area" style="display:none;margin-top:10px">
-        <textarea id="tripgen-paste-input" rows="6" placeholder="Copy a range from Excel or Sheets, then paste here (Ctrl+V / ?V)" style="width:100%;font-family:var(--mono,monospace);font-size:12px;padding:8px;border:.5px solid var(--border2,#ccc9be);border-radius:var(--r,8px);background:var(--surface2,#f0efe9);color:var(--text,#1a1a18)"></textarea>
-        <div id="tripgen-paste-preview" style="font-size:11px;min-height:16px;margin-top:4px"></div>
-        <div style="margin-top:6px">
-          <button id="btn-tripgen-paste-submit" class="btn-primary">Add location from paste</button>
-        </div>
-        <div style="font-size:11px;color:var(--text3,#9b9890);margin-top:6px">
-          Expected layout — first column: time (HH:MM); remaining columns alternate Entry/Exit per classification, with classification names in the header row. Example:<br>
-          <code style="font-size:10px">Time&nbsp;&nbsp;&nbsp;&nbsp;Autos In&nbsp;&nbsp;Autos Out&nbsp;&nbsp;Trucks In&nbsp;&nbsp;Trucks Out<br>00:00&nbsp;&nbsp;&nbsp;10&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;3&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2</code>
-        </div>
-      </div>
-
-      <!-- per-sheet date confirmation after .xlsx upload -->
-      <div id="tripgen-xlsx-dates-area" style="display:none;margin-top:10px;border-top:.5px solid var(--border);padding-top:14px">
-        <div class="stat-detail" style="margin-bottom:10px">Confirm the real date for each day-sheet found in this file.</div>
-        <div id="tripgen-xlsx-dates-list"></div>
-        <button class="btn-primary" id="btn-tripgen-xlsx-confirm" style="margin-top:10px">Add location</button>
-      </div>
-
-      <div id="tripgen-upload-error" style="color:var(--danger,#c0392b);font-size:12px;margin-top:8px"></div>
+      <div class="stat-detail">Add and manage locations from the <strong>Location Counts</strong> screen (left sidebar) — this tab is just a quick summary.</div>
+      <button class="btn-primary" id="btn-tgp-goto-locations" style="margin-top:10px">Go to Location Counts →</button>
     </div>
 
     <div id="tripgen-locations-list"></div>
@@ -606,6 +541,86 @@
       <button id="btn-tg-locations-back" style="font-size:12px">← back to setup</button>
     </div>
   </div>
+
+  <!-- Add-a-location form (build brief item 13 — moved here from Setup's compact "locations"
+       tab, per direct user request: "setup should only be to setup the count... that means
+       in the location counts screen we should be able to add intersections there". Same
+       elements/ids as before (tg-location-address etc.), just relocated — every existing
+       JS wire-up in main.js/tripgenCount.js still finds them by the same id, unchanged. -->
+  <div id="tg-loc-add-panel" class="card" style="display:none;margin-bottom:1.5rem">
+    <h3>Add a location</h3>
+    <div class="stat-detail" style="margin-bottom:8px">Every location needs its real address (e.g. "Driveway — 123 Main St" or the actual access-point name used in the field) and the real calendar date(s) counted — not placeholder labels.</div>
+    <div class="setup-grid" style="margin-bottom:14px">
+      <div class="setup-field"><label>Location / access point address <span style="color:var(--danger,#c0392b)">*</span></label><input type="text" id="tg-location-address" placeholder="e.g. Driveway — 123 Main St"></div>
+      <div class="setup-field"><label>Date counted <span style="color:var(--danger,#c0392b)">*</span></label><input type="date" id="tg-location-date"></div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+      <button class="btn-primary" id="btn-tripgen-start-new">Start a new count…</button>
+      <input type="file" id="tripgen-xlsx-input" accept=".xlsx" style="display:none" />
+      <button id="btn-tripgen-upload-xlsx">Upload .xlsx file…</button>
+      <button id="btn-tripgen-paste-toggle">Paste a table instead…</button>
+    </div>
+
+    <!-- start-new-count config: classifications + timing, then "begin counting" -->
+    <div id="tripgen-new-count-area" style="display:none;margin-top:10px;border-top:.5px solid var(--border);padding-top:14px">
+      <div style="font-size:12px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text2);margin-bottom:10px">timing</div>
+      <div class="setup-grid" style="margin-bottom:14px">
+        <div class="setup-field">
+          <label>start time</label>
+          <input type="time" id="tg-set-start" value="00:00">
+        </div>
+        <div class="setup-field">
+          <label>interval length</label>
+          <select id="tg-set-interval">
+            <option value="5">5 min</option><option value="10">10 min</option>
+            <option value="15" selected>15 min</option><option value="20">20 min</option>
+            <option value="30">30 min</option><option value="60">60 min</option>
+          </select>
+        </div>
+        <div class="setup-field">
+          <label>study duration</label>
+          <div class="dur-wrap">
+            <input type="number" id="tg-set-dur-h" min="0" max="72" value="24" style="width:72px">
+            <span>h</span>
+            <input type="number" id="tg-set-dur-m" min="0" max="59" value="0" style="width:72px">
+            <span>m</span>
+          </div>
+        </div>
+      </div>
+
+      <div style="font-size:12px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text2);margin-bottom:10px">classifications</div>
+      <div class="stat-detail" id="tg-classifications-summary" style="margin-bottom:10px">No classifications defined yet.</div>
+      <div style="margin-bottom:1rem">
+        <button type="button" id="btn-tg-jump-classifications" style="font-size:12px">Edit classifications →</button>
+      </div>
+
+      <div style="display:flex;justify-content:flex-end;margin-top:1rem">
+        <button class="btn-primary" id="btn-tg-begin-counting">begin counting ?</button>
+      </div>
+    </div>
+
+    <div id="tripgen-paste-area" style="display:none;margin-top:10px">
+      <textarea id="tripgen-paste-input" rows="6" placeholder="Copy a range from Excel or Sheets, then paste here (Ctrl+V / ?V)" style="width:100%;font-family:var(--mono,monospace);font-size:12px;padding:8px;border:.5px solid var(--border2,#ccc9be);border-radius:var(--r,8px);background:var(--surface2,#f0efe9);color:var(--text,#1a1a18)"></textarea>
+      <div id="tripgen-paste-preview" style="font-size:11px;min-height:16px;margin-top:4px"></div>
+      <div style="margin-top:6px">
+        <button id="btn-tripgen-paste-submit" class="btn-primary">Add location from paste</button>
+      </div>
+      <div style="font-size:11px;color:var(--text3,#9b9890);margin-top:6px">
+        Expected layout — first column: time (HH:MM); remaining columns alternate Entry/Exit per classification, with classification names in the header row. Example:<br>
+        <code style="font-size:10px">Time&nbsp;&nbsp;&nbsp;&nbsp;Autos In&nbsp;&nbsp;Autos Out&nbsp;&nbsp;Trucks In&nbsp;&nbsp;Trucks Out<br>00:00&nbsp;&nbsp;&nbsp;10&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;3&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2</code>
+      </div>
+    </div>
+
+    <!-- per-sheet date confirmation after .xlsx upload -->
+    <div id="tripgen-xlsx-dates-area" style="display:none;margin-top:10px;border-top:.5px solid var(--border);padding-top:14px">
+      <div class="stat-detail" style="margin-bottom:10px">Confirm the real date for each day-sheet found in this file.</div>
+      <div id="tripgen-xlsx-dates-list"></div>
+      <button class="btn-primary" id="btn-tripgen-xlsx-confirm" style="margin-top:10px">Add location</button>
+    </div>
+
+    <div id="tripgen-upload-error" style="color:var(--danger,#c0392b);font-size:12px;margin-top:8px"></div>
+  </div>
+
   <div id="tripgen-locations-screen-root"></div>
 </div>
 
@@ -940,7 +955,7 @@
 
   <header class="counter-header">
     <button id="btn-back-to-project" style="font-size:12px;padding:4px 10px;margin-right:8px">? Project</button>
-    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v3.45.0-alpha.4</span></h1>
+    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v3.45.0-alpha.5</span></h1>
     <div class="hcontrols">
       <div class="mode-toggle" style="display:none">
         <button class="mode-btn active" id="btn-count-mode" onclick="goToCountMode()">count</button>
@@ -1654,6 +1669,22 @@
 </div>
 
 <!-- BUG REPORT MODAL -->
+<div class="modal-backdrop" id="tg-note-modal">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-header">
+      <h2>interval note <span id="tg-note-modal-label" style="font-weight:400;color:var(--text2);font-size:13px;margin-left:6px"></span></h2>
+      <button class="modal-close" id="tg-note-modal-close">×</button>
+    </div>
+    <div class="modal-body">
+      <textarea id="tg-note-textarea" rows="4" placeholder="e.g. counter left briefly, lane closed, vehicle miscounted…" style="width:100%;resize:vertical;padding:8px 10px;border:.5px solid var(--border2);border-radius:var(--r);background:var(--surface2);color:var(--text);font-family:var(--font);font-size:13px;line-height:1.5;box-sizing:border-box"></textarea>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+        <button id="tg-note-cancel">Cancel</button>
+        <button class="btn-primary" id="tg-note-save">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modal-backdrop" id="bug-report-modal">
   <div class="modal" style="max-width:500px">
     <div class="modal-header">

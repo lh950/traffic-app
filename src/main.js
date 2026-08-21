@@ -5819,7 +5819,11 @@ wireSiteInfoFields();
 
 function renderTripgenLocationsList() {
   const root = document.getElementById('tripgen-locations-list');
-  if (!tripgenEntries.length) { root.innerHTML = '<div class="stat-detail">No locations added yet.</div>'; return; }
+  if (!tripgenEntries.length) {
+    root.innerHTML = '<div class="stat-detail">No locations added yet.</div>';
+    syncTripgenLocationsScreenIfVisible();
+    return;
+  }
 
   const cards = tripgenEntries.map((e) => `
     <div class="card" style="margin-bottom:12px" data-loc-card="${e.id}">
@@ -5940,6 +5944,17 @@ function renderTripgenLocationsList() {
       if (entry) { entry.days[Number(btn.dataset.tgCamDay)].cameraImageUrl = null; renderTripgenLocationsList(); }
     });
   });
+  syncTripgenLocationsScreenIfVisible();
+}
+
+// Item 13 (build brief): the "add a location" form now also lives on the Location Counts
+// screen (renderTripgenLocationsScreen's own #tripgen-locations-screen-root), not just
+// Setup's compact tab — so every existing call site above that already refreshes Setup's
+// #tripgen-locations-list (many, scattered through add/remove/relabel/upload handlers) needs
+// the OTHER screen refreshed too, whichever is actually visible right now. Centralized here
+// once rather than touching every call site individually.
+function syncTripgenLocationsScreenIfVisible() {
+  if (document.getElementById('tripgen-locations-screen')?.style.display !== 'none') renderTripgenLocationsScreen();
 }
 
 document.getElementById('btn-tripgen-upload-xlsx')?.addEventListener('click', () => {
@@ -6041,6 +6056,12 @@ document.getElementById('btn-tripgen-start-new')?.addEventListener('click', () =
 });
 document.getElementById('btn-tg-add-classification')?.addEventListener('click', () => tgAddClassification());
 document.getElementById('btn-tg-jump-classifications')?.addEventListener('click', () => {
+  // Item 13: this button now lives on the Location Counts screen too (the add-a-location
+  // panel moved there), not only inside Setup itself — switchTgTab() only toggles internal
+  // tab state, it doesn't show the Setup screen, so navigate there first (openWorkspaceTab
+  // handles both the screen switch and the sidebar highlight) or the tab switch would happen
+  // invisibly behind whichever screen is currently on top.
+  openWorkspaceTab('tg-setup');
   const btn = document.querySelector('#tripgen-setup-screen .tg-tab[data-tgtab="classifications"]');
   switchTgTab('classifications', btn);
 });
@@ -6048,7 +6069,10 @@ document.getElementById('btn-tg-begin-counting')?.addEventListener('click', () =
   const ctx = requireLocationContext();
   if (!ctx) return;
   const dayType = dayTypeFromDate(ctx.date);
-  tgCounterBackTarget = 'tripgen-setup-screen';
+  // Item 13: the add-a-location form (and this "begin counting" button) now lives only on
+  // the Location Counts screen, not Setup — so "save and exit" from the counter should
+  // return there, not to Setup (which no longer has this form to come back to).
+  tgCounterBackTarget = 'tripgen-locations-screen';
   // entryId is assigned AFTER tgBeginCounting succeeds (below) but the finish callback closes
   // over this outer variable, so it sees the real id once counting actually starts.
   let entryId = null;
@@ -6181,10 +6205,17 @@ function renderTripgenLocationsScreen() {
   });
 }
 document.getElementById('btn-tg-locations-back')?.addEventListener('click', () => showScreen('tripgen-setup-screen'));
+// Item 13: "+ add a location" used to bounce back to Setup's own copy of this form — now the
+// form lives directly on this screen (see index.html's #tg-loc-add-panel), so this just
+// reveals it in place instead of navigating away.
 document.getElementById('btn-tg-locations-add')?.addEventListener('click', () => {
-  showScreen('tripgen-setup-screen');
-  switchTgTab('locations');
+  const panel = document.getElementById('tg-loc-add-panel');
+  if (!panel) return;
+  const showing = panel.style.display !== 'none';
+  panel.style.display = showing ? 'none' : '';
+  if (!showing) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
+document.getElementById('btn-tgp-goto-locations')?.addEventListener('click', () => openWorkspaceTab('tg-locations'));
 // The counter screen is reused for both "count a new location" and "QA/QC recount" flows —
 // each begin* call sets this so the back button returns to the right place rather than
 // always assuming the location-setup flow.

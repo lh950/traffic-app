@@ -116,6 +116,9 @@ label{font-size:12px;font-weight:500;color:var(--text2)}
 .chart-bar-a{fill:var(--chart-bar)}
 .chart-bar-b{fill:var(--chart-bar2)}
 .chart-bar-a:hover,.chart-bar-b:hover{filter:brightness(1.1)}
+.chart-line{stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.chart-line-pt{opacity:0;cursor:pointer}
+.chart-line-pt:hover{opacity:1}
 .day-tabs{display:flex;gap:0;background:var(--surface2);border:.5px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:14px;width:fit-content;flex-wrap:wrap}
 .day-tab{border:none;border-radius:0;background:transparent;color:var(--text2);padding:6px 14px;font-size:12.5px;font-weight:500}
 .day-tab.active{background:var(--surface);color:var(--text);box-shadow:0 0 0 .5px var(--border2);border-radius:var(--r)}

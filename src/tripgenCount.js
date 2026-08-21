@@ -285,7 +285,7 @@ export function beginCounting(finishCallback) {
   cfg.durationMin = Math.max(cfg.intervalMin, dh * 60 + dm);
 
   const n = classifications.length, s = cfg.slots;
-  tgData = { in: Array.from({ length: s }, () => Array(n).fill(0)), out: Array.from({ length: s }, () => Array(n).fill(0)) };
+  tgData = { in: Array.from({ length: s }, () => Array(n).fill(0)), out: Array.from({ length: s }, () => Array(n).fill(0)), notes: Array(s).fill('') };
   slot = 0; undoStack = []; redoStack = [];
   focusMode = false; focusTarget = 0; tgGroup = 0;
   onFinish = finishCallback;
@@ -312,6 +312,7 @@ export function beginEditing(snapshot, parsed, finishCallback) {
   tgData = {
     in: parsed.intervals.map((iv) => iv.inbound.slice()),
     out: parsed.intervals.map((iv) => iv.outbound.slice()),
+    notes: parsed.intervals.map((iv) => iv.note || ''),
   };
   slot = 0; undoStack = []; redoStack = [];
   focusMode = false; focusTarget = 0; tgGroup = 0;
@@ -355,7 +356,7 @@ export function beginRecount(classificationList, cfgIn, finishCallback) {
   cfg.durationMin = cfgIn.durationMin;
 
   const n = classifications.length, s = cfg.slots;
-  tgData = { in: Array.from({ length: s }, () => Array(n).fill(0)), out: Array.from({ length: s }, () => Array(n).fill(0)) };
+  tgData = { in: Array.from({ length: s }, () => Array(n).fill(0)), out: Array.from({ length: s }, () => Array(n).fill(0)), notes: Array(s).fill('') };
   slot = 0; undoStack = []; redoStack = [];
   focusMode = false; focusTarget = 0; tgGroup = 0;
   onFinish = finishCallback;
@@ -530,7 +531,7 @@ function buildTable() {
     const focused = ci === fcxi, anyFocus = fcxi >= 0;
     const hd = focused ? ' ped-focus-col-hd' : anyFocus ? ' ped-dimmed' : '';
     return `<th class="${hd.trim()}">${c.label} In</th><th class="${hd.trim()}">${c.label} Out</th>`;
-  }).join('')}<th>total</th></tr></thead>`;
+  }).join('')}<th>total</th><th class="tg-note-col">note</th></tr></thead>`;
   const body = Array.from({ length: cfg.slots }, (_, i) => {
     const cur = i === slot ? ' class="current"' : '';
     let rowTotal = 0;
@@ -540,7 +541,16 @@ function buildTable() {
       const fc = colCls(ci);
       return `<td class="${((inV > 0 ? 'nonzero' : '') + fc).trim()}">${inV}</td><td class="${((outV > 0 ? 'nonzero' : '') + fc).trim()}">${outV}</td>`;
     }).join('');
-    return `<tr${cur} id="tg-r-${i}"><td>${slotLabel(i)}</td>${cells}<td class="${rowTotal > 0 ? 'nonzero' : ''}">${rowTotal}</td></tr>`;
+    const note = tgData.notes?.[i] || '';
+    // Note button is deliberately minimal (build brief item 11: "rarely have notes, doesn't
+    // need to take up a lot of space") — an unobtrusive "+" when empty, a filled "note*"
+    // indicator when set, with the full text as a hover tooltip right on the button itself
+    // (not just in analysis views) so a counter can sanity-check what they wrote without
+    // opening the editor again.
+    const noteBtn = note
+      ? `<button type="button" class="tg-note-btn tg-note-set" data-slot="${i}" title="${escapeAttr(note)}">note*</button>`
+      : `<button type="button" class="tg-note-btn" data-slot="${i}" title="add a note for this interval">+</button>`;
+    return `<tr${cur} id="tg-r-${i}"><td>${slotLabel(i)}</td>${cells}<td class="${rowTotal > 0 ? 'nonzero' : ''}">${rowTotal}</td><td class="tg-note-col">${noteBtn}</td></tr>`;
   }).join('');
   const totals = classifications.map((_, ci) => {
     const inT = tgData.in.reduce((s, r) => s + r[ci], 0);
@@ -549,8 +559,49 @@ function buildTable() {
     return `<td class="${fc.trim()}">${inT}</td><td class="${fc.trim()}">${outT}</td>`;
   }).join('');
   const grand = tgData.in.flat().reduce((a, b) => a + b, 0) + tgData.out.flat().reduce((a, b) => a + b, 0);
-  tbl.innerHTML = `${head}<tbody>${body}</tbody><tfoot><tr><td>total</td>${totals}<td>${grand}</td></tr></tfoot>`;
+  tbl.innerHTML = `${head}<tbody>${body}</tbody><tfoot><tr><td>total</td>${totals}<td>${grand}</td><td class="tg-note-col"></td></tr></tfoot>`;
   document.getElementById(`tg-r-${slot}`)?.scrollIntoView({ block: 'nearest' });
+}
+
+function escapeAttr(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+}
+
+// ── Per-interval notes (build brief item 11) ──
+// A single small modal, reused for whichever row's note button was clicked — mirrors the
+// bug-report modal's own modal-backdrop/textarea pattern rather than a native prompt(), so
+// the note text stays visible while editing and Cancel is unambiguous about discarding.
+let noteModalSlot = null;
+function openNoteModal(i) {
+  noteModalSlot = i;
+  const ta = document.getElementById('tg-note-textarea');
+  const label = document.getElementById('tg-note-modal-label');
+  if (label) label.textContent = slotLabel(i);
+  if (ta) { ta.value = tgData.notes?.[i] || ''; ta.focus(); }
+  document.getElementById('tg-note-modal')?.classList.add('open');
+}
+function closeNoteModal() {
+  noteModalSlot = null;
+  document.getElementById('tg-note-modal')?.classList.remove('open');
+}
+function saveNoteModal() {
+  if (noteModalSlot == null) return;
+  const ta = document.getElementById('tg-note-textarea');
+  if (!tgData.notes) tgData.notes = Array(cfg.slots).fill('');
+  tgData.notes[noteModalSlot] = (ta?.value || '').trim();
+  closeNoteModal();
+  buildTable();
+  window.scheduleAutosave?.();
+}
+function wireNoteModal() {
+  document.getElementById('tg-tbl-count')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.tg-note-btn');
+    if (!btn) return;
+    openNoteModal(Number(btn.dataset.slot));
+  });
+  document.getElementById('tg-note-modal-close')?.addEventListener('click', closeNoteModal);
+  document.getElementById('tg-note-cancel')?.addEventListener('click', closeNoteModal);
+  document.getElementById('tg-note-save')?.addEventListener('click', saveNoteModal);
 }
 
 function render() {
@@ -695,6 +746,7 @@ export function wireKeydown() {
   document.getElementById('tg-btn-redo')?.addEventListener('click', redo);
   document.getElementById('tg-btn-focus')?.addEventListener('click', toggleFocusMode);
   document.getElementById('tg-btn-diag')?.addEventListener('click', toggleTgDiagram);
+  wireNoteModal();
   // Forward counting keys typed directly into the popup reference window back to this
   // window — same mechanism as focus.js's wireKeydown message handler (diagram.js's popup
   // keydown listener posts {type:'kbd-passthrough', key, code}).
@@ -732,7 +784,7 @@ export function wireKeydown() {
 function buildParsedFromLiveData() {
   const intervals = Array.from({ length: cfg.slots }, (_, i) => {
     const { start, end } = slotStartEnd(i);
-    return { label: slotLabel(i), start, end, inbound: tgData.in[i].slice(), outbound: tgData.out[i].slice() };
+    return { label: slotLabel(i), start, end, inbound: tgData.in[i].slice(), outbound: tgData.out[i].slice(), note: tgData.notes?.[i] || '' };
   });
   // defs is a parallel array (index-matched to types) rather than folding def into types
   // itself — types stays a plain string array so every existing consumer (groupTotals,
