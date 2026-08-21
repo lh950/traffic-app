@@ -1,5 +1,13 @@
 # Changelog
 
+## v3.45.0-alpha.3 — 2026-08-19
+
+### Fixed
+- **BUG-041: the sidebar "QA/QC" link opened the screen with nothing in it.** It showed the screen but never rendered its content — only the setup screen's own QA/QC button did both. Same gap existed on the "Analysis" sidebar link (noted but not fixed back in v3.36.0-alpha.4); fixed both.
+
+### Removed
+- **Setup screen's redundant "QA / QC →" button** — the sidebar is now a fully correct entry point, so the duplicate is gone.
+
 ## v3.45.0-alpha.2 — 2026-08-19
 
 ### Added

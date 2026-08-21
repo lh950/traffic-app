@@ -782,8 +782,14 @@ function openWorkspaceTab(tab, idx) {
     // counted, classification count, total recorded volume, in-progress status) and lets
     // the user click into any day to edit it via the existing editTripgenDay() flow.
     case 'tg-locations': showScreen('tripgen-locations-screen'); renderTripgenLocationsScreen(); break;
-    case 'tg-analyze': showScreen('analyze-screen'); break;
-    case 'tg-qaqc': showScreen('tripgen-qaqc-screen'); break;
+    // BUG-041: both cases previously only called showScreen(), never the matching render —
+    // every other case in this switch that needs one calls it (tg-locations, tg-distribution,
+    // pk-setup). The QA/QC screen's static header markup (reviewer name/date fields) rendered
+    // fine on its own, making it look like the screen "opened" while #tripgen-qaqc-list stayed
+    // empty/stale — user-reported live as "QA page is broken." The Analysis gap was already
+    // noted as a known finding in DEVLOG's v3.36.0-alpha.4 entry but never fixed until now.
+    case 'tg-analyze': showScreen('analyze-screen'); rerenderTripgenAnalysis(); break;
+    case 'tg-qaqc': showScreen('tripgen-qaqc-screen'); renderQaqcScreen(); break;
     case 'tg-distribution': showScreen('tripgen-distribution-screen'); renderDistributionScreen(); break;
     case 'pk-setup': showScreen('parking-setup-screen'); renderParkingSetupZones(); pkUpdateTimingPreview(); break;
     case 'pk-count': showScreen('parking-counter-screen'); renderParkingCounter(); break;
@@ -5862,7 +5868,6 @@ function renderTripgenLocationsList() {
 
   // enable action bar buttons once there's data
   const hasData = tripgenEntries.length > 0;
-  document.getElementById('btn-tripgen-qaqc')?.toggleAttribute('disabled', !hasData);
   document.getElementById('btn-tripgen-analyze')?.toggleAttribute('disabled', !hasData);
   window.scheduleAutosave?.();
 
@@ -6200,7 +6205,6 @@ function inferIntervalMinutes(intervals) {
 }
 let tgQaqcNextId = 1;
 
-document.getElementById('btn-tripgen-qaqc')?.addEventListener('click', () => { showScreen('tripgen-qaqc-screen'); renderQaqcScreen(); });
 document.getElementById('btn-qaqc-to-setup')?.addEventListener('click', () => showScreen('tripgen-setup-screen'));
 document.getElementById('btn-qaqc-to-analyze')?.addEventListener('click', () => goToTripgenAnalyze());
 document.getElementById('btn-analyze-to-qaqc')?.addEventListener('click', () => { showScreen('tripgen-qaqc-screen'); renderQaqcScreen(); });
