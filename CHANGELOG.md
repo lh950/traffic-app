@@ -1,5 +1,10 @@
 # Changelog
 
+## v3.46.0-alpha.1 — 2026-08-22
+
+### Added
+- **Item 5: read-only shareable link.** Any project (intersection, area study, Trip Gen, parking) can now generate a `?share=<id>` link from an "Enable sharing" button on its Analysis/Summary screen. Opening the link — in any browser, no account — shows a live, read-only view of that project's analysis using the same rendering code the app already uses, with nothing on the page editable and no local storage or save state touched just by viewing. Sharing pushes data to a Firebase Firestore project (the app's first external service dependency; everything else stays fully local/no-accounts), throttled to at most once every 45 seconds, piggybacked on the existing autosave path. "Disable sharing" deletes the shared document outright — the link stops working immediately. See `DEVLOG.md` for the read-only-safety design and the Firestore security rules.
+
 ## v3.45.0-alpha.5 — 2026-08-21
 
 ### Added

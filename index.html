@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Traffic App v3.45.0-alpha.5</title>
+<title>Traffic App v3.46.0-alpha.1</title>
 <link rel="manifest" href="./manifest.json">
 <meta name="theme-color" content="#131b23">
 <script>
@@ -117,7 +117,7 @@
   <div class="home-inner">
     <div class="home-wordmark">
       <h1>Traffic App</h1>
-      <div class="home-version">v3.45.0-alpha.5</div>
+      <div class="home-version">v3.46.0-alpha.1</div>
       <button id="home-btn-tour" title="Take the tour" style="margin-left:auto;font-size:12px;color:var(--text3);background:none;border:none;cursor:pointer;text-decoration:underline;flex-shrink:0">Take the tour</button>
       <button id="home-btn-help" title="Help / instructions" style="margin-left:12px;font-size:13px;font-weight:600;color:var(--text3);background:none;border:.5px solid var(--border);border-radius:50%;width:26px;height:26px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">?</button>
     </div>
@@ -185,7 +185,7 @@
     <!-- wordmark -->
     <div style="margin-bottom:2rem">
       <h1 style="font-size:22px;font-weight:500;letter-spacing:-.01em">Traffic App</h1>
-      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v3.45.0-alpha.5</span>
+      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v3.46.0-alpha.1</span>
     </div>
 
     <!-- autosave / resume banner -->
@@ -476,6 +476,7 @@
       <button id="pk-btn-undo" class="preset-btn" style="font-size:11px">? Undo</button>
       <button id="pk-btn-summary" class="preset-btn" style="font-size:11px;margin-left:auto">View summary ?</button>
       <button id="pk-btn-export" class="preset-btn" style="font-size:11px">Export CSV ?</button>
+      <div class="share-widget" style="display:flex;gap:8px;align-items:center"></div>
     </div>
 
     <div id="pk-summary" style="display:none;margin-top:20px">
@@ -659,7 +660,8 @@
 <div id="analyze-screen" class="workspace-screen" style="display:none;min-height:100vh;padding:1.5rem 1.5rem 4rem">
   <div class="app-header">
     <h1>Analysis <span id="analyze-sub"></span></h1>
-    <div class="actions no-print" style="display:flex;gap:8px">
+    <div class="actions no-print" style="display:flex;gap:8px;align-items:center">
+      <div class="share-widget" style="display:flex;gap:8px;align-items:center"></div>
       <button id="btn-analyze-to-count" style="display:none">? back to counting</button>
       <button id="btn-analyze-to-qaqc" style="display:none">QA/QC ?</button>
       <button id="btn-analyze-to-landing">? back to projects</button>
@@ -677,6 +679,17 @@
     <img class="prh-logo" id="prh-logo" src="" alt="" style="display:none">
   </div>
   <div id="analyze-root"></div>
+</div>
+
+<!-- = SHARED READ-ONLY VIEWER SCREEN — reached only via ?share=<id> in the URL. Nothing on
+     this screen ever leads back into an editable setup/counting screen or the sidebar; see
+     enterViewerMode()/renderViewerContent() in main.js. = -->
+<div id="share-viewer-screen" class="workspace-screen" style="display:none;min-height:100vh;padding:1.5rem 1.5rem 4rem">
+  <div class="app-header">
+    <h1>Shared view <span id="share-viewer-title" style="font-size:14px;font-weight:400;color:var(--text2);margin-left:8px"></span></h1>
+  </div>
+  <div class="stat-detail" style="margin-bottom:14px">Read-only — this is a live view of someone else's study. Nothing on this page can be edited or saved.</div>
+  <div id="share-viewer-content"></div>
 </div>
 
 <!-- = SETUP SCREEN = -->
@@ -955,7 +968,7 @@
 
   <header class="counter-header">
     <button id="btn-back-to-project" style="font-size:12px;padding:4px 10px;margin-right:8px">? Project</button>
-    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v3.45.0-alpha.5</span></h1>
+    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v3.46.0-alpha.1</span></h1>
     <div class="hcontrols">
       <div class="mode-toggle" style="display:none">
         <button class="mode-btn active" id="btn-count-mode" onclick="goToCountMode()">count</button>
@@ -1419,6 +1432,7 @@
       <h1 style="font-size:22px;font-weight:500;letter-spacing:-.01em">Aggregate <span id="area-agg-project-title" style="font-size:14px;font-weight:400;color:var(--text2);margin-left:8px"></span></h1>
       <div id="area-agg-subtitle" style="font-size:12px;color:var(--text3);margin-top:2px"></div>
     </div>
+    <div class="share-widget" style="display:flex;gap:8px;align-items:center"></div>
   </div>
   <div class="stat-detail" style="margin-bottom:14px">Combined totals and a vehicle-class breakdown across every intersection in this study, plus a data-quality rollup showing which intersections are missing data or have failing QA/QC recounts.</div>
   <div id="area-aggregate-content"></div>
@@ -1508,6 +1522,10 @@
       </div>
     </div>
     <div style="display:flex;gap:8px;align-items:center">
+      <!-- Only shown for a standalone intersection project (not an area-study child's
+           drill-down, which reuses this same screen) — toggled in openWorkspaceTab()'s
+           'analyze' case, same as btn-ix-open-counter/btn-ix-qaqc-open/btn-ix-sl-open. -->
+      <div class="share-widget" id="ix-share-widget" style="display:flex;gap:8px;align-items:center"></div>
       <div class="btn-print-wrap">
         <button id="btn-ix-print" style="font-size:12px">Print Report ?</button>
         <div id="ix-print-opts" class="print-opts-popover" style="display:none">

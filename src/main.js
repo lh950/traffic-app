@@ -7,6 +7,22 @@ const LS_PROJECTS_INDEX = 'tc_projects_index';
 
 let projectUUID = null;
 
+// ── Read-only shareable link (Item 5) ──
+// isViewerMode is true only in a tab that loaded a ?share=<id> URL. It gates every write
+// path (autosave/localStorage/Firestore push) structurally, not just "nothing happens to
+// call them" — see the guards on window.scheduleAutosave, addToRecents, flushPendingAutosave,
+// persistAreaStudySnapshotsOnly, and clearAutosave below.
+let isViewerMode = false;
+// shareInfo describes THIS project's own shareable link, if sharing is enabled for it.
+// Round-trips through serializeCurrentProject()/loadProject() like any other project field.
+let shareInfo = { shareId: null, ownerToken: null, enabled: false };
+function resetShareInfo() { shareInfo.shareId = null; shareInfo.ownerToken = null; shareInfo.enabled = false; }
+// Throttle for the Firestore push piggybacked on autosave — 45s, well inside the 30-60s
+// range decided for this feature (avoids hitting Firestore's free-tier daily write cap on
+// every 2s autosave tick).
+const SHARE_PUSH_INTERVAL_MS = 45000;
+let _lastSharePushAt = 0;
+
 import {
   cfg, vPairs, intersection, fnames, vData, pedData, tmcData,
   vManual, pedManual, tmManual, slotLabel, setVPairs, setTmcApproach,
@@ -82,6 +98,10 @@ import {
   beginIntersectionRecount as ixBeginRecount, wireKeydown as ixQaqcWireKeydown,
   finishIntersectionRecount as ixFinishRecount, assignRecountKeys as ixAssignRecountKeys,
 } from './intersectionQaqcCount.js';
+import {
+  enableSharing as fbEnableSharing, disableSharing as fbDisableSharing,
+  fetchSharedProject, pushSharedUpdate, setViewerMode as setShareViewerMode,
+} from './share.js';
 
 // ── Count type enabled flags ──
 const enabledModes = { ped: true, vehicle: true, turning: true };
@@ -301,7 +321,7 @@ initApproaches();
 // ═══════════════════════════════════════════
 // SCREEN ROUTER
 // ═══════════════════════════════════════════
-const SCREENS = ['home-screen', 'help-screen', 'area-setup-screen', 'area-import-screen', 'summary-screen', 'area-aggregate-screen', 'export-screen', 'ix-analysis-screen', 'setup-screen', 'counter-screen', 'intersection-qaqc-screen', 'intersection-qaqc-counter-screen', 'streetlight-compare-screen', 'tripgen-setup-screen', 'tripgen-counter-screen', 'tripgen-locations-screen', 'tripgen-qaqc-screen', 'tripgen-distribution-screen', 'analyze-screen', 'parking-setup-screen', 'parking-counter-screen'];
+const SCREENS = ['home-screen', 'help-screen', 'area-setup-screen', 'area-import-screen', 'summary-screen', 'area-aggregate-screen', 'export-screen', 'ix-analysis-screen', 'setup-screen', 'counter-screen', 'intersection-qaqc-screen', 'intersection-qaqc-counter-screen', 'streetlight-compare-screen', 'tripgen-setup-screen', 'tripgen-counter-screen', 'tripgen-locations-screen', 'tripgen-qaqc-screen', 'tripgen-distribution-screen', 'analyze-screen', 'parking-setup-screen', 'parking-counter-screen', 'share-viewer-screen'];
 let projectType = null; // 'intersection' | 'area' | 'tripgen' | 'parking' | null
 
 // ── Parking study state ──
@@ -432,8 +452,12 @@ function renderParkingOccBadge(input, zoneId) {
   pctEl.className = `pk-pct ${pkPctClass(pct)}`;
 }
 
-function renderParkingSummary() {
-  const wrap = document.getElementById('pk-summary-table');
+// wrapEl (optional): defaults to the real #pk-summary-table container inside the parking
+// counting screen; the read-only viewer (renderViewerContent()) passes its own container
+// instead, so it never has to show the counting screen (with its editable count grid) to
+// display the summary table.
+function renderParkingSummary(wrapEl = document.getElementById('pk-summary-table')) {
+  const wrap = wrapEl;
   if (!wrap) return;
   const total = parkingTotalSlots();
   const cols = parkingZones.map(z => z.name);
@@ -570,6 +594,71 @@ function enterWorkspace() {
   document.body.classList.toggle('project-type-intersection', projectType === 'intersection');
   document.body.classList.toggle('project-type-tripgen', projectType === 'tripgen');
   document.body.classList.toggle('project-type-parking', projectType === 'parking');
+  renderShareWidgets();
+}
+
+// ── Read-only shareable link — "Enable sharing" UI ──
+// One render function updates every .share-widget element in the DOM (one per project
+// type's Analysis/Summary screen) from the single shareInfo global, so there's one behavior
+// to maintain instead of four near-duplicate copies. Called from enterWorkspace() (covers
+// every project load/creation) and again after enable/disable so the UI reflects the new
+// state immediately without waiting for the next navigation.
+function renderShareWidgets() {
+  const widgets = document.querySelectorAll('.share-widget');
+  widgets.forEach((w) => {
+    if (!projectType || isViewerMode) { w.innerHTML = ''; return; }
+    if (shareInfo.enabled && shareInfo.shareId) {
+      const url = `${location.origin}${location.pathname}?share=${shareInfo.shareId}`;
+      w.innerHTML = `
+        <span style="font-size:11px;color:var(--text3)">Sharing is on —</span>
+        <button class="share-copy-btn" style="font-size:12px" title="${url}">Copy link</button>
+        <button class="share-disable-btn" style="font-size:12px">Disable sharing</button>`;
+      w.querySelector('.share-copy-btn').onclick = () => {
+        navigator.clipboard?.writeText(url);
+        setSaveState('Link copied', 1500);
+      };
+      w.querySelector('.share-disable-btn').onclick = handleDisableSharing;
+    } else {
+      w.innerHTML = `<button class="share-enable-btn" style="font-size:12px">Enable sharing ↗</button>`;
+      w.querySelector('.share-enable-btn').onclick = handleEnableSharing;
+    }
+  });
+}
+
+async function handleEnableSharing() {
+  if (isViewerMode) return; // structural guard
+  const proj = serializeCurrentProject();
+  if (!proj) return;
+  setSaveState('Enabling sharing…');
+  try {
+    const result = await fbEnableSharing(proj);
+    shareInfo.shareId = result.shareId;
+    shareInfo.ownerToken = result.ownerToken;
+    shareInfo.enabled = true;
+    _lastSharePushAt = Date.now(); // just pushed a fresh copy — don't re-push immediately
+    window.scheduleAutosave?.(); // persist shareInfo into this project's own local data
+    setSaveState('Saved', 2000);
+    renderShareWidgets();
+  } catch (e) {
+    setSaveState('', 0);
+    alert('Could not enable sharing. Check your connection and try again.\n\n' + (e?.message || e));
+  }
+}
+
+async function handleDisableSharing() {
+  if (isViewerMode || !shareInfo.shareId) return;
+  setSaveState('Disabling sharing…');
+  try {
+    await fbDisableSharing(shareInfo.shareId);
+  } catch (_) {
+    // Even if the delete fails (e.g. offline), clear the local link — it's already
+    // meaningless to this project once the user asked to disable it, and leaving stale
+    // shareInfo around risks a later autosave re-pushing to a doc the user meant to kill.
+  }
+  resetShareInfo();
+  window.scheduleAutosave?.();
+  setSaveState('Saved', 2000);
+  renderShareWidgets();
 }
 
 function exitWorkspace() {
@@ -750,6 +839,11 @@ function openWorkspaceTab(tab, idx) {
       // Same rationale as qaqcOpenBtn immediately above, for the StreetLight comparison
       // screen — standalone intersections reach it via their own sidebar item instead.
       if (slOpenBtn) slOpenBtn.style.display = isIxCount ? 'none' : '';
+      // Sharing is a whole-project feature — only meaningful when looking at a standalone
+      // intersection project, not a specific child of an area study (that widget lives on
+      // the Aggregate screen instead — see share-widget in area-aggregate-screen).
+      const ixShareWidget = document.getElementById('ix-share-widget');
+      if (ixShareWidget) ixShareWidget.style.display = isIxCount ? '' : 'none';
       if (isIxCount) {
         const titleEl = document.getElementById('ix-analysis-title');
         const subEl = document.getElementById('ix-analysis-sub');
@@ -832,6 +926,7 @@ function renderHomeResumeBanner() {
 // Wire home screen buttons
 document.getElementById('home-btn-intersection')?.addEventListener('click', () => {
   projectType = 'intersection';
+  resetShareInfo(); // a genuinely new project must never inherit a previous project's share link
   plannedPeriods.length = 0;
   // BUG-032: this entry point never reset the module-singleton `intersection`/TEMPLATES
   // slots/enabledModes, so a genuinely new project silently inherited whatever template,
@@ -858,6 +953,7 @@ document.getElementById('home-btn-intersection')?.addEventListener('click', () =
 
 document.getElementById('home-btn-area')?.addEventListener('click', () => {
   projectType = 'area';
+  resetShareInfo(); // a genuinely new project must never inherit a previous project's share link
   areaIntersections.length = 0;
   enterWorkspace();
   setSidebarMeta('New area study', '');
@@ -868,6 +964,7 @@ document.getElementById('home-btn-area')?.addEventListener('click', () => {
 
 document.getElementById('home-btn-tripgen')?.addEventListener('click', () => {
   projectType = 'tripgen';
+  resetShareInfo(); // a genuinely new project must never inherit a previous project's share link
   // Classifications are project-wide config now (own tab, no longer wiped per location —
   // see the "start a new count" handler below), so a genuinely new project must clear
   // whatever the previous session's project left behind, or it would silently leak in.
@@ -882,6 +979,7 @@ document.getElementById('home-btn-tripgen')?.addEventListener('click', () => {
 
 document.getElementById('home-btn-parking')?.addEventListener('click', () => {
   projectUUID = crypto.randomUUID();
+  resetShareInfo(); // a genuinely new project must never inherit a previous project's share link
   Object.assign(parkingProjectInfo, { projectName: '', location: '', date: '', notes: '' });
   parkingZones.length = 0;
   Object.keys(parkingGrid).forEach(k => delete parkingGrid[k]);
@@ -1134,10 +1232,17 @@ document.getElementById('app-back-btn')?.addEventListener('click', goBack);
 
 document.getElementById('sidebar-back-btn')?.addEventListener('click', showHome);
 
-showScreen('home-screen');
-renderHomeResumeBanner();
-renderHomeRecents();
-maybeShowWalkthroughOnce();
+// Read-only shared link (?share=<id>) — intercept before normal boot. Viewer mode never
+// shows the home screen, sidebar, or any setup/counting screen; see enterViewerMode().
+const _shareId = new URLSearchParams(location.search).get('share');
+if (_shareId) {
+  enterViewerMode(_shareId);
+} else {
+  showScreen('home-screen');
+  renderHomeResumeBanner();
+  renderHomeRecents();
+  maybeShowWalkthroughOnce();
+}
 
 window.openWorkspaceTab = openWorkspaceTab;
 
@@ -2043,11 +2148,13 @@ async function renderIntersectionAnalysis(containerEl = null, snapshotCtx = null
 document.getElementById('btn-new-intersection')?.addEventListener('click', () => {
   clearAutosave();
   projectType = 'intersection';
+  resetShareInfo();
   showScreen('setup-screen');
 });
 document.getElementById('btn-new-tripgen')?.addEventListener('click', () => {
   clearAutosave();
   projectType = 'tripgen';
+  resetShareInfo();
   tripgenEntries.length = 0;
   tripgenDistribution = [];
   tripgenDistNextId = 1;
@@ -2062,6 +2169,7 @@ document.getElementById('btn-new-area-study')?.addEventListener('click', () => {
   areaIntersections.length = 0;
   activeIntersectionIdx = 0;
   projectType = 'area';
+  resetShareInfo();
   showAreaSetup();
 });
 document.getElementById('btn-tripgen-to-landing')?.addEventListener('click', () => showHome());
@@ -3934,9 +4042,12 @@ function wireFixedWindowInputs() {
 // #area-aggregate-content container over a newer one — the exact BUG-022 failure mode.
 let _areaAggRenderGen = 0;
 
-async function renderAreaAggregateContent() {
+// containerEl (optional): defaults to the real #area-aggregate-content screen; the read-only
+// viewer (renderViewerContent()) passes its own container instead, reusing this same render
+// logic without touching the edit-capable area-study screens.
+async function renderAreaAggregateContent(containerEl = document.getElementById('area-aggregate-content')) {
   const myGen = ++_areaAggRenderGen;
-  const container = document.getElementById('area-aggregate-content');
+  const container = containerEl;
   if (!container) return;
 
   if (!areaIntersections.length) {
@@ -4997,11 +5108,22 @@ function downloadJSON(obj, filename) {
   a.click();
 }
 
-function loadProject(proj) {
+// opts.viewerMode (default false): populate live state exactly as a normal load does, but
+// skip every UI-side-effecting tail (enterWorkspace/sidebar/setup/counter screens) and route
+// into the read-only viewer render instead — see renderViewerContent(). Keeping restoration
+// in this single function (rather than a second, hand-built viewer hydrator) avoids the
+// dual-serializer drift risk this file already flags elsewhere (see serializeCurrentProject's
+// 'area' branch comment).
+function loadProject(proj, opts = {}) {
+  const viewerMode = !!opts.viewerMode;
   projectUUID = proj.uuid || crypto.randomUUID();
+  // Reset-before-restore (BUG-027 pattern) — a project with no share of its own must never
+  // inherit whatever shareInfo the previously loaded project left in memory.
+  resetShareInfo();
+  if (proj.shareInfo) Object.assign(shareInfo, proj.shareInfo);
   if (proj.projectInfo) {
     Object.assign(projectInfo, proj.projectInfo);
-    wireProjectInfoFields(); // re-sync all input values from restored state
+    if (!viewerMode) wireProjectInfoFields(); // re-sync all input values from restored state
   }
   if (proj.projectType === 'parking') {
     Object.assign(parkingProjectInfo, proj.parkingProjectInfo || {});
@@ -5014,6 +5136,7 @@ function loadProject(proj) {
     parkingActiveSlot = 0;
     _parkingUndoStack.length = 0;
     projectType = 'parking';
+    if (viewerMode) { renderViewerContent(proj); return; }
     enterWorkspace();
     setSidebarMeta(parkingProjectInfo.projectName || 'Parking study', parkingProjectInfo.location || '');
     _sidebarActiveItem = 'pk-count';
@@ -5050,6 +5173,7 @@ function loadProject(proj) {
     if (proj.qaqcReviewerName) { const el = document.getElementById('qaqc-reviewer-name'); if (el) el.value = proj.qaqcReviewerName; }
     if (proj.qaqcReviewDate) { const el = document.getElementById('qaqc-review-date'); if (el) el.value = proj.qaqcReviewDate; }
     projectType = 'tripgen';
+    if (viewerMode) { renderViewerContent(proj); return; }
     enterWorkspace();
     setSidebarMeta(proj.projectInfo?.projectName || 'Trip generation', proj.siteInfo?.location || '');
     _sidebarActiveItem = 'tg-setup';
@@ -5102,6 +5226,7 @@ function loadProject(proj) {
     areaIntersections.push(...(proj.intersections || []).map(ix => ({ name: ix.name, snapshot: ix.snapshot, street1: ix.street1 || '', street2: ix.street2 || '', corridor: ix.corridor || '', counterName: ix.counterName || '', lat: ix.lat || '', lng: ix.lng || '' })));
     activeIntersectionIdx = Math.min(proj.activeIntersectionIdx ?? 0, Math.max(0, areaIntersections.length - 1));
     projectType = 'area';
+    if (viewerMode) { renderViewerContent(proj); return; }
     enterWorkspace();
     setSidebarMeta(proj.projectInfo?.projectName || 'Area study', '');
     _sidebarActiveItem = null;
@@ -5190,6 +5315,7 @@ function loadProject(proj) {
   }
 
   projectType = 'intersection';
+  if (viewerMode) { renderViewerContent(proj); return; }
   enterWorkspace();
   setSidebarMeta(proj.projectInfo?.projectName || 'Intersection count', '');
   _sidebarActiveItem = 'count';
@@ -5205,6 +5331,72 @@ function loadProject(proj) {
   buildPeriodTabs();
   setMode(proj.mode || 'vehicle');
   render();
+}
+
+// ═══════════════════════════════════════════
+// READ-ONLY SHARED VIEWER (?share=<id>)
+// ═══════════════════════════════════════════
+// Boot-time entry point (called from the top-level ?share= check near the start of this
+// file) — fetches the shared doc and, if found, hydrates live state via loadProject's
+// viewerMode path. isViewerMode is set FIRST, before any state changes, so every write-path
+// guard is active for the rest of this tab's lifetime, no matter what fails below.
+async function enterViewerMode(shareId) {
+  isViewerMode = true;
+  setShareViewerMode(true);
+  showScreen('share-viewer-screen');
+  const content = document.getElementById('share-viewer-content');
+  if (content) content.innerHTML = '<div class="stat-detail">Loading shared project…</div>';
+  let data = null;
+  try {
+    data = await fetchSharedProject(shareId);
+  } catch (_) {
+    if (content) content.innerHTML = '<div class="stat-detail">Could not load this shared link. Check your connection and try again.</div>';
+    return;
+  }
+  if (!data) {
+    if (content) content.innerHTML = '<div class="stat-detail">This shared link is no longer available. The owner may have disabled sharing.</div>';
+    return;
+  }
+  try {
+    loadProject(data, { viewerMode: true });
+  } catch (_) {
+    if (content) content.innerHTML = '<div class="stat-detail">Could not display this shared project.</div>';
+  }
+}
+
+// Renders the read-only analysis view for whichever project type was just hydrated into
+// live state by loadProject(proj, {viewerMode:true}) — reusing each type's own real
+// analysis-rendering entry point rather than a parallel bespoke summary layout (decision #3).
+async function renderViewerContent(proj) {
+  const titleEl = document.getElementById('share-viewer-title');
+  const content = document.getElementById('share-viewer-content');
+  if (!content) return;
+  if (titleEl) titleEl.textContent = getProjectName(proj);
+  content.innerHTML = '';
+  if (proj.projectType === 'intersection') {
+    // Same read-only snapshotCtx mechanism area-study children already use (see
+    // analysisSource()) — passing it hides every edit/print-report-adjacent control this
+    // render tree gates on `readOnly`, without needing a second flag.
+    await renderIntersectionAnalysis(content, { periods: proj.periods, intersection: proj.intersection, vPairs: proj.vPairs });
+  } else if (proj.projectType === 'tripgen') {
+    // No-op change callbacks (this ctx object has no readOnly flag of its own) — keeps the
+    // form fields from throwing if clicked, without wiring them to mutate anything.
+    await renderTripGenSection(content, tripgenEntries, {
+      siteInfo: tripgenSiteInfo, categoryMap: tripgenCategoryMap, peakWindows: tripgenPeakWindows,
+      qaqc: tripgenQaqc, dataView: tripgenDataView,
+      onSiteInfoChange: () => {}, onCategoryMapChange: () => {}, onPeakWindowChange: () => {},
+      onPeakManualToggle: () => {}, onDataViewChange: () => {}, onFixedWindowChange: () => {},
+      fixedWindowStartMin: tripgenFixedWindowStartMin, fixedWindowEndMin: tripgenFixedWindowEndMin,
+    });
+  } else if (proj.projectType === 'area') {
+    // Study-wide rollup (decision: conservative pick over per-intersection drill-down —
+    // see DEVLOG) — reuses the same render function the real Aggregate screen uses.
+    await renderAreaAggregateContent(content);
+  } else if (proj.projectType === 'parking') {
+    renderParkingSummary(content);
+  } else {
+    content.innerHTML = '<div class="stat-detail">This shared project type is not supported.</div>';
+  }
 }
 
 // ═══════════════════════════════════════════
@@ -5225,6 +5417,7 @@ function serializeCurrentProject() {
       projectInfo: { ...projectInfo },
       activeIntersectionIdx,
       intersections: areaIntersections.map(ix => ({ name: ix.name, snapshot: ix.snapshot, street1: ix.street1 || '', street2: ix.street2 || '', corridor: ix.corridor || '', counterName: ix.counterName || '', lat: ix.lat || '', lng: ix.lng || '' })),
+      shareInfo: { ...shareInfo },
     };
   }
   if (projectType === 'intersection') {
@@ -5256,6 +5449,7 @@ function serializeCurrentProject() {
         pedManual: setsToArrays(p.data.pedManual),
         tmManual: setsToArrays(p.data.tmManual),
       })),
+      shareInfo: { ...shareInfo },
     };
   }
   if (projectType === 'parking') {
@@ -5265,6 +5459,7 @@ function serializeCurrentProject() {
       zones: JSON.parse(JSON.stringify(parkingZones)),
       cfg: { ...parkingCfg },
       grid: JSON.parse(JSON.stringify(parkingGrid)),
+      shareInfo: { ...shareInfo },
     };
   }
   if (projectType === 'tripgen') {
@@ -5289,6 +5484,7 @@ function serializeCurrentProject() {
       entries: JSON.parse(JSON.stringify(tripgenEntries)),
       distribution: JSON.parse(JSON.stringify(tripgenDistribution)),
       pendingLocation: pendingSnap ? { ...tgPendingLocation, ...pendingSnap } : null,
+      shareInfo: { ...shareInfo },
     };
   }
   return null;
@@ -5306,6 +5502,7 @@ function setSaveState(msg, durationMs) {
 }
 
 window.scheduleAutosave = function () {
+  if (isViewerMode) return; // structural guard — a viewer's browser must never write locally
   if (!projectType) return;
   setSaveState('Saving…');
   clearTimeout(_autosaveTimer);
@@ -5329,9 +5526,22 @@ window.scheduleAutosave = function () {
         addToRecents(proj);
         setSaveState('Saved', 2000);
       }
+      maybePushSharedUpdate(proj);
     } catch (_) { setSaveState('', 0); }
   }, 2000);
 };
+
+// Piggybacks on the autosave path (decision #7) but throttled much harder — only fires a
+// Firestore write if this project currently has sharing enabled, and at most once per
+// SHARE_PUSH_INTERVAL_MS regardless of how often autosave itself ticks.
+function maybePushSharedUpdate(proj) {
+  if (isViewerMode) return; // structural guard — never push from a viewer's browser
+  if (!proj || !shareInfo.enabled || !shareInfo.shareId || !shareInfo.ownerToken) return;
+  const now = Date.now();
+  if (now - _lastSharePushAt < SHARE_PUSH_INTERVAL_MS) return;
+  _lastSharePushAt = now;
+  pushSharedUpdate(shareInfo.shareId, shareInfo.ownerToken, proj).catch(() => {});
+}
 
 // Flushes any pending debounced autosave immediately and synchronously. Call this BEFORE
 // reassigning activeIntersectionIdx to point at a different area-study intersection than
@@ -5350,6 +5560,7 @@ window.scheduleAutosave = function () {
 // synchronously (against the CORRECT, still-matching activeIntersectionIdx) before it
 // changes closes that race.
 function flushPendingAutosave() {
+  if (isViewerMode) return; // structural guard — a viewer's browser must never write locally
   if (!_autosaveTimer) return;
   clearTimeout(_autosaveTimer);
   _autosaveTimer = null;
@@ -5382,6 +5593,7 @@ function flushPendingAutosave() {
 // place (see ixQaqcSource()), so nothing here needs re-deriving from live state — this just
 // flushes the areaIntersections array exactly as it stands to localStorage.
 function persistAreaStudySnapshotsOnly() {
+  if (isViewerMode) return; // structural guard — a viewer's browser must never write locally
   if (projectType !== 'area') { window.scheduleAutosave?.(); return; }
   setSaveState('Saving…');
   try {
@@ -5393,14 +5605,16 @@ function persistAreaStudySnapshotsOnly() {
       projectInfo: { ...projectInfo },
       activeIntersectionIdx,
       intersections: areaIntersections.map(ix => ({ name: ix.name, snapshot: ix.snapshot, street1: ix.street1 || '', street2: ix.street2 || '', corridor: ix.corridor || '', counterName: ix.counterName || '', lat: ix.lat || '', lng: ix.lng || '' })),
+      shareInfo: { ...shareInfo },
     };
     localStorage.setItem(LS_KEY, JSON.stringify(proj));
     addToRecents(proj);
     setSaveState('Saved', 2000);
+    maybePushSharedUpdate(proj);
   } catch (_) { setSaveState('', 0); }
 }
 
-function clearAutosave() { localStorage.removeItem(LS_KEY); }
+function clearAutosave() { if (isViewerMode) return; localStorage.removeItem(LS_KEY); }
 
 function getProjectName(proj) {
   if (proj?.projectType === 'tripgen') return proj.siteInfo?.location || proj.projectInfo?.projectName || 'Trip generation project';
@@ -5433,6 +5647,7 @@ function deleteProjectFromStorage(uuid) {
 }
 
 function addToRecents(proj) {
+  if (isViewerMode) return; // structural guard — a viewer's browser must never write locally
   if (!proj?.projectType) return;
   if (proj.uuid) {
     try {
