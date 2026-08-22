@@ -20,6 +20,50 @@ async function ensureAnonAuth() {
   return cred.user;
 }
 
+// BUG-045: Firestore rejects arrays-of-arrays ("Nested arrays are not supported"). This app's
+// own save/export format (localStorage, .tcproject files) has no such restriction and never
+// needed one — intersection projects' vData ({in:[[...]],out:[[...]]}), pedData ([[[...]]]),
+// and tmcData ({leg:{dest:[[...]]}}) all nest arrays directly. Rather than hand-list every
+// field that happens to nest today (tmcData was missed once already — found by inspecting the
+// data shape, not by the live test that shipped BUG-045, since that test's project had no TMC
+// data), this walks the WHOLE payload and Firestore-safely encodes any array that directly
+// contains another array, wherever it occurs. decodeFirestoreArrays() is the exact inverse,
+// applied right after every read — encode/decode never touch serializeCurrentProject()'s own
+// canonical shape, so localStorage/file export stay completely unaffected; this only exists at
+// the Firestore write/read boundary.
+const ARR_MARKER = '__fsArr';
+function encodeFirestoreArrays(val) {
+  if (Array.isArray(val)) {
+    const encoded = val.map(encodeFirestoreArrays);
+    if (encoded.some(Array.isArray)) {
+      const obj = {};
+      encoded.forEach((v, i) => { obj[i] = v; });
+      return { [ARR_MARKER]: true, n: encoded.length, v: obj };
+    }
+    return encoded;
+  }
+  if (val && typeof val === 'object') {
+    const out = {};
+    for (const k in val) out[k] = encodeFirestoreArrays(val[k]);
+    return out;
+  }
+  return val;
+}
+function decodeFirestoreArrays(val) {
+  if (val && typeof val === 'object' && val[ARR_MARKER]) {
+    const arr = new Array(val.n);
+    for (const k in val.v) arr[Number(k)] = decodeFirestoreArrays(val.v[k]);
+    return arr;
+  }
+  if (Array.isArray(val)) return val.map(decodeFirestoreArrays);
+  if (val && typeof val === 'object') {
+    const out = {};
+    for (const k in val) out[k] = decodeFirestoreArrays(val[k]);
+    return out;
+  }
+  return val;
+}
+
 // Writes the current project to a new sharedProjects doc and returns the info the caller
 // must store locally (shareId, ownerToken) plus the ready-to-copy URL.
 export async function enableSharing(serializedProject) {
@@ -27,7 +71,7 @@ export async function enableSharing(serializedProject) {
   await ensureAnonAuth();
   const shareId = crypto.randomUUID();
   const ownerToken = crypto.randomUUID();
-  const payload = { ...serializedProject, ownerToken, sharedAt: Date.now() };
+  const payload = encodeFirestoreArrays({ ...serializedProject, ownerToken, sharedAt: Date.now() });
   await setDoc(doc(db, 'sharedProjects', shareId), payload);
   const url = `${location.origin}${location.pathname}?share=${shareId}`;
   return { shareId, ownerToken, url };
@@ -46,7 +90,7 @@ export async function disableSharing(shareId) {
 export async function pushSharedUpdate(shareId, ownerToken, serializedProject) {
   if (_viewerMode || !shareId || !ownerToken) return;
   await ensureAnonAuth();
-  const payload = { ...serializedProject, ownerToken, sharedAt: Date.now() };
+  const payload = encodeFirestoreArrays({ ...serializedProject, ownerToken, sharedAt: Date.now() });
   await setDoc(doc(db, 'sharedProjects', shareId), payload);
 }
 
@@ -54,5 +98,5 @@ export async function pushSharedUpdate(shareId, ownerToken, serializedProject) {
 // has been disabled (doc deleted) or never existed.
 export async function fetchSharedProject(shareId) {
   const snap = await getDoc(doc(db, 'sharedProjects', shareId));
-  return snap.exists() ? snap.data() : null;
+  return snap.exists() ? decodeFirestoreArrays(snap.data()) : null;
 }

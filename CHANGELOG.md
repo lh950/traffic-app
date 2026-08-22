@@ -1,5 +1,10 @@
 # Changelog
 
+## v3.46.0-alpha.4 — 2026-08-22
+
+### Fixed
+- **BUG-045 (Critical): "Enable sharing" failed outright for intersection and area-study projects.** Firestore rejects the nested-array shape those project types' `vData`/`pedData`/`tmcData` use — every attempt to enable sharing on a real intersection failed with a misleading "check your connection" error. Fixed with a generic encode/decode step at the Firestore write/read boundary only; the app's own save/export format is untouched. See `BUGS.md` BUG-045.
+
 ## v3.46.0-alpha.3 — 2026-08-22
 
 ### Changed
