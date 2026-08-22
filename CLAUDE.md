@@ -2,6 +2,22 @@
 
 **This file is the shared source of truth for any session working on this repo — local CLI, desktop app, or claude.ai/code (web/remote).** Sessions don't share memory with each other; this file is how they stay in sync. If you (any session) establish a new standing process rule, correct a wrong assumption, or learn something that would matter to a *different* session working on this repo later, add it here — not only to your own local/personal memory. Keep entries short and dated where relevant; this file should stay a quick read, not a full history (that's what `DEVLOG.md` is for).
 
+## Coding discipline
+
+Behavioral guidelines to reduce common LLM coding mistakes. These bias toward caution over speed — for trivial one-line fixes, use judgment rather than applying all four steps ceremonially. This section governs *code*; it does not shrink `BUGS.md`/`DEVLOG.md` entry depth (see Process below) — thorough root-cause writeups have been catching real bugs in this repo and should stay thorough.
+
+**1. Think before coding.** Don't assume, don't hide confusion, surface tradeoffs. State assumptions explicitly; if uncertain, ask. If multiple interpretations exist, present them rather than silently picking one. If a simpler approach exists, say so — push back when warranted. If something is unclear, stop, name what's confusing, and ask.
+
+**2. Simplicity first.** Minimum code that solves the problem, nothing speculative. No features beyond what was asked, no abstractions for single-use code, no unrequested "flexibility"/"configurability," no error handling for impossible scenarios. If a change is 200 lines and could be 50, rewrite it. Test: would a senior engineer call this overcomplicated?
+
+**3. Surgical changes.** Touch only what you must; clean up only your own mess. Don't "improve" adjacent code, comments, or formatting while editing something else. Don't refactor things that aren't broken. Match existing style even if you'd do it differently. If you notice unrelated dead code, mention it — don't delete it. Do remove imports/variables/functions that YOUR OWN changes made unused; don't remove pre-existing dead code unless asked. Test: every changed line should trace directly to the user's request.
+
+**4. Goal-driven execution.** Turn tasks into verifiable goals before starting ("fix the bug" → "reproduce it live, then confirm the repro no longer fails"; matches this repo's own live-verification requirement below). For multi-step work, state a brief plan with a verification check per step. Strong success criteria let you work independently; weak ones ("make it work") force constant clarification.
+
+**Writing style:** new code comments and documentation written for this repo should default to ASD Simplified Technical English (ASD-STE100) — short sentences, one action per sentence, plain approved vocabulary, active voice, no idioms — applied going forward, not as a retroactive rewrite of existing comments/docs. Where this would strip out a genuinely load-bearing nuance (the kind of non-obvious *why* this repo's own comment guidance already calls for), keep the nuance and simplify the sentence structure around it rather than deleting the substance.
+
+**These guidelines are working if:** fewer unnecessary changes show up in diffs, fewer rewrites happen due to overcomplication, and clarifying questions arrive before implementation rather than after a mistake.
+
 ## Session check-in / check-out — avoid two sessions colliding on the same files
 
 Before starting substantive work (more than a one-line fix), check `SESSION_LOCK.md` at the repo root:
