@@ -598,18 +598,20 @@ async function renderDayBlock(entry, day, dayIdx, ctx) {
   // Trip rate per category per day (rawDayTotalsArr — rate is always computed off the
   // as-counted day total, matching the source; "balanced" view doesn't change the rate).
   const rawGroups = groupTotals(parsed.types, rawDayTotalsArr, categoryMap);
-  const rateRows = await Promise.all(Object.keys(rawGroups).map(async (g) => {
+  const rateCards = await Promise.all(Object.keys(rawGroups).map(async (g) => {
     const rate = await data.tripRate(rawGroups[g], siteInfo.gsf);
-    return `<tr><td>${escapeHtml(g)}</td><td>${fmt(rawGroups[g])}</td><td>${rate != null ? rate : '—'}</td></tr>`;
+    return `
+      <div class="stat-card">
+        <div class="stat-label">${escapeHtml(g)}</div>
+        <div class="stat-value">${rate != null ? rate : '—'}<span class="unit">${rate != null ? '/ 1000 GSF' : ''}</span></div>
+        <div class="stat-detail">${fmt(rawGroups[g])} day total</div>
+      </div>`;
   }));
   const tripRateHTML = `
     <div class="card" style="margin-bottom:14px">
       <h3>Trip rate</h3>
       ${!siteInfo.gsf ? '<div class="stat-detail" style="margin-bottom:8px">Enter site square footage above to compute rates.</div>' : ''}
-      <table class="crosswalk-table">
-        <thead><tr><th>Group</th><th>Day total</th><th>Trips / 1000 GSF</th></tr></thead>
-        <tbody>${rateRows.join('')}</tbody>
-      </table>
+      <div class="card-grid">${rateCards.join('')}</div>
     </div>
   `;
 
@@ -636,8 +638,12 @@ async function renderDayBlock(entry, day, dayIdx, ctx) {
   const cameraImageHTML = day.cameraImageUrl
     ? `
       <div class="card" style="margin-bottom:14px">
-        <h3>Camera view</h3>
-        <img src="${day.cameraImageUrl}" alt="Camera view for ${escapeHtml(sheetName)}" style="max-width:100%;max-height:360px;width:auto;height:auto;display:block;border-radius:4px;border:1px solid var(--border)">
+        <details class="interval-detail">
+          <summary class="interval-detail-summary">Camera view</summary>
+          <div class="interval-detail-wrap">
+            <img src="${day.cameraImageUrl}" alt="Camera view for ${escapeHtml(sheetName)}" style="max-width:100%;max-height:360px;width:auto;height:auto;display:block;border-radius:4px;border:1px solid var(--border)">
+          </div>
+        </details>
       </div>
     `
     : '';
@@ -680,14 +686,22 @@ async function renderDayBlock(entry, day, dayIdx, ctx) {
         ${chartHTML}
       </div>
       <div class="card" style="margin-bottom:14px">
-        <h3>Volume by classification — stacked, by grouping</h3>
-        <div class="stat-detail" style="margin-bottom:10px">Stacked by raw classification (not the group rollup above). "Day"/"Day of week"/"Peak window" groupings combine this location's other counted days.</div>
-        <div class="tg-vcls-root" data-tg-classchart="${dayKey}"></div>
+        <details class="interval-detail">
+          <summary class="interval-detail-summary">Volume by classification — stacked, by grouping</summary>
+          <div class="interval-detail-wrap">
+            <div class="stat-detail" style="margin-bottom:10px">Stacked by raw classification (not the group rollup above). "Day"/"Day of week"/"Peak window" groupings combine this location's other counted days.</div>
+            <div class="tg-vcls-root" data-tg-classchart="${dayKey}"></div>
+          </div>
+        </details>
       </div>
       <div class="card no-print viewer-keep" style="margin-bottom:14px">
-        <h3>In/out over time</h3>
-        <div class="stat-detail" style="margin-bottom:10px">In (solid) and out (dashed) counts per interval for the selected vehicle classes and period(s) — same color per class as the stacked chart above.</div>
-        <div class="tg-linechart-wrap" data-tg-linechart="${dayKey}"></div>
+        <details class="interval-detail">
+          <summary class="interval-detail-summary">In/out over time</summary>
+          <div class="interval-detail-wrap">
+            <div class="stat-detail" style="margin-bottom:10px">In (solid) and out (dashed) counts per interval for the selected vehicle classes and period(s) — same color per class as the stacked chart above.</div>
+            <div class="tg-linechart-wrap" data-tg-linechart="${dayKey}"></div>
+          </div>
+        </details>
       </div>
       <div class="section no-print viewer-keep" style="margin-bottom:14px">
         <div class="section-head"><h2 style="font-size:14px;font-weight:600;margin:0">Interval detail</h2></div>
@@ -948,23 +962,38 @@ export async function renderTripGenSection(container, entries, ctx) {
   const fixedWinEndMin = ctx.fixedWindowEndMin ?? (9 * 60);
   const fixedWindowHTML = fixedWindowTripgenSectionHtml(entries, fixedWinStartMin, fixedWinEndMin, viewerMode);
 
-  const locationBlocks = await Promise.all(entries.map(async (entry) => {
+  const locationBlocks = await Promise.all(entries.map(async (entry, ei) => {
     const dayBlocks = await Promise.all(entry.days.map((d, di) => renderDayBlock(entry, d, di, { ...ctx, entryId: entry.id })));
     const meta = entry.meta || {};
     return `
-      <div class="card" style="margin-bottom:14px">
-        <h3>${escapeHtml(entry.locationLabel)}</h3>
-        ${(meta.siteName || meta.studyName || meta.gsf) ? `
-          <div class="stat-detail">
-            ${meta.studyName ? `Study: ${escapeHtml(String(meta.studyName))} &middot; ` : ''}
-            ${meta.siteName ? `Site: ${escapeHtml(String(meta.siteName))} &middot; ` : ''}
-            ${meta.gsf ? `GSF: ${fmt(meta.gsf)} sq ft` : ''}
-          </div>
-        ` : ''}
+      <div class="tg-loc-block" data-tg-loc="${ei}">
+        <div class="card" style="margin-bottom:14px">
+          <h3>${escapeHtml(entry.locationLabel)}</h3>
+          ${(meta.siteName || meta.studyName || meta.gsf) ? `
+            <div class="stat-detail">
+              ${meta.studyName ? `Study: ${escapeHtml(String(meta.studyName))} &middot; ` : ''}
+              ${meta.siteName ? `Site: ${escapeHtml(String(meta.siteName))} &middot; ` : ''}
+              ${meta.gsf ? `GSF: ${fmt(meta.gsf)} sq ft` : ''}
+            </div>
+          ` : ''}
+        </div>
+        ${dayBlocks.join('')}
       </div>
-      ${dayBlocks.join('')}
     `;
   }));
+
+  // Location tab bar — same pattern as main.js's intersection period bar (.apb-tab /
+  // buildPeriodBar): a real study can have many locations, each rendering its own full
+  // stack of day-block cards, so tabbing by location keeps only one location's cards on
+  // screen at a time instead of concatenating all of them. Selected index lives on the
+  // container node itself (container._tgActiveLocIdx) so it survives a full re-render
+  // (e.g. from a peak-window edit elsewhere on the page) the same way pane._viewPeriodIdx
+  // does on the intersection screen.
+  if (container._tgActiveLocIdx == null || container._tgActiveLocIdx >= entries.length) container._tgActiveLocIdx = 0;
+  const locationTabsHTML = entries.length > 1 ? `
+    <div class="day-tabs no-print viewer-keep" style="margin-bottom:14px">
+      ${entries.map((entry, ei) => `<button class="day-tab tg-loc-tab${ei === container._tgActiveLocIdx ? ' active' : ''}" data-tg-loc-tab="${ei}">${escapeHtml(entry.locationLabel)}</button>`).join('')}
+    </div>` : '';
 
   // Site info / classification-grouping are pure owner-config forms (editable fields with
   // no-op change handlers in viewer mode — see main.js's renderViewerContent) — not shown to
@@ -996,6 +1025,7 @@ export async function renderTripGenSection(container, entries, ctx) {
       ${qaqcSectionHTML}
     </div>
 
+    ${locationTabsHTML}
     ${locationBlocks.join('')}
   `;
 
@@ -1044,6 +1074,23 @@ export async function renderTripGenSection(container, entries, ctx) {
   container.querySelectorAll('[data-view-field]').forEach((el) => {
     el.addEventListener('click', () => ctx.onDataViewChange(el.dataset.viewField));
   });
+
+  // Location tab bar wiring — show only the active location's block, matching the
+  // .apb-tab click behavior on the intersection screen (main.js's buildPeriodBar).
+  function applyLocationTabVisibility() {
+    container.querySelectorAll('.tg-loc-block').forEach((el) => {
+      el.style.display = Number(el.dataset.tgLoc) === container._tgActiveLocIdx ? '' : 'none';
+    });
+  }
+  container.querySelectorAll('[data-tg-loc-tab]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      container._tgActiveLocIdx = Number(btn.dataset.tgLocTab);
+      container.querySelectorAll('.tg-loc-tab').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      applyLocationTabVisibility();
+    });
+  });
+  applyLocationTabVisibility();
 
   // Fixed-window report inputs — 'change' (not 'input') so a partially-typed time doesn't
   // trigger a re-render mid-edit; re-render is a full renderTripGenSection() pass via the

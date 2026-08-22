@@ -205,6 +205,9 @@ tfoot td:first-child{text-align:left;color:var(--text2)}
   /* Section breaks — each major section starts on its own page */
   .section{break-before:page}
   .section:first-of-type{break-before:auto}
+  /* Trip Gen location tabs (tripgenSection.js) hide every location but the active one on
+     screen — print must show all locations regardless of which tab was selected last. */
+  .tg-loc-block{display:block!important}
   /* Tighten heading sizes */
   h2{font-size:13px!important;margin-bottom:8px!important}
   h3{font-size:11px!important}

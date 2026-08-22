@@ -2028,9 +2028,42 @@ function renderAllPeriodsView(root, src) {
     `<tr><td class="ap-row-label">${label}</td>${vals.map(v => `<td>${v}</td>`).join('')}</tr>`
   ).join('');
 
+  const labels = cols.map(c => c.name);
+  const vehicleChart = renderStackedBarChart({
+    labels,
+    series: [
+      { label: 'Vehicle in', values: cols.map(c => c.vehIn) },
+      { label: 'Vehicle out', values: cols.map(c => c.vehOut) },
+    ],
+  });
+  // TMC and pedestrian totals are typically an order of magnitude apart (TMC counts every
+  // turning movement, pedestrian counts crossings) — sharing one chart axis would flatten
+  // the pedestrian bars to nearly nothing, so each gets its own chart rather than one
+  // combined multi-series chart.
+  const tmcChart = renderMultiSeriesBarChart({
+    labels,
+    series: [{ label: 'TMC total (motor)', values: cols.map(c => c.tmcTotal) }],
+  });
+  const pedChart = renderMultiSeriesBarChart({
+    labels,
+    series: [{ label: 'Pedestrian total', values: cols.map(c => c.pedTotal) }],
+  });
+
   root.innerHTML = `
     <div class="section">
       <div class="section-head"><h2>All periods — summary</h2></div>
+      <div class="card" style="margin-bottom:14px">
+        <div class="section-head" style="margin-bottom:10px"><h2 style="font-size:14px;font-weight:600;margin:0">Vehicle volume by period</h2></div>
+        ${vehicleChart}
+      </div>
+      <div class="card" style="margin-bottom:14px">
+        <div class="section-head" style="margin-bottom:10px"><h2 style="font-size:14px;font-weight:600;margin:0">TMC volume by period</h2></div>
+        ${tmcChart}
+      </div>
+      <div class="card" style="margin-bottom:14px">
+        <div class="section-head" style="margin-bottom:10px"><h2 style="font-size:14px;font-weight:600;margin:0">Pedestrian volume by period</h2></div>
+        ${pedChart}
+      </div>
       <div style="overflow-x:auto">
         <table class="ap-table">${header}${rows}</table>
       </div>

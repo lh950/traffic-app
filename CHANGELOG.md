@@ -1,5 +1,20 @@
 # Changelog
 
+## v3.46.0-alpha.5 — 2026-08-22
+
+### Changed
+- **Analysis screens redesign, items 1-4 of a research-backed priority list** (comparing this app's owner-facing Analysis screens against Miovision/StreetLight/Synchro and dashboard SaaS like Mixpanel/Stripe, grounded in the actual render code) — direct follow-up to user feedback that "the analysis page is a mess" and graphs weren't "displaying data." The area-aggregate screen (stat cards → chart → drillable table) was already good and served as the template; these changes bring the other screens toward that same pattern, not a new design direction.
+  - **Item 1 — intersection "All periods" comparison view had zero charts.** `renderAllPeriodsView` (main.js) was a bare transposed table with no visualization despite having all the data (vehicle in/out, TMC total, pedestrian total per period). Now shows a stacked bar chart (vehicle in/out by period), plus separate TMC and pedestrian bar charts — kept as two charts rather than one combined multi-series chart because TMC volumes (thousands) and pedestrian volumes (hundreds) on a shared axis flattened the pedestrian bars to nearly invisible. The table stays below the charts for full detail. Reuses the existing `renderStackedBarChart`/`renderMultiSeriesBarChart` primitives already used elsewhere on the same screen — no new chart type.
+  - **Item 2 — Trip Gen locations now tabbed instead of concatenated.** `renderTripGenSection` (`src/analysis/ui/tripgenSection.js`) used to render every location's full day-block card stack on one page — a real multi-location study could produce 40-70 same-weight cards with no navigation. Added a location tab bar (same `.day-tabs` pattern already used for the Raw/Balanced toggle on the same screen), one tab per location, only the active location's blocks visible; the cross-location sections (totals, fixed-window report, QA/QC summary) are unaffected since they already span every location. A print-only CSS override (`analysis/style.css`) forces every location visible when printing, so the printed report still includes all locations regardless of which tab was last selected on screen.
+  - **Item 3 — secondary Trip Gen day-block cards collapsed by default.** Camera image, "Volume by classification — stacked, by grouping" chart, and "In/out over time" chart are now behind the same `<details>`/`.interval-detail` toggle already used for Interval Detail on the same screen, collapsed by default.
+  - **Item 4 — Trip Gen trip-rate figures promoted to stat cards.** The "Trip rate" card was a plain table; now uses the same `.stat-card`/`.card-grid` pattern the intersection screen already uses for peak-hour/peak-15-min figures — one stat card per classification group, rate as the headline value, day total as the detail line.
+  - **Items 5-6 (Parking Summary KPI+chart, Data Quality section collapse) not done this batch** — stopped after 1-2 per the task's own scope guidance rather than doing all 6 shallowly. Left for a follow-up session.
+
+### Verified
+- Item 1: loaded `test-fixtures/4way-full-vehicle-ped-tmc.tcproject` (2 periods, full vehicle/ped/TMC data) live, switched to "All periods," confirmed all three charts' values match the table exactly (e.g. vehicle total 579/569, TMC total 5,310/6,336, pedestrian total 299/315) and the single-period view still renders its own charts/stat cards with no regression. No console errors.
+- Items 2-4: on a real Trip Gen project's existing location plus one added live, confirmed the location tab bar renders, switches the visible block, defaults to the first location, hides on a single-location project; confirmed the three secondary cards render collapsed and expand correctly (chart SVG renders inside once opened); confirmed trip-rate stat cards render with the correct group/day-total values. No console errors.
+- `npm run build` passes.
+
 ## v3.46.0-alpha.4 — 2026-08-22
 
 ### Fixed
