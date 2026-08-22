@@ -1,5 +1,10 @@
 # Changelog
 
+## v3.46.0-alpha.2 — 2026-08-22
+
+### Fixed
+- **BUG-043: shared links hung indefinitely in Firefox** (worked fine in Chrome). Firestore's default connection transport is known to hang in Firefox under some conditions — switched to auto-detected long-polling. See `BUGS.md` BUG-043.
+
 ## v3.46.0-alpha.1 — 2026-08-22
 
 ### Added

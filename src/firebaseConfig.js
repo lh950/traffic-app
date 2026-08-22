@@ -5,7 +5,7 @@
 // security rules, not key secrecy), so this file is safe to commit.
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { initializeFirestore } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: 'AIzaSyCumGwvHd4KsckP5DAmlaKqhmn6LKK_b4w',
@@ -18,4 +18,10 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+// User-reported: Firefox hung indefinitely opening a share link; Chrome worked fine.
+// getFirestore()'s default transport tries a persistent WebChannel/streaming connection even
+// for a one-shot read, which is known to hang in Firefox under some network/privacy-extension
+// conditions. autoDetectLongPolling falls back to plain HTTP long-polling when streaming isn't
+// viable -- slightly higher latency, much more broadly compatible, irrelevant for an on-demand
+// read like this feature's.
+export const db = initializeFirestore(app, { experimentalAutoDetectLongPolling: true });

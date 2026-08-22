@@ -8,6 +8,16 @@ Severity levels:
 
 ---
 
+## BUG-043
+**Status:** Fixed (v3.46.0-alpha.2, user-reported: "firefox is hanging on the load, chrome opens it fine" — a share link that opened correctly in Chrome never loaded in Firefox)
+**Severity:** Major (the whole read-only sharing feature was unusable in Firefox — one of the two major desktop browsers — with no error, just an indefinite hang)
+**Found in:** v3.46.0-alpha.1 (Item 5, shipped same day) — `src/firebaseConfig.js`
+**Description:** `getFirestore(app)` uses the Firestore Web SDK's default transport, which tries to establish a persistent WebChannel/streaming connection even for a single one-shot `getDoc()` read. This transport is known to hang indefinitely in Firefox under some network/privacy-extension conditions (Firefox handles some streaming/fetch behaviors differently than Chromium) — a well-documented cross-browser Firestore compatibility gap, not something specific to this app's own code. Confirmed cross-browser: the same share link opened correctly in Chrome (verified live, both the local dev build and the deployed production site) and hung with no error in the user's Firefox.
+**Fix:** Swapped `getFirestore(app)` for `initializeFirestore(app, { experimentalAutoDetectLongPolling: true })` — falls back to plain HTTP long-polling when the streaming transport isn't viable, at a small latency cost that's irrelevant for an on-demand read like this feature's.
+**Verified live (Chrome only — no Firefox available in this environment):** re-ran the full enable-sharing flow against the local dev server after the change; no regression, share link generated and widget updated correctly, no console errors. The actual Firefox-hang repro could not be directly re-tested here — flagging this as the one thing still needing the user's own confirmation once deployed, rather than claiming a fix I couldn't personally verify against the failing browser.
+
+---
+
 ## BUG-042
 **Status:** Fixed (v3.45.0-alpha.4, user-reported live: recount data entered for one Trip Gen location appeared in a second, uncounted location's QA/QC screen — "it looks like it copies into fountain ave, and when i delete them from fountain ave, it deletes them from flatlands ave")
 **Severity:** Critical (data corruption — two different locations' saved data became genuinely shared/aliased, not just misdisplayed; deleting a recount under one location's name deleted the other's real data)
