@@ -112,6 +112,16 @@ function ratingBadge(rating) {
   return `<span class="tag ${map[rating] || ''}">${rating}</span>`;
 }
 
+// Read-only shared viewer only (see main.js's renderViewerContent, which passes
+// ctx.viewerMode: true): tucks a detailed table behind the same <details>/.interval-detail
+// toggle already used for Interval Detail elsewhere, collapsed by default. No-op (returns
+// html unchanged) for the internal owner-facing screen — that screen's own "data first"
+// convention (see this file's header comment) is unaffected.
+function wrapViewerDetail(html, label, viewerMode) {
+  if (!viewerMode) return html;
+  return `<details class="interval-detail"><summary class="interval-detail-summary">${label}</summary><div class="interval-detail-wrap">${html}</div></details>`;
+}
+
 // FAR = facility square footage ÷ lot gross square footage — the standard combined use of the
 // two site-area figures (e.g. FAR 0.42, FAR 2.1). Only meaningful when both values are
 // present and lotSf is nonzero; returns null otherwise so callers can hide the stat rather
@@ -352,7 +362,7 @@ function renderTgClassStackedSection(container, { parsed, days, dayType, peakWin
   }
 
   container.innerHTML = `
-    <div class="tg-vcls-toolbar dataset-tabs no-print" style="margin-bottom:12px">
+    <div class="tg-vcls-toolbar dataset-tabs no-print viewer-keep" style="margin-bottom:12px">
       ${TG_CLASS_CHART_GROUPINGS.map((g, i) => `<button class="dataset-tab tg-vcls-grp-btn${i === 0 ? ' active' : ''}" data-grp="${g.key}">${escapeHtml(g.label)}</button>`).join('')}
     </div>
     <div class="tg-vcls-chart-root"></div>
@@ -425,7 +435,7 @@ function renderTgLineChartSection(container, { parsed, dayType, peakWindows }) {
   const periodOptions = [{ key: '__fullday__', label: 'Full day' }, ...(peakWindows[dayType] || []).map((w) => ({ key: w.label, label: w.label }))];
 
   container.innerHTML = `
-    <div class="no-print" style="display:flex;flex-wrap:wrap;gap:18px;margin-bottom:12px">
+    <div class="no-print viewer-keep" style="display:flex;flex-wrap:wrap;gap:18px;margin-bottom:12px">
       <div>
         <div style="font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text2);margin-bottom:6px">vehicle classes</div>
         <div style="display:flex;flex-wrap:wrap;gap:10px">
@@ -547,7 +557,7 @@ function renderPeakWindowRangeControls(dayType, peakWindows) {
 
 async function renderDayBlock(entry, day, dayIdx, ctx) {
   const { parsed, sheetName, dayType } = day;
-  const { categoryMap, peakWindows, qaqc, entryId, siteInfo, dataView } = ctx;
+  const { categoryMap, peakWindows, qaqc, entryId, siteInfo, dataView, viewerMode } = ctx;
   const intervalMinutes = inferIntervalMinutes(parsed.intervals);
   const dayKey = `${entryId}__${dayIdx}`; // unique per entry+day, for the placeholder-div ids wired post-render below (BUG-017 discipline — no ids shared across simultaneously-mounted day blocks)
 
@@ -652,19 +662,21 @@ async function renderDayBlock(entry, day, dayIdx, ctx) {
         <div class="no-print" style="margin-bottom:10px;display:flex;flex-direction:column;gap:6px">
           ${renderPeakWindowRangeControls(dayType, peakWindows)}
         </div>
+        ${wrapViewerDetail(`
         <table class="crosswalk-table">
           <thead><tr><th>Period</th><th>Hour found</th><th>Volume</th><th>In/Out split</th><th>% of day</th></tr></thead>
           <tbody>${peakBlocks.join('')}</tbody>
-        </table>
+        </table>`, 'Show peak-period table', viewerMode)}
       </div>
       <div class="card" style="margin-bottom:14px">
         <h3>Volume by classification</h3>
-        ${renderDataViewToggle(dataView)}
+        ${viewerMode ? '' : renderDataViewToggle(dataView)}
+        ${wrapViewerDetail(`
         <table class="crosswalk-table" style="margin-bottom:14px">
           <thead><tr><th>Classification</th><th>Day total (in+out)</th></tr></thead>
           <tbody>${detailRows}</tbody>
           <tfoot><tr style="font-weight:600"><td>Day total — all classifications</td><td>${fmt(dayTotal)}</td></tr></tfoot>
-        </table>
+        </table>`, 'Show classification table', viewerMode)}
         ${chartHTML}
       </div>
       <div class="card" style="margin-bottom:14px">
@@ -672,16 +684,16 @@ async function renderDayBlock(entry, day, dayIdx, ctx) {
         <div class="stat-detail" style="margin-bottom:10px">Stacked by raw classification (not the group rollup above). "Day"/"Day of week"/"Peak window" groupings combine this location's other counted days.</div>
         <div class="tg-vcls-root" data-tg-classchart="${dayKey}"></div>
       </div>
-      <div class="card no-print" style="margin-bottom:14px">
+      <div class="card no-print viewer-keep" style="margin-bottom:14px">
         <h3>In/out over time</h3>
         <div class="stat-detail" style="margin-bottom:10px">In (solid) and out (dashed) counts per interval for the selected vehicle classes and period(s) — same color per class as the stacked chart above.</div>
         <div class="tg-linechart-wrap" data-tg-linechart="${dayKey}"></div>
       </div>
-      <div class="section no-print" style="margin-bottom:14px">
+      <div class="section no-print viewer-keep" style="margin-bottom:14px">
         <div class="section-head"><h2 style="font-size:14px;font-weight:600;margin:0">Interval detail</h2></div>
         ${intervalDetailHTML}
       </div>
-      <div class="section no-print" style="margin-bottom:14px">
+      <div class="section no-print viewer-keep" style="margin-bottom:14px">
         <div class="section-head"><h2 style="font-size:14px;font-weight:600;margin:0">Data quality</h2></div>
         <div class="tg-qa-root" data-tg-qa="${dayKey}"></div>
       </div>
@@ -793,6 +805,11 @@ async function renderQaqcSection(entries, ctx) {
     }
   }
 
+  // Summary table (with its per-row score/rating badges) IS the compact QA status — kept
+  // visible in viewer mode, same as everywhere else in this app's badge-first QA convention.
+  // detailBlocks (interval-by-interval primary-vs-recount comparison, one card per peak) is
+  // the granular data a client/PM doesn't need by default — collapsed behind the same
+  // <details> toggle as everything else here when ctx.viewerMode is set.
   return `
     <div class="card" style="margin-bottom:14px">
       <h3>QA/QC summary</h3>
@@ -802,7 +819,7 @@ async function renderQaqcSection(entries, ctx) {
         <tbody>${summaryRows.join('') || '<tr><td colspan="5" style="color:var(--text3)">No peak periods found yet.</td></tr>'}</tbody>
       </table>
     </div>
-    ${detailBlocks.join('')}
+    ${wrapViewerDetail(detailBlocks.join(''), `Show per-peak recount detail (${detailBlocks.length})`, ctx.viewerMode)}
   `;
 }
 
@@ -891,7 +908,7 @@ function fixedWindowTripgenTableHtml(entries, startMin, endMin) {
     </div>`;
 }
 
-function fixedWindowTripgenSectionHtml(entries, startMin, endMin) {
+function fixedWindowTripgenSectionHtml(entries, startMin, endMin, viewerMode = false) {
   return `
     <div class="card" style="margin-bottom:14px">
       <h3>Fixed-window report</h3>
@@ -900,13 +917,13 @@ function fixedWindowTripgenSectionHtml(entries, startMin, endMin) {
         <div class="setup-field"><label>window start</label><input type="time" data-tg-fixedwin="start" value="${minToTimeInput(startMin)}"></div>
         <div class="setup-field"><label>window end</label><input type="time" data-tg-fixedwin="end" value="${minToTimeInput(endMin)}"></div>
       </div>
-      <div data-tg-fixedwin-table>${fixedWindowTripgenTableHtml(entries, startMin, endMin)}</div>
+      <div data-tg-fixedwin-table>${wrapViewerDetail(fixedWindowTripgenTableHtml(entries, startMin, endMin), 'Show fixed-window table', viewerMode)}</div>
     </div>`;
 }
 
 export async function renderTripGenSection(container, entries, ctx) {
   if (entries.length === 0) { container.innerHTML = ''; return; }
-  const { siteInfo, categoryMap, dataView } = ctx;
+  const { siteInfo, categoryMap, dataView, viewerMode } = ctx;
   const allTypes = entries[0]?.days[0]?.parsed.types || [];
   // categoryMap may be missing entries for newly-seen classifications (e.g. a second
   // location file with slightly different columns) — fill defaults without clobbering
@@ -929,7 +946,7 @@ export async function renderTripGenSection(container, entries, ctx) {
 
   const fixedWinStartMin = ctx.fixedWindowStartMin ?? (8 * 60);
   const fixedWinEndMin = ctx.fixedWindowEndMin ?? (9 * 60);
-  const fixedWindowHTML = fixedWindowTripgenSectionHtml(entries, fixedWinStartMin, fixedWinEndMin);
+  const fixedWindowHTML = fixedWindowTripgenSectionHtml(entries, fixedWinStartMin, fixedWinEndMin, viewerMode);
 
   const locationBlocks = await Promise.all(entries.map(async (entry) => {
     const dayBlocks = await Promise.all(entry.days.map((d, di) => renderDayBlock(entry, d, di, { ...ctx, entryId: entry.id })));
@@ -949,18 +966,27 @@ export async function renderTripGenSection(container, entries, ctx) {
     `;
   }));
 
+  // Site info / classification-grouping are pure owner-config forms (editable fields with
+  // no-op change handlers in viewer mode — see main.js's renderViewerContent) — not shown to
+  // a viewer at all rather than rendered inert. Both are already marked .no-print in their
+  // own markup (renderSiteInfoForm/renderCategoryMapForm), which .viewer-mode .no-print
+  // (style.css) hides for the same reason it hides them from the printed report; skipping
+  // them here too avoids computing markup that would just be hidden anyway.
+  const totalsTable = `
+    <table class="crosswalk-table">
+      <thead><tr><th>Group</th>${Object.keys(crossGroups).map((b) => `<th>${escapeHtml(b)} total</th>`).join('')}</tr></thead>
+      <tbody>
+        ${allGroupNames.map((g) => `<tr><td>${escapeHtml(g)}</td>${Object.keys(crossGroups).map((b) => `<td>${fmt(crossGroups[b][g] || 0)}</td>`).join('')}</tr>`).join('')}
+      </tbody>
+    </table>`;
+
   container.innerHTML = `
     <div class="stat-detail" style="margin-bottom:14px">Combines every location counted so far into one set of totals, grouped by day type. Assign each classification to a category below if it isn't already grouped correctly, then scroll down for per-location, per-day breakdowns and the peak-hour trip generation figures.</div>
-    ${renderSiteInfoForm(siteInfo)}
-    ${renderCategoryMapForm(allTypes, categoryMap)}
+    ${viewerMode ? '' : renderSiteInfoForm(siteInfo)}
+    ${viewerMode ? '' : renderCategoryMapForm(allTypes, categoryMap)}
     <div class="card" style="margin-bottom:14px">
       <h3>Totals by day type — all ${entries.length} location${entries.length > 1 ? 's' : ''} combined</h3>
-      <table class="crosswalk-table">
-        <thead><tr><th>Group</th>${Object.keys(crossGroups).map((b) => `<th>${escapeHtml(b)} total</th>`).join('')}</tr></thead>
-        <tbody>
-          ${allGroupNames.map((g) => `<tr><td>${escapeHtml(g)}</td>${Object.keys(crossGroups).map((b) => `<td>${fmt(crossGroups[b][g] || 0)}</td>`).join('')}</tr>`).join('')}
-        </tbody>
-      </table>
+      ${wrapViewerDetail(totalsTable, 'Show totals table', viewerMode)}
     </div>
 
     ${fixedWindowHTML}
@@ -1050,7 +1076,7 @@ export async function renderTripGenSection(container, entries, ctx) {
       }
       const qaEl = container.querySelector(`[data-tg-qa="${dayKey}"]`);
       if (qaEl) {
-        renderQASection(qaEl, runVehicleQA(day.parsed));
+        renderQASection(qaEl, runVehicleQA(day.parsed), { collapsed: !!viewerMode });
       }
     });
   }

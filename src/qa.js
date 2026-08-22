@@ -202,7 +202,12 @@ export function runVehicleQA(parsed) {
 const SEV_ICON  = { error: '✕', warn: '⚠', info: 'ℹ' };
 const SEV_LABEL = { error: 'Error', warn: 'Warning', info: 'Note' };
 
-export function renderQASection(container, findings) {
+// `opts.collapsed` (used by the read-only shared viewer — see main.js's renderViewerContent)
+// keeps the compact badge row visible but tucks the full finding-by-finding list behind the
+// same <details> toggle already used for Interval Detail (.interval-detail /
+// .interval-detail-summary), rather than a bespoke collapse of its own — a client/PM sees
+// pass/fail at a glance and can expand for the same detail the project owner sees.
+export function renderQASection(container, findings, opts = {}) {
   if (!findings.length) {
     container.innerHTML = `<div class="qa-clean">✓ No data quality issues found.</div>`;
     return;
@@ -224,5 +229,9 @@ export function renderQASection(container, findings) {
     infos    ? `<span class="qa-badge qa-badge-info">${infos} note${infos > 1 ? 's' : ''}</span>` : '',
   ].filter(Boolean).join('');
 
-  container.innerHTML = `<div class="qa-badges">${badges}</div><div class="qa-list">${items}</div>`;
+  const list = opts.collapsed
+    ? `<details class="interval-detail"><summary class="interval-detail-summary">Show ${findings.length} detail${findings.length > 1 ? 's' : ''}</summary><div class="qa-list">${items}</div></details>`
+    : `<div class="qa-list">${items}</div>`;
+
+  container.innerHTML = `<div class="qa-badges">${badges}</div>${list}`;
 }

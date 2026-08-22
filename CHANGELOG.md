@@ -1,5 +1,16 @@
 # Changelog
 
+## v3.46.0-alpha.3 — 2026-08-22
+
+### Changed
+- **Redesigned the shared read-only viewer** — direct user feedback on Item 5: "theres far more data than is useful or necessary for a client or project manager to view." The shared page (`?share=<id>`) is no longer a full dump of the internal Analysis screen. Now, for all 4 project types (intersection, area study, Trip Gen, parking): charts and stat cards are the default, prominent content; detailed/interval-level tables (per-intersection tables, interval-detail tables, peak-period/classification/QA-QC-recount tables) are collapsed behind a click-to-expand toggle (the same `<details>` pattern already used for Interval Detail); QA status shows as a compact badge (pass/clean, or an error/warning count) with the full finding-by-finding list one click away instead of always expanded; and owner-only edit controls (site info form, classification grouping, peak-window pin controls) are hidden entirely rather than shown inert. Parking's shared view also gained a chart (the internal screen has never had one) — reuses the existing chart-rendering primitive, visualizing the same occupancy-% figures the table already showed. The internal, owner-facing Analysis screens are unchanged.
+
+### Fixed
+- **BUG-044: a viewer's own local project data could be silently overwritten with the shared project's data** on closing the tab or navigating away — the `beforeunload` autosave-flush handler was the one write path that didn't check the viewer-mode write guard. See `BUGS.md` BUG-044.
+
+### Found, not fixed (documented for a future session)
+- **BUG-045: "Enable sharing" fails outright for any intersection or area-study project** — Firestore rejects the nested-array shape of `vData`/`pedData`. Deliberately out of scope for this task (it's the Firestore push mechanism/data model, not the viewer). See `BUGS.md` BUG-045.
+
 ## v3.46.0-alpha.2 — 2026-08-22
 
 ### Fixed

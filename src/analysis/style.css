@@ -176,6 +176,20 @@ tfoot td:first-child{text-align:left;color:var(--text2)}
 
 .print-only{display:none}
 
+/* ── READ-ONLY SHARED VIEWER (?share=<id>) ──
+   Reuses the .no-print marker every analysis renderer already applies to owner-only,
+   edit-adjacent controls (site info / classification-grouping forms, peak-window pin
+   controls, print/export buttons, before/after comparison) — those don't belong in front of
+   a client/PM either, for the same reason they're excluded from the printed report. A few
+   .no-print elements ARE meant to stay reachable in the viewer (Interval Detail, Data
+   quality, the trip-gen in/out-over-time chart) — those carry an extra .viewer-keep class
+   to opt back in. See main.js's renderViewerContent()/#share-viewer-screen (index.html). */
+/* !important: several .no-print elements carry their own inline style="display:flex" (e.g.
+   the peak-window range controls in tripgenSection.js) — an inline style always wins over an
+   external stylesheet rule regardless of selector specificity (the exact BUG-016 failure
+   mode, see DEVLOG.md), so this needs !important to actually hide them. */
+.viewer-mode .no-print:not(.viewer-keep){display:none!important}
+
 /* ── PRINT ── */
 @media print{
   body{background:#fff}

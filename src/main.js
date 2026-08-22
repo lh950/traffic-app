@@ -68,7 +68,7 @@ import { parseStreetlightXlsx } from './parseStreetlightXlsx.js';
 import { parseCSV, detectColumnsLocally, mapColumnsWithClaude, buildSnapshotFromMapping, saveLearnedMappings, saveImportTemplate, loadImportTemplates, deleteImportTemplate, findMatchingTemplate, LS_API_KEY } from './importCsv.js';
 import * as analysisData from './analysis/ui/dataAdapter.js';
 import { renderSummary } from './analysis/ui/summary.js';
-import { renderStackedBarChart } from './analysis/ui/charts.js';
+import { renderStackedBarChart, renderMultiSeriesBarChart } from './analysis/ui/charts.js';
 import { renderTmcSection } from './analysis/ui/tmcDiagram.js';
 import { openPrintReport } from './printReport.js';
 import { runTmcQA, runVehicleQA, renderQASection, tmcStudyTotal, vehStudyTotal } from './qa.js';
@@ -456,7 +456,7 @@ function renderParkingOccBadge(input, zoneId) {
 // counting screen; the read-only viewer (renderViewerContent()) passes its own container
 // instead, so it never has to show the counting screen (with its editable count grid) to
 // display the summary table.
-function renderParkingSummary(wrapEl = document.getElementById('pk-summary-table')) {
+function renderParkingSummary(wrapEl = document.getElementById('pk-summary-table'), opts = {}) {
   const wrap = wrapEl;
   if (!wrap) return;
   const total = parkingTotalSlots();
@@ -475,7 +475,36 @@ function renderParkingSummary(wrapEl = document.getElementById('pk-summary-table
     html += '</tr>';
   }
   html += '</tbody></table>';
-  wrap.innerHTML = html;
+
+  if (!opts.viewerMode) { wrap.innerHTML = html; return; }
+
+  // Viewer-only chart — the internal parking screen has never had a chart (occupancy is
+  // read directly off the interval x zone grid below), so there's no existing chart-building
+  // call to reuse here the way the other 3 project types do. Reusing the SAME
+  // renderMultiSeriesBarChart primitive the app already uses elsewhere (not inventing a new
+  // chart type) to visualize the exact same occupancy-% figures already in the table below —
+  // no new metric, just a chart of one that already existed. Table (the detailed
+  // interval-by-interval grid) is collapsed by default behind the same <details> pattern
+  // used everywhere else in the viewer.
+  const labels = [];
+  for (let s = 0; s < total; s++) labels.push(pkSlotLabel(s));
+  const series = parkingZones.map(z => ({
+    label: z.name,
+    values: labels.map((_, s) => {
+      const occ = (parkingGrid[s] || {})[z.id];
+      return (occ != null && z.capacity > 0) ? Math.round((occ / z.capacity) * 100) : 0;
+    }),
+  }));
+  const chartHtml = total > 0 && parkingZones.length
+    ? renderMultiSeriesBarChart({ labels, series })
+    : '<div class="stat-detail">No occupancy data recorded yet.</div>';
+
+  wrap.innerHTML = `
+    <div class="section"><div class="section-head"><h2>Occupancy by interval (% of capacity)</h2></div>${chartHtml}</div>
+    <details class="interval-detail">
+      <summary class="interval-detail-summary">Show occupancy table (${total} interval${total !== 1 ? 's' : ''})</summary>
+      <div class="interval-detail-wrap">${html}</div>
+    </details>`;
 }
 
 function exportParkingCSV() {
@@ -1576,7 +1605,7 @@ function renderVehicleClassStackedSection(container, { vehParsed, allPeriods }) 
   }
 
   container.innerHTML = `
-    <div class="vcls-toolbar dataset-tabs no-print" style="margin-bottom:12px">
+    <div class="vcls-toolbar dataset-tabs no-print viewer-keep" style="margin-bottom:12px">
       ${CLASS_CHART_GROUPINGS.map((g, i) => `<button class="dataset-tab vcls-grp-btn${i === 0 ? ' active' : ''}" data-grp="${g.key}">${g.label}</button>`).join('')}
     </div>
     <div class="vcls-chart-root"></div>
@@ -1610,7 +1639,7 @@ async function renderAnalyzePeriodContent(root, vehParsed, pedParsed, tmcParsed,
   const hasMotor = hasTmc && motorIdx.length > 0;
 
   root.innerHTML = `
-    <div class="dataset-tabs no-print" id="analyze-dataset-tabs" style="display:flex;align-items:center;gap:0">
+    <div class="dataset-tabs no-print viewer-keep" id="analyze-dataset-tabs" style="display:flex;align-items:center;gap:0">
       <button class="dataset-tab active" data-kind="vehicle">Vehicle</button>
       <button class="dataset-tab" data-kind="ped">Pedestrian</button>
       ${hasTmc ? '<button class="dataset-tab" data-kind="tmc">Turning movements</button>' : ''}
@@ -1624,7 +1653,7 @@ async function renderAnalyzePeriodContent(root, vehParsed, pedParsed, tmcParsed,
     ${hasMotor ? `<div class="section"><div class="section-head"><h2>Turning movements${hasBikes ? ' — motor vehicles' : ''}</h2></div><div id="analyze-tmc-root"></div></div>` : ''}
     ${hasBikes ? `<div class="section"><div class="section-head"><h2>Turning movements — bicycles</h2></div><div id="analyze-bike-root"></div></div>` : ''}
     ${hasTmc && !hasMotor && !hasBikes ? '<div class="section"><div class="section-head"><h2>Turning movements</h2></div><div id="analyze-tmc-root"></div></div>' : ''}
-    <div class="section no-print"><div class="section-head"><h2>Interval detail</h2></div><div id="analyze-interval-root"></div></div>
+    <div class="section no-print viewer-keep"><div class="section-head"><h2>Interval detail</h2></div><div id="analyze-interval-root"></div></div>
     ${readOnly ? '' : '<div class="section no-print"><div class="section-head"><h2>Before / After comparison</h2></div><div id="analyze-compare-root"></div></div>'}
   `;
 
@@ -1670,7 +1699,7 @@ async function renderAnalyzePeriodContent(root, vehParsed, pedParsed, tmcParsed,
         });
       }
     }
-    renderQASection(qaRoot, findings);
+    renderQASection(qaRoot, findings, { collapsed: !!ctx.viewerMode });
   }
 
   async function paintInterval() {
@@ -1916,7 +1945,7 @@ function analysisSource(snapshotCtx) {
     return {
       periods: (snapshotCtx.periods || []).map(p => ({ name: p.name, data: p })),
       activePeriodIdx: -1, // no "currently counting" period in a read-only snapshot
-      ctx: { intersection: snapshotCtx.intersection || intersection, vPairs: snapshotCtx.vPairs || vPairs, readOnly: true },
+      ctx: { intersection: snapshotCtx.intersection || intersection, vPairs: snapshotCtx.vPairs || vPairs, readOnly: true, viewerMode: !!snapshotCtx.viewerMode },
       captureActive() {}, // no-op — nothing live to flush
     };
   }
@@ -2028,7 +2057,7 @@ async function renderIntersectionAnalysis(containerEl = null, snapshotCtx = null
   let periodBar = pane.querySelector('.analyze-period-bar');
   if (!periodBar) {
     periodBar = document.createElement('div');
-    periodBar.className = 'analyze-period-bar no-print';
+    periodBar.className = 'analyze-period-bar no-print viewer-keep';
     pane.insertBefore(periodBar, pane.firstChild);
   }
 
@@ -4045,7 +4074,7 @@ let _areaAggRenderGen = 0;
 // containerEl (optional): defaults to the real #area-aggregate-content screen; the read-only
 // viewer (renderViewerContent()) passes its own container instead, reusing this same render
 // logic without touching the edit-capable area-study screens.
-async function renderAreaAggregateContent(containerEl = document.getElementById('area-aggregate-content')) {
+async function renderAreaAggregateContent(containerEl = document.getElementById('area-aggregate-content'), opts = {}) {
   const myGen = ++_areaAggRenderGen;
   const container = containerEl;
   if (!container) return;
@@ -4180,16 +4209,26 @@ async function renderAreaAggregateContent(containerEl = document.getElementById(
       </tr>`;
   }).join('');
 
+  // In viewer mode (opts.viewerMode — see renderViewerContent()) the per-intersection table
+  // is tucked behind the same <details> toggle already used for Interval Detail, since the
+  // stat cards above already carry the study-wide QA/QC coverage rollup a client/PM needs at
+  // a glance — the per-row detail (and the "review →"/"QA/QC →" drill-down buttons, which
+  // only make sense for the project owner) stays one click away instead of dominating the
+  // page. The internal Aggregate screen (owner-facing) is unchanged — always expanded.
+  const completenessTable = `
+    <div style="overflow-x:auto">
+      <table class="data-table">
+        <thead><tr><th>Intersection</th><th style="text-align:right">Periods</th><th style="text-align:right">Total volume</th><th>QA/QC</th><th></th></tr></thead>
+        <tbody>${completenessRows}</tbody>
+      </table>
+    </div>`;
   const completenessSection = `
     <div class="card">
       <div class="section-head" style="margin-bottom:10px"><h2 style="font-size:14px;font-weight:600;margin:0">Data quality by intersection</h2></div>
       <div class="stat-detail" style="margin-bottom:10px">Which intersections have data, and their QA/QC recount status. "review →" opens that intersection's own Analyze screen; "QA/QC →" opens its recount screen — the same drill-down used everywhere else in the app.</div>
-      <div style="overflow-x:auto">
-        <table class="data-table">
-          <thead><tr><th>Intersection</th><th style="text-align:right">Periods</th><th style="text-align:right">Total volume</th><th>QA/QC</th><th></th></tr></thead>
-          <tbody>${completenessRows}</tbody>
-        </table>
-      </div>
+      ${opts.viewerMode
+        ? `<details class="interval-detail"><summary class="interval-detail-summary">Show table for all ${fmt(rowsWithSnap.length)} intersections</summary>${completenessTable}</details>`
+        : completenessTable}
     </div>`;
 
   const fixedWindowSection = fixedWindowSectionHtml();
@@ -5376,24 +5415,35 @@ async function renderViewerContent(proj) {
   if (proj.projectType === 'intersection') {
     // Same read-only snapshotCtx mechanism area-study children already use (see
     // analysisSource()) — passing it hides every edit/print-report-adjacent control this
-    // render tree gates on `readOnly`, without needing a second flag.
-    await renderIntersectionAnalysis(content, { periods: proj.periods, intersection: proj.intersection, vPairs: proj.vPairs });
+    // render tree gates on `readOnly`. viewerMode is a separate flag layered on top (see
+    // analysisSource()) — it only affects presentation (QA list collapsed behind its badge,
+    // interval detail stays reachable via .viewer-keep) and must NOT also apply to the
+    // internal area-study drill-down, which reuses this same readOnly path for the project
+    // owner and should keep showing everything expanded.
+    await renderIntersectionAnalysis(content, { periods: proj.periods, intersection: proj.intersection, vPairs: proj.vPairs, viewerMode: true });
   } else if (proj.projectType === 'tripgen') {
     // No-op change callbacks (this ctx object has no readOnly flag of its own) — keeps the
     // form fields from throwing if clicked, without wiring them to mutate anything.
+    // viewerMode additionally hides the owner-only edit forms (site info, classification
+    // grouping, peak-window controls — already marked .no-print, see style.css's
+    // .viewer-mode rule) and collapses the detailed tables behind <details> toggles (see
+    // wrapViewerDetail() in tripgenSection.js).
     await renderTripGenSection(content, tripgenEntries, {
       siteInfo: tripgenSiteInfo, categoryMap: tripgenCategoryMap, peakWindows: tripgenPeakWindows,
       qaqc: tripgenQaqc, dataView: tripgenDataView,
       onSiteInfoChange: () => {}, onCategoryMapChange: () => {}, onPeakWindowChange: () => {},
       onPeakManualToggle: () => {}, onDataViewChange: () => {}, onFixedWindowChange: () => {},
       fixedWindowStartMin: tripgenFixedWindowStartMin, fixedWindowEndMin: tripgenFixedWindowEndMin,
+      viewerMode: true,
     });
   } else if (proj.projectType === 'area') {
     // Study-wide rollup (decision: conservative pick over per-intersection drill-down —
     // see DEVLOG) — reuses the same render function the real Aggregate screen uses.
-    await renderAreaAggregateContent(content);
+    // viewerMode collapses the per-intersection table (the stat cards above it already carry
+    // the study-wide QA/QC coverage rollup a client/PM needs at a glance).
+    await renderAreaAggregateContent(content, { viewerMode: true });
   } else if (proj.projectType === 'parking') {
-    renderParkingSummary(content);
+    renderParkingSummary(content, { viewerMode: true });
   } else {
     content.innerHTML = '<div class="stat-detail">This shared project type is not supported.</div>';
   }
@@ -5747,8 +5797,17 @@ function renderHomeRecents() {
 }
 window.__loadProject = loadProject;
 
+// BUG-044: this was the one write path that DIDN'T check isViewerMode — every other
+// autosave call site in the file guards it (see the "structural guard" comments above), but
+// this beforeunload handler wrote unconditionally. loadProject(proj, {viewerMode:true})
+// still populates the live globals so renderIntersectionAnalysis()/etc. have data to read —
+// which means serializeCurrentProject() here would happily serialize the SHARED project and
+// silently overwrite the viewer's own local traffic-app-autosave slot the moment they closed
+// the tab or navigated away, corrupting whatever they were working on locally with someone
+// else's shared data. Found via live testing (this task's required "re-verify localStorage
+// stays untouched" check), not by inspection.
 window.addEventListener('beforeunload', () => {
-  if (!projectType) return;
+  if (!projectType || isViewerMode) return;
   try {
     const proj = serializeCurrentProject();
     if (proj) localStorage.setItem(LS_KEY, JSON.stringify(proj));
