@@ -862,7 +862,7 @@ export async function computeQaqcPeakScore(entry, day, w, qaqc) {
 // level either), so a single peak's own real signal is just qaqcPeakHourScore's overallPass
 // boolean. Inventing a 3-tier scale for one peak would be a rating the source data model
 // doesn't actually have.
-function passFailBadge(overallPass) {
+export function passFailBadge(overallPass) {
   if (overallPass == null) return `<span class="tag">Incomplete</span>`;
   return overallPass ? `<span class="tag badge-pass">✓ Pass</span>` : `<span class="tag badge-fail">✗ Fail</span>`;
 }

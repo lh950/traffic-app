@@ -68,7 +68,7 @@ import { parseStreetlightXlsx } from './parseStreetlightXlsx.js';
 import { parseCSV, detectColumnsLocally, mapColumnsWithClaude, buildSnapshotFromMapping, saveLearnedMappings, saveImportTemplate, loadImportTemplates, deleteImportTemplate, findMatchingTemplate, LS_API_KEY } from './importCsv.js';
 import * as analysisData from './analysis/ui/dataAdapter.js';
 import { renderSummary } from './analysis/ui/summary.js';
-import { renderStackedBarChart, renderMultiSeriesBarChart } from './analysis/ui/charts.js';
+import { renderStackedBarChart, renderMultiSeriesBarChart, renderComboChart, SERIES_COLOR_VARS } from './analysis/ui/charts.js';
 import { renderTmcSection } from './analysis/ui/tmcDiagram.js';
 import { openPrintReport } from './printReport.js';
 import { runTmcQA, runVehicleQA, renderQASection, tmcStudyTotal, vehStudyTotal } from './qa.js';
@@ -78,7 +78,7 @@ import { exportShareablePage, buildShareableHTML } from './shareReport.js';
 import JSZip from 'jszip';
 import { printSummaryReport, printIntersectionReport } from './printPedReport.js';
 import { buildVolumeProfileSVG, buildCrosswalkBarSVG, buildChartLegend, dirSplitBar, CW_COLORS } from './chartUtils.js';
-import { renderTripGenSection, DEFAULT_PEAK_WINDOWS, computePeakVolumes, computeQaqcPeakScore, renderQaqcDetailCardHTML } from './analysis/ui/tripgenSection.js';
+import { renderTripGenSection, DEFAULT_PEAK_WINDOWS, computePeakVolumes, computeQaqcPeakScore, renderQaqcDetailCardHTML, passFailBadge } from './analysis/ui/tripgenSection.js';
 import { weekdayShort, dateLabelWithWeekday } from './analysis/ui/dateUtils.js';
 import { intervalBar, pctOfPeakCell } from './analysis/ui/intervalDetail.js';
 
@@ -964,6 +964,7 @@ document.getElementById('home-btn-intersection')?.addEventListener('click', () =
   // behind — same leakage shape as BUG-027, different trigger (new project vs. load).
   resetIntersection();
   resetKeybindCfg(); // don't let a previous project's keybinding preset/one-handed choice leak into a genuinely new one (same leakage class as BUG-032)
+  intersectionCustomWindows = []; intersectionCustomWindowNextId = 1; // same leakage class as BUG-032 — don't inherit a previous project's saved windows
   syncTemplateSlotsFromIntersection();
   enabledModes.ped = true; enabledModes.vehicle = true; enabledModes.turning = true;
   syncCountTypeToggles(); // reflect the reset into the ct-ped/ct-vehicle/ct-turning checkboxes' DOM state, not just the JS object
@@ -1585,6 +1586,131 @@ const CLASS_CHART_GROUPINGS = [
   { key: 'period', label: 'Study period' },
 ];
 
+// Sum one already-parsed vehicle dataset over an arbitrary clock-time window, broken down
+// by classification — the single-period counterpart to fixedWindowForIntersection() above
+// (same by-LABEL matching discipline, BUG-019/020), used by the Analysis screen's "your own
+// peak periods" section (customWindowsSectionHtml below) rather than the Area Aggregate's
+// cross-intersection fixed-window report.
+function fixedWindowForParsed(parsed, startMin, endMin) {
+  if (!parsed || !parsed.intervals.length) return { noData: true };
+  const intervalMinutes = inferIntervalMinutes(parsed.intervals);
+  const dayStartMin = toMinFromLabel(parsed.intervals[0].start);
+  const slots = parsed.intervals.length;
+  const dayEndMin = dayStartMin + slots * intervalMinutes;
+  if (!(dayStartMin <= startMin && dayEndMin >= endMin)) return { noData: true };
+  const startIdx = Math.round((startMin - dayStartMin) / intervalMinutes);
+  const windowSize = Math.max(1, Math.round((endMin - startMin) / intervalMinutes));
+  if (startIdx < 0 || startIdx + windowSize > slots) return { noData: true };
+
+  let total = 0;
+  const byLabel = new Map();
+  parsed.types.forEach((label, ci) => {
+    let sum = 0;
+    for (let k = 0; k < windowSize; k++) {
+      const iv = parsed.intervals[startIdx + k];
+      sum += (iv.inbound[ci] || 0) + (iv.outbound[ci] || 0);
+    }
+    if (sum) byLabel.set(label, (byLabel.get(label) || 0) + sum);
+    total += sum;
+  });
+  return { noData: false, total, byLabel };
+}
+
+function customWindowResultHtml(vehParsed, w) {
+  const fmtN = (n) => n.toLocaleString();
+  const r = fixedWindowForParsed(vehParsed, w.startMin, w.endMin);
+  if (r.noData) {
+    return `<div class="stat-detail" style="color:var(--text3)">No data for this window — this period doesn't cover ${minToTimeStr(w.startMin)}–${minToTimeStr(w.endMin)}.</div>`;
+  }
+  const breakdown = [...r.byLabel.entries()].map(([label, v]) => `${escapeHtmlMain(label)}: ${fmtN(v)}`).join(' · ');
+  return `<div class="stat-detail" style="font-weight:600;color:var(--text)">${fmtN(r.total)} vehicles<div style="font-weight:400;font-size:11px;color:var(--text3);margin-top:2px">${breakdown}</div></div>`;
+}
+
+// Named/saved custom time windows for THIS period's vehicle data — mirrors Trip Gen's
+// customWindowsSectionHtml (analysis/ui/tripgenSection.js) but reads/writes the module-level
+// intersectionCustomWindows list declared near fixedWindowStartMin above instead of a
+// per-project entries array. Live-project-only (see that declaration's header comment).
+function customWindowsSectionHtml(vehParsed) {
+  const rows = intersectionCustomWindows.map((w) => `
+    <div class="card" style="margin-bottom:10px" data-ixcw="${w.id}">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px">
+        <h3 style="margin:0">${escapeHtmlMain(w.label)} (${minToTimeStr(w.startMin)}–${minToTimeStr(w.endMin)})</h3>
+        <button type="button" class="no-print" data-ixcw-remove="${w.id}" style="font-size:11px;flex-shrink:0">× remove</button>
+      </div>
+      ${customWindowResultHtml(vehParsed, w)}
+    </div>
+  `).join('');
+  return `
+    <div class="card" style="margin-bottom:14px">
+      <h3>Your own peak periods</h3>
+      <div class="stat-detail" style="margin-bottom:10px">Name any clock-time window (e.g. "School dismissal") and see this period's vehicle volume for exactly that window — not just the detected peak hour.</div>
+      ${rows || '<div class="stat-detail" style="margin-bottom:10px">No custom windows saved yet.</div>'}
+      <div class="no-print" style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;padding-top:12px;margin-top:${intersectionCustomWindows.length ? '4px' : '0'};border-top:.5px dashed var(--border2)">
+        <div class="setup-field"><label>name</label><input type="text" id="ixcw-name" placeholder="e.g. Lunch rush" style="width:160px"></div>
+        <div class="setup-field"><label>start</label><input type="time" id="ixcw-start" value="08:30"></div>
+        <div class="setup-field"><label>end</label><input type="time" id="ixcw-end" value="09:30"></div>
+        <button type="button" class="btn-primary" id="ixcw-add" style="height:34px">+ add window</button>
+      </div>
+    </div>`;
+}
+
+// A per-classification stacked-bar + total-volume-line combo chart for this period's vehicle
+// data — the intersection counterpart to Trip Gen's mountTgClassComboChart (analysis/ui/
+// tripgenSection.js), minus the classification-grouping toggle (that feature stays Trip-Gen-
+// only for now — see DEVLOG). Reuses renderComboChart exactly, so the two screens' combo
+// charts never drift visually.
+function mountIntersectionComboChart(container, { parsed }) {
+  const types = parsed.types || [];
+  const visible = new Set(types);
+
+  function sumAt(cls, i) {
+    const ci = types.indexOf(cls);
+    if (ci < 0) return 0;
+    const iv = parsed.intervals[i];
+    return (iv.inbound[ci] || 0) + (iv.outbound[ci] || 0);
+  }
+
+  function computeBarSeries() {
+    return types.filter((c) => visible.has(c)).map((c) => ({
+      label: c, colorVar: SERIES_COLOR_VARS[types.indexOf(c) % SERIES_COLOR_VARS.length],
+      values: parsed.intervals.map((_, i) => sumAt(c, i)),
+    }));
+  }
+
+  function computeLineSeries() {
+    const active = types.filter((c) => visible.has(c));
+    return [{
+      label: 'Total', colorVar: '--chart-line', dashed: false,
+      values: parsed.intervals.map((_, i) => active.reduce((s, c) => s + sumAt(c, i), 0)),
+    }];
+  }
+
+  function paint() {
+    const chartRoot = container.querySelector('.ix-combo-chart-root');
+    if (!chartRoot) return;
+    if (!types.length) { chartRoot.innerHTML = '<div class="stat-detail">No vehicle-class data available.</div>'; return; }
+    if (visible.size === 0) { chartRoot.innerHTML = '<div class="stat-detail">No classifications selected — check at least one above.</div>'; return; }
+    const labels = parsed.intervals.map((iv) => iv.label || `${iv.start}–${iv.end}`);
+    chartRoot.innerHTML = renderComboChart({ labels, barSeries: computeBarSeries(), lineSeries: computeLineSeries() });
+  }
+
+  container.innerHTML = `
+    <div class="chart-controls-row no-print viewer-keep">
+      <div class="chart-class-checks">
+        ${types.map((c) => `<label class="chart-check"><input type="checkbox" data-ix-combo-cls="${escapeHtmlMain(c)}" checked> ${escapeHtmlMain(c)}</label>`).join('')}
+      </div>
+    </div>
+    <div class="ix-combo-chart-root"></div>
+  `;
+  container.querySelectorAll('[data-ix-combo-cls]').forEach((cb) => {
+    cb.addEventListener('change', () => {
+      if (cb.checked) visible.add(cb.dataset.ixComboCls); else visible.delete(cb.dataset.ixComboCls);
+      paint();
+    });
+  });
+  paint();
+}
+
 // `container` is scoped to the pane that called renderAnalyzePeriodContent (each analyze
 // pane gets its own root, per BUG-017 — no ids shared across simultaneously-mounted
 // panes), and this whole section is rebuilt fresh every time that pane repaints, so the
@@ -1650,6 +1776,8 @@ async function renderAnalyzePeriodContent(root, vehParsed, pedParsed, tmcParsed,
     </div>
     <div class="section"><div class="section-head"><h2>Summary</h2></div><div id="analyze-summary-root"></div></div>
     <div class="section"><div class="section-head"><h2>Volume by vehicle class</h2></div><div id="analyze-classchart-root"></div></div>
+    <div class="section"><div class="section-head"><h2>Classification breakdown over time</h2></div><div id="analyze-combochart-root"></div></div>
+    ${readOnly ? '' : '<div class="section"><div class="section-head"><h2>Your own peak periods</h2></div><div id="analyze-customwin-root"></div></div>'}
     <div class="section"><div class="section-head"><h2>Data quality</h2></div><div id="analyze-qa-root"></div></div>
     ${hasMotor ? `<div class="section"><div class="section-head"><h2>Turning movements${hasBikes ? ' — motor vehicles' : ''}</h2></div><div id="analyze-tmc-root"></div></div>` : ''}
     ${hasBikes ? `<div class="section"><div class="section-head"><h2>Turning movements — bicycles</h2></div><div id="analyze-bike-root"></div></div>` : ''}
@@ -1736,6 +1864,37 @@ async function renderAnalyzePeriodContent(root, vehParsed, pedParsed, tmcParsed,
       vehParsed,
       allPeriods: ctx.allPeriods && ctx.allPeriods.length ? ctx.allPeriods : [{ name: 'Current session', meta: {}, vehParsed }],
     });
+  }
+  const comboChartRoot = root.querySelector('#analyze-combochart-root');
+  if (comboChartRoot) mountIntersectionComboChart(comboChartRoot, { parsed: vehParsed });
+
+  if (!readOnly) {
+    const cwRoot = root.querySelector('#analyze-customwin-root');
+    if (cwRoot) {
+      const paintCustomWindows = () => {
+        cwRoot.innerHTML = customWindowsSectionHtml(vehParsed);
+        cwRoot.querySelector('#ixcw-add')?.addEventListener('click', () => {
+          const name = cwRoot.querySelector('#ixcw-name').value.trim();
+          const startMin = toMinFromLabel(cwRoot.querySelector('#ixcw-start').value || '08:30');
+          const endMin = toMinFromLabel(cwRoot.querySelector('#ixcw-end').value || '09:30');
+          if (!name) { alert('Name this window first.'); return; }
+          if (endMin <= startMin) { alert('End time must be after start time.'); return; }
+          intersectionCustomWindows.push({ id: intersectionCustomWindowNextId++, label: name, startMin, endMin });
+          paintCustomWindows();
+          window.scheduleAutosave?.();
+        });
+        cwRoot.querySelectorAll('[data-ixcw-remove]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const id = Number(btn.dataset.ixcwRemove);
+            const idx = intersectionCustomWindows.findIndex((w) => w.id === id);
+            if (idx >= 0) intersectionCustomWindows.splice(idx, 1);
+            paintCustomWindows();
+            window.scheduleAutosave?.();
+          });
+        });
+      };
+      paintCustomWindows();
+    }
   }
 
   if (hasMotor) {
@@ -3961,6 +4120,16 @@ function sumVehicleModeOnly(snap) {
 let fixedWindowStartMin = 8 * 60 + 30;   // 8:30
 let fixedWindowEndMin = 9 * 60 + 30;     // 9:30
 
+// Named, saved custom time windows for a standalone intersection project's own Analysis
+// screen (renderAnalyzePeriodContent) — same idea as Trip Gen's "your own peak periods"
+// section. Scoped to the live project only (persisted via serializeCurrentProject/
+// loadProject below), not area-study children — those render through a read-only snapshot
+// (see analysisSource()'s ctx.readOnly / renderIntersectionAnalysis's header comment) with
+// no live counterpart to write into, same reasoning as the Before/After comparison section
+// right above it in renderAnalyzePeriodContent.
+let intersectionCustomWindows = []; // [{id, label, startMin, endMin}]
+let intersectionCustomWindowNextId = 1;
+
 // Per-intersection sum for [startMin, endMin) — matches by-LABEL (vp[i].label), same
 // discipline as aggregateVehicleClassTotalsByIntersection() above (see BUG-019/020).
 // Picks whichever of this intersection's periods actually CONTAINS the window; if none do,
@@ -5345,6 +5514,8 @@ function loadProject(proj, opts = {}) {
   const ixQaqcDateEl = document.getElementById('ix-qaqc-review-date');
   if (ixQaqcReviewerEl) ixQaqcReviewerEl.value = proj.intersectionQaqcReviewerName || '';
   if (ixQaqcDateEl) ixQaqcDateEl.value = proj.intersectionQaqcReviewDate || '';
+  intersectionCustomWindows = JSON.parse(JSON.stringify(proj.intersectionCustomWindows || []));
+  intersectionCustomWindowNextId = intersectionCustomWindows.reduce((mx, w) => Math.max(mx, w.id + 1), 1);
 
   if (proj.periods) {
     // v2 format — restore periods array
@@ -5525,6 +5696,7 @@ function serializeCurrentProject() {
       streetlightComparison: { ...streetlightComparison },
       intersectionQaqcReviewerName: document.getElementById('ix-qaqc-reviewer-name')?.value || '',
       intersectionQaqcReviewDate: document.getElementById('ix-qaqc-review-date')?.value || '',
+      intersectionCustomWindows: JSON.parse(JSON.stringify(intersectionCustomWindows)),
       activePeriodIdx,
       plannedPeriods: plannedPeriods.map(p => ({ ...p })),
       periods: periods.map(p => ({
@@ -7035,10 +7207,8 @@ async function renderIntersectionQaqcScreen(snapshotCtx = null) {
           const diffPct = recountTotal != null && primaryTotal > 0 ? Math.abs(diff / primaryTotal) * 100 : (recountTotal === 0 && primaryTotal === 0 ? 0 : null);
           const thresh = ixQaqcThresholdPct(primaryTotal);
           const resultLabel = !latest
-            ? '<span style="color:var(--text3)">no recount</span>'
-            : (!inRange || scoreResult?.rating === 'Incomplete'
-              ? '<span style="color:var(--text3)">incomplete</span>'
-              : (scoreResult?.overallPass ? '<span style="color:#2a8">pass</span>' : '<span style="color:#c33">fail</span>'));
+            ? '<span class="tag" style="color:var(--text3)">no recount</span>'
+            : passFailBadge(!inRange || scoreResult?.rating === 'Incomplete' ? null : scoreResult?.overallPass);
           rowHtml.push(`<tr>
             <td>${escapeHtmlMain(r.label)}</td>
             <td>${primaryTotal}</td>

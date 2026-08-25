@@ -1,5 +1,17 @@
 # Changelog
 
+## v3.47.0-alpha.3 — 2026-08-25
+
+### Added
+- **Intersection Analysis: "Your own peak periods"** — name and save any clock-time window for this period's vehicle data, same idea as Trip Gen's version. Standalone intersection projects only (not area-study children, which are read-only snapshots).
+- **Intersection Analysis: "Classification breakdown over time" combo chart** — stacked bars per vehicle class plus a total-volume line, with per-class checkboxes. Available everywhere the Analysis screen renders, including area-study children.
+- **Shared pass/fail badge** — the intersection QA/QC screen's per-row result now uses the same ✓ Pass / ✗ Fail badge styling Trip Gen's QA/QC already uses, instead of separately hand-rolled colored text.
+
+### Scoped, not built
+- **Area-wide combo chart** (site-wide summary equivalent for multi-intersection studies) — write-up of the design questions that need answering first (shared axis: calendar date vs. period label; data source: read-only snapshots, not live state) is in `DEVLOG.md`.
+- Classification grouping for intersection — held per direct instruction.
+- Parking — confirmed nothing in this batch applies (no classification axis, no QA/QC, no keyboard counting).
+
 ## v3.47.0-alpha.2 — 2026-08-25
 
 ### Added
