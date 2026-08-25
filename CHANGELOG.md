@@ -1,5 +1,15 @@
 # Changelog
 
+## v3.47.0-alpha.2 — 2026-08-25
+
+### Added
+- **Classification grouping moved to Setup's classifications tab**, out of the Analysis screen — Analysis now shows an "Edit classification groups →" link instead of an inline form. Fixed a real bug found while testing this with real classification names: the built-in grouping suggestions never matched "single unit trucks" (only the hyphenated "single-unit") and never recognized "tandem trailer" at all — both now correctly default to "Trucks".
+- **Peak periods bar chart** — the existing auto-detected AM/Midday/PM peak table now has a chart above it, with a legend (peak volume vs. the day's busiest peak).
+- **Your own peak periods** — name and save any additional clock-time window (e.g. "School dismissal"); measured the same way as the existing fixed-window report, persisted with the project.
+- **Site-wide summary** — one combo chart per calendar date, combining every location: bars = combined classification totals, one line per location. Classification checkboxes (all on by default) and a by-classification/by-group toggle.
+- **Per-location classification breakdown chart** — same combo-chart idea, one per location per day: bars = that location's own classification breakdown, line = its total.
+- All three new chart sections apply to the shared read-only viewer too, not just the owner's Analysis screen.
+
 ## v3.47.0-alpha.1 — 2026-08-24
 
 ### Added

@@ -1,5 +1,5 @@
 import * as data from './dataAdapter.js';
-import { renderMultiSeriesBarChart, renderStackedBarChart, renderLineChart, SERIES_COLOR_VARS } from './charts.js';
+import { renderBarChart, renderMultiSeriesBarChart, renderStackedBarChart, renderLineChart, renderComboChart, SERIES_COLOR_VARS } from './charts.js';
 import { weekdayShort, dateLabelWithWeekday } from './dateUtils.js';
 import { intervalBar, pctOfPeakCell } from './intervalDetail.js';
 import { runVehicleQA, renderQASection } from '../../qa.js';
@@ -185,23 +185,6 @@ function renderSiteInfoForm(siteInfo) {
   `;
 }
 
-function renderCategoryMapForm(types, categoryMap) {
-  return `
-    <div class="card no-print" style="margin-bottom:14px">
-      <h3>Classification grouping</h3>
-      <div class="stat-detail" style="margin-bottom:10px">Starting grouping only — reassign as <em>this</em> site/project needs (e.g. split pedestrians into walking/biking, or trucks by use type). No default here is a standard; type any group name, matching names share a group.</div>
-      <table class="crosswalk-table">
-        <thead><tr><th>Classification</th><th>Group</th></tr></thead>
-        <tbody>
-          ${types.map((t) => `
-            <tr><td>${escapeHtml(t)}</td><td><input type="text" data-category-field="${escapeHtml(t)}" value="${escapeHtml(categoryMap[t] || '')}" style="width:160px" /></td></tr>
-          `).join('')}
-        </tbody>
-      </table>
-    </div>
-  `;
-}
-
 function renderDataViewToggle(dataView) {
   return `
     <div class="day-tabs no-print" style="margin-bottom:10px">
@@ -372,6 +355,93 @@ function renderTgClassStackedSection(container, { parsed, days, dayType, peakWin
       container.querySelectorAll('.tg-vcls-grp-btn').forEach((b) => b.classList.remove('active'));
       btn.classList.add('active');
       grouping = btn.dataset.grp;
+      paint();
+    });
+  });
+  paint();
+}
+
+// ── Classification breakdown over time — combo chart (build brief item 2d) ───────────────
+// "line showing all vehicles across time period, and bar chart showing counts of
+// classifications for each period" — one per location per day. Stacked bars = per-
+// classification (or, via the toggle, per-group) breakdown at each interval; the line is
+// that location's own total across whichever classifications are currently checked, so the
+// line and the bar stack it sits over always agree with what's actually shown (uncheck a
+// class and both the bars AND the line drop by exactly that class's contribution — never a
+// fixed "true total" that stops matching the visible bars). Mounted the same way
+// renderTgClassStackedSection above is (a placeholder div wired post-render, local state
+// closed over rather than a new module-level global) since this needs its own per-instance
+// checkbox/grouping state, same as that chart's own grouping-toggle state.
+function mountTgClassComboChart(container, { parsed, categoryMap }) {
+  const types = parsed.types || [];
+  const visible = new Set(types);
+  let mode = 'classification';
+
+  function sumAt(cls, i) {
+    const ci = types.indexOf(cls);
+    if (ci < 0) return 0;
+    const iv = parsed.intervals[i];
+    return (iv.inbound[ci] || 0) + (iv.outbound[ci] || 0);
+  }
+
+  function computeBarSeries() {
+    if (mode === 'classification') {
+      return types.filter((c) => visible.has(c)).map((c, ci) => ({
+        label: c, colorVar: SERIES_COLOR_VARS[types.indexOf(c) % SERIES_COLOR_VARS.length],
+        values: parsed.intervals.map((_, i) => sumAt(c, i)),
+      }));
+    }
+    const groupOrder = [];
+    types.forEach((c) => { const g = categoryMap[c] || c; if (visible.has(c) && !groupOrder.includes(g)) groupOrder.push(g); });
+    return groupOrder.map((g, gi) => {
+      const members = types.filter((c) => (categoryMap[c] || c) === g && visible.has(c));
+      return {
+        label: g, colorVar: SERIES_COLOR_VARS[gi % SERIES_COLOR_VARS.length],
+        values: parsed.intervals.map((_, i) => members.reduce((s, c) => s + sumAt(c, i), 0)),
+      };
+    });
+  }
+
+  function computeLineSeries() {
+    const active = types.filter((c) => visible.has(c));
+    return [{
+      label: 'Total', colorVar: '--chart-line', dashed: false,
+      values: parsed.intervals.map((_, i) => active.reduce((s, c) => s + sumAt(c, i), 0)),
+    }];
+  }
+
+  function paint() {
+    const chartRoot = container.querySelector('.tg-combo-chart-root');
+    if (!chartRoot) return;
+    if (!types.length) { chartRoot.innerHTML = '<div class="stat-detail">No classifications in this day\'s data.</div>'; return; }
+    if (visible.size === 0) { chartRoot.innerHTML = '<div class="stat-detail">No classifications selected — check at least one above.</div>'; return; }
+    const labels = parsed.intervals.map((iv) => iv.label || `${iv.start}–${iv.end}`);
+    chartRoot.innerHTML = renderComboChart({ labels, barSeries: computeBarSeries(), lineSeries: computeLineSeries() });
+  }
+
+  container.innerHTML = `
+    <div class="chart-controls-row no-print viewer-keep">
+      <div class="chart-class-checks">
+        ${types.map((c) => `<label class="chart-check"><input type="checkbox" data-tg-combo-cls="${escapeHtml(c)}" checked> ${escapeHtml(c)}</label>`).join('')}
+      </div>
+      <div class="chart-group-toggle">
+        <button type="button" class="grp-btn active" data-mode="classification">By classification</button>
+        <button type="button" class="grp-btn" data-mode="group" title="Uses the groups defined in Setup's classifications tab">By group</button>
+      </div>
+    </div>
+    <div class="tg-combo-chart-root"></div>
+  `;
+  container.querySelectorAll('[data-tg-combo-cls]').forEach((cb) => {
+    cb.addEventListener('change', () => {
+      if (cb.checked) visible.add(cb.dataset.tgComboCls); else visible.delete(cb.dataset.tgComboCls);
+      paint();
+    });
+  });
+  container.querySelectorAll('.grp-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      container.querySelectorAll('.grp-btn').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      mode = btn.dataset.mode;
       paint();
     });
   });
@@ -617,12 +687,16 @@ async function renderDayBlock(entry, day, dayIdx, ctx) {
 
   // Peak periods card here is a READ-ONLY summary (hour found, volume, in/out split, % of
   // day) — the recount entry/scoring UI lives in its own dedicated QA/QC section now (see
-  // renderQaqcSection), so this card doesn't duplicate it.
+  // renderQaqcSection), so this card doesn't duplicate it. peakChartData is captured
+  // alongside the table rows so the new bar chart (build brief item 2b) doesn't re-run peak
+  // detection a second time.
+  const peakChartData = [];
   const peakBlocks = await Promise.all(peakWindows[dayType].map(async (w) => {
     const peak = await resolvePeak(parsed, intervalMinutes, w);
     if (peak.startIdx < 0) {
       return `<tr><td>${escapeHtml(w.label)}</td><td colspan="3" style="color:var(--text3)">No interval found in the search range.</td></tr>`;
     }
+    peakChartData.push({ label: w.label, volume: peak.volume });
     const inOutPct = peak.inbound + peak.outbound > 0 ? Math.round((peak.inbound / (peak.inbound + peak.outbound)) * 1000) / 10 : 0;
     return `
       <tr>
@@ -634,6 +708,19 @@ async function renderDayBlock(entry, day, dayIdx, ctx) {
       </tr>
     `;
   }));
+  const busiestVolume = Math.max(0, ...peakChartData.map((p) => p.volume));
+  const peakChartHTML = peakChartData.length ? `
+    ${renderBarChart({
+      labels: peakChartData.map((p) => p.label),
+      totals: peakChartData.map((p) => p.volume),
+      peakIdx: peakChartData.findIndex((p) => p.volume === busiestVolume),
+      height: 180,
+    })}
+    <div class="legend">
+      <span class="legend-item"><span class="legend-swatch" style="background:var(--chart-bar)"></span>Peak period volume</span>
+      <span class="legend-item"><span class="legend-swatch" style="background:var(--accent2)"></span>Busiest of the day's peaks</span>
+    </div>
+  ` : '<div class="stat-detail">No peak periods resolved yet for this day.</div>';
 
   const cameraImageHTML = day.cameraImageUrl
     ? `
@@ -668,6 +755,7 @@ async function renderDayBlock(entry, day, dayIdx, ctx) {
         <div class="no-print" style="margin-bottom:10px;display:flex;flex-direction:column;gap:6px">
           ${renderPeakWindowRangeControls(dayType, peakWindows)}
         </div>
+        ${peakChartHTML}
         ${wrapViewerDetail(`
         <table class="crosswalk-table">
           <thead><tr><th>Period</th><th>Hour found</th><th>Volume</th><th>In/Out split</th><th>% of day</th></tr></thead>
@@ -684,6 +772,11 @@ async function renderDayBlock(entry, day, dayIdx, ctx) {
           <tfoot><tr style="font-weight:600"><td>Day total — all classifications</td><td>${fmt(dayTotal)}</td></tr></tfoot>
         </table>`, 'Show classification table', viewerMode)}
         ${chartHTML}
+      </div>
+      <div class="card" style="margin-bottom:14px">
+        <h3>Classification breakdown over time</h3>
+        <div class="stat-detail" style="margin-bottom:10px">Line = this location's total across whichever classes are checked below; bars = their breakdown per interval.</div>
+        <div class="tg-combo-root" data-tg-combochart="${dayKey}"></div>
       </div>
       <div class="card" style="margin-bottom:14px">
         <details class="interval-detail">
@@ -965,13 +1058,152 @@ function fixedWindowTripgenSectionHtml(entries, startMin, endMin, viewerMode = f
     </div>`;
 }
 
+// Named, saved fixed windows (build brief item 2b, second half — "a second section where the
+// user can add in their own peak periods to measure", distinct from the auto-detected AM/
+// Midday/PM peaks above). Reuses fixedWindowForEntry/fixedWindowTripgenTableHtml exactly —
+// a saved window is the SAME computation as the ad-hoc fixed-window report just above,
+// just named and kept around instead of being a single throwaway view.
+function customWindowsSectionHtml(entries, customWindows, viewerMode = false) {
+  const canEdit = !viewerMode;
+  const rows = customWindows.map((w) => `
+    <div class="card" style="margin-bottom:10px" data-tg-custom-window="${w.id}">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px">
+        <h3 style="margin:0">${escapeHtml(w.label)} (${minToTimeInput(w.startMin)}–${minToTimeInput(w.endMin)})</h3>
+        ${canEdit ? `<button type="button" class="no-print" data-tg-remove-custom-window="${w.id}" style="font-size:11px;flex-shrink:0">× remove</button>` : ''}
+      </div>
+      ${fixedWindowTripgenTableHtml(entries, w.startMin, w.endMin)}
+    </div>
+  `).join('');
+  return `
+    <div class="card" style="margin-bottom:14px">
+      <h3>Your own peak periods</h3>
+      <div class="stat-detail" style="margin-bottom:10px">Measured the same way as the fixed-window report above — name any additional clock-time window (e.g. "School dismissal") and it stays here, computed fresh every time.</div>
+      ${rows || '<div class="stat-detail" style="margin-bottom:10px">No custom windows saved yet.</div>'}
+      ${canEdit ? `
+      <div class="no-print" style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;padding-top:12px;margin-top:${customWindows.length ? '4px' : '0'};border-top:.5px dashed var(--border2)">
+        <div class="setup-field"><label>name</label><input type="text" data-tg-custom-window-name placeholder="e.g. Lunch rush" style="width:160px"></div>
+        <div class="setup-field"><label>start</label><input type="time" data-tg-custom-window-start value="15:30"></div>
+        <div class="setup-field"><label>end</label><input type="time" data-tg-custom-window-end value="16:00"></div>
+        <button type="button" class="btn-primary" data-tg-add-custom-window>+ add window</button>
+      </div>` : ''}
+    </div>`;
+}
+
+const LINE_COLOR_VARS = ['--chart-line', '--out-text', '--in-text', '--blue-text'];
+
+// ── Site-wide summary — combo chart (build brief item 2c) ────────────────────────────────
+// "a line/bar chart for each day that shows: a line for each site [location] showing all
+// vehicles during periods, and bars showing combined counts of classifications" — one chart
+// per unique DATE across the whole project (not per day-TYPE — a real calendar date, so two
+// locations counted the same day land on one chart together). Locations are matched by clock
+// TIME (interval start), not array index, since different locations can be counted on
+// different interval schedules (BUG-019/BUG-020 discipline extended to cross-location
+// alignment, not just cross-day) — a location with no data at a given time contributes 0
+// rather than misaligning against another location's grid.
+function mountTgSiteWideComboChart(container, { entries, categoryMap }) {
+  const types = entries[0]?.days[0]?.parsed.types || [];
+  const visible = new Set(types);
+  let mode = 'classification';
+
+  function dateGroups() {
+    const order = [];
+    const map = new Map();
+    entries.forEach((entry) => {
+      entry.days.forEach((day) => {
+        const key = day.date || day.sheetName;
+        if (!map.has(key)) { map.set(key, []); order.push(key); }
+        map.get(key).push({ entry, day });
+      });
+    });
+    return order.map((key) => {
+      const rows = map.get(key);
+      const label = rows[0].day.date ? dateLabelWithWeekday(rows[0].day.date) : rows[0].day.sheetName;
+      return { key, label, days: rows };
+    });
+  }
+
+  function sumAt(day, cls, time) {
+    const ci = day.parsed.types.indexOf(cls);
+    if (ci < 0) return 0;
+    const iv = day.parsed.intervals.find((i) => i.start === time);
+    if (!iv) return 0;
+    return (iv.inbound[ci] || 0) + (iv.outbound[ci] || 0);
+  }
+
+  function paint() {
+    const root = container.querySelector('.tg-sw-combo-root');
+    if (!root) return;
+    const groups = dateGroups();
+    if (!groups.length) { root.innerHTML = '<div class="stat-detail">No locations counted yet.</div>'; return; }
+    if (visible.size === 0) { root.innerHTML = '<div class="stat-detail">No classifications selected — check at least one above.</div>'; return; }
+    const activeClasses = types.filter((c) => visible.has(c));
+    root.innerHTML = groups.map((g) => {
+      const times = [...new Set(g.days.flatMap(({ day }) => day.parsed.intervals.map((iv) => iv.start)))].sort();
+      let barSeries;
+      if (mode === 'classification') {
+        barSeries = activeClasses.map((c) => ({
+          label: c, colorVar: SERIES_COLOR_VARS[types.indexOf(c) % SERIES_COLOR_VARS.length],
+          values: times.map((t) => g.days.reduce((s, { day }) => s + sumAt(day, c, t), 0)),
+        }));
+      } else {
+        const groupOrder = [];
+        types.forEach((c) => { const gg = categoryMap[c] || c; if (visible.has(c) && !groupOrder.includes(gg)) groupOrder.push(gg); });
+        barSeries = groupOrder.map((gname, gi) => {
+          const members = types.filter((c) => (categoryMap[c] || c) === gname && visible.has(c));
+          return {
+            label: gname, colorVar: SERIES_COLOR_VARS[gi % SERIES_COLOR_VARS.length],
+            values: times.map((t) => members.reduce((s, c) => s + g.days.reduce((s2, { day }) => s2 + sumAt(day, c, t), 0), 0)),
+          };
+        });
+      }
+      const lineSeries = g.days.map(({ entry, day }, di) => ({
+        label: `${entry.locationLabel} (total)`,
+        colorVar: LINE_COLOR_VARS[di % LINE_COLOR_VARS.length],
+        dashed: di % 2 === 1,
+        values: times.map((t) => activeClasses.reduce((s, c) => s + sumAt(day, c, t), 0)),
+      }));
+      return `<div class="card" style="margin-bottom:14px"><h3>${escapeHtml(g.label)} — ${g.days.length} location${g.days.length > 1 ? 's' : ''} combined</h3>${renderComboChart({ labels: times, barSeries, lineSeries })}</div>`;
+    }).join('');
+  }
+
+  container.innerHTML = `
+    <div class="chart-controls-row no-print viewer-keep">
+      <div class="chart-class-checks">
+        ${types.map((c) => `<label class="chart-check"><input type="checkbox" data-tg-sw-cls="${escapeHtml(c)}" checked> ${escapeHtml(c)}</label>`).join('')}
+      </div>
+      <div class="chart-group-toggle">
+        <button type="button" class="grp-btn active" data-mode="classification">By classification</button>
+        <button type="button" class="grp-btn" data-mode="group" title="Uses the groups defined in Setup's classifications tab">By group</button>
+      </div>
+    </div>
+    <div class="tg-sw-combo-root"></div>
+  `;
+  container.querySelectorAll('[data-tg-sw-cls]').forEach((cb) => {
+    cb.addEventListener('change', () => {
+      if (cb.checked) visible.add(cb.dataset.tgSwCls); else visible.delete(cb.dataset.tgSwCls);
+      paint();
+    });
+  });
+  container.querySelectorAll('.grp-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      container.querySelectorAll('.grp-btn').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      mode = btn.dataset.mode;
+      paint();
+    });
+  });
+  paint();
+}
+
 export async function renderTripGenSection(container, entries, ctx) {
   if (entries.length === 0) { container.innerHTML = ''; return; }
   const { siteInfo, categoryMap, dataView, viewerMode } = ctx;
   const allTypes = entries[0]?.days[0]?.parsed.types || [];
   // categoryMap may be missing entries for newly-seen classifications (e.g. a second
   // location file with slightly different columns) — fill defaults without clobbering
-  // anything the user already customized.
+  // anything the user already customized. Editing itself now lives on Setup's
+  // classifications tab (main.js's renderTgCategoryMapEditor) per direct user request — this
+  // screen only needs categoryMap to be complete enough to group by, not to edit it.
   await Promise.all(allTypes.map(async (t) => { if (!(t in categoryMap)) categoryMap[t] = await data.categoryFor(t); }));
 
   const crossGroups = {};
@@ -991,6 +1223,7 @@ export async function renderTripGenSection(container, entries, ctx) {
   const fixedWinStartMin = ctx.fixedWindowStartMin ?? (8 * 60);
   const fixedWinEndMin = ctx.fixedWindowEndMin ?? (9 * 60);
   const fixedWindowHTML = fixedWindowTripgenSectionHtml(entries, fixedWinStartMin, fixedWinEndMin, viewerMode);
+  const customWindowsHTML = customWindowsSectionHtml(entries, ctx.customWindows || [], viewerMode);
 
   const locationBlocks = await Promise.all(entries.map(async (entry, ei) => {
     const dayBlocks = await Promise.all(entry.days.map((d, di) => renderDayBlock(entry, d, di, { ...ctx, entryId: entry.id })));
@@ -1025,12 +1258,14 @@ export async function renderTripGenSection(container, entries, ctx) {
       ${entries.map((entry, ei) => `<button class="day-tab tg-loc-tab${ei === container._tgActiveLocIdx ? ' active' : ''}" data-tg-loc-tab="${ei}">${escapeHtml(entry.locationLabel)}</button>`).join('')}
     </div>` : '';
 
-  // Site info / classification-grouping are pure owner-config forms (editable fields with
-  // no-op change handlers in viewer mode — see main.js's renderViewerContent) — not shown to
-  // a viewer at all rather than rendered inert. Both are already marked .no-print in their
-  // own markup (renderSiteInfoForm/renderCategoryMapForm), which .viewer-mode .no-print
-  // (style.css) hides for the same reason it hides them from the printed report; skipping
-  // them here too avoids computing markup that would just be hidden anyway.
+  // Site info is a pure owner-config form (editable fields with no-op change handlers in
+  // viewer mode — see main.js's renderViewerContent) — not shown to a viewer at all rather
+  // than rendered inert. It's already marked .no-print in its own markup
+  // (renderSiteInfoForm), which .viewer-mode .no-print (style.css) hides for the same reason
+  // it hides it from the printed report; skipping it here too avoids computing markup that
+  // would just be hidden anyway. Classification grouping now lives on Setup's classifications
+  // tab (main.js) instead of a form here — the "Edit classification groups →" link above is
+  // the only owner-only control this screen keeps for it.
   const totalsTable = `
     <table class="crosswalk-table">
       <thead><tr><th>Group</th>${Object.keys(crossGroups).map((b) => `<th>${escapeHtml(b)} total</th>`).join('')}</tr></thead>
@@ -1040,15 +1275,23 @@ export async function renderTripGenSection(container, entries, ctx) {
     </table>`;
 
   container.innerHTML = `
-    <div class="stat-detail" style="margin-bottom:14px">Combines every location counted so far into one set of totals, grouped by day type. Assign each classification to a category below if it isn't already grouped correctly, then scroll down for per-location, per-day breakdowns and the peak-hour trip generation figures.</div>
+    <div class="stat-detail" style="margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+      <span>Combines every location counted so far into one set of totals, grouped by day type. Scroll down for per-location, per-day breakdowns and the peak-hour trip generation figures.</span>
+      ${(!viewerMode && ctx.onEditGroups) ? `<button type="button" class="no-print" data-tg-edit-groups style="font-size:12px;flex-shrink:0">Edit classification groups →</button>` : ''}
+    </div>
     ${viewerMode ? '' : renderSiteInfoForm(siteInfo)}
-    ${viewerMode ? '' : renderCategoryMapForm(allTypes, categoryMap)}
     <div class="card" style="margin-bottom:14px">
       <h3>Totals by day type — all ${entries.length} location${entries.length > 1 ? 's' : ''} combined</h3>
       ${wrapViewerDetail(totalsTable, 'Show totals table', viewerMode)}
     </div>
 
     ${fixedWindowHTML}
+    ${customWindowsHTML}
+
+    <div class="section" style="margin-bottom:1.5rem">
+      <div class="section-head"><h2>Site-wide summary</h2><span class="sub">every location, one chart per day</span></div>
+      <div class="tg-sw-root" data-tg-sitewide></div>
+    </div>
 
     <div class="section" style="margin-bottom:1.5rem">
       <div class="section-head"><h2>QA/QC</h2></div>
@@ -1058,6 +1301,9 @@ export async function renderTripGenSection(container, entries, ctx) {
     ${locationTabsHTML}
     ${locationBlocks.join('')}
   `;
+
+  const siteWideEl = container.querySelector('[data-tg-sitewide]');
+  if (siteWideEl) mountTgSiteWideComboChart(siteWideEl, { entries, categoryMap });
 
   // 'change' (commits on blur/Enter), not 'input' — these all trigger a full re-render via
   // the on*Change callbacks, and re-rendering on every keystroke would rebuild the input
@@ -1076,9 +1322,6 @@ export async function renderTripGenSection(container, entries, ctx) {
   });
   container.querySelectorAll('[data-site-zola-clear]').forEach((btn) => {
     btn.addEventListener('click', () => ctx.onSiteInfoChange('zolaScreenshotUrl', ''));
-  });
-  container.querySelectorAll('[data-category-field]').forEach((el) => {
-    el.addEventListener('change', () => ctx.onCategoryMapChange(el.dataset.categoryField, el.value));
   });
   container.querySelectorAll('[data-peak-search-field]').forEach((el) => {
     el.addEventListener('change', () => {
@@ -1107,6 +1350,7 @@ export async function renderTripGenSection(container, entries, ctx) {
   container.querySelectorAll('[data-tg-qaqc-link]').forEach((el) => {
     el.addEventListener('click', () => ctx.onGotoQaqc(el.dataset.tgQaqcLink));
   });
+  container.querySelector('[data-tg-edit-groups]')?.addEventListener('click', () => ctx.onEditGroups());
 
   // Location tab bar wiring — show only the active location's block, matching the
   // .apb-tab click behavior on the intersection screen (main.js's buildPeriodBar).
@@ -1137,6 +1381,20 @@ export async function renderTripGenSection(container, entries, ctx) {
       ctx.onFixedWindowChange?.(toMin(startEl.value || minToTimeInput(fixedWinStartMin)), toMin(endEl.value || minToTimeInput(fixedWinEndMin)));
     });
   });
+  container.querySelector('[data-tg-add-custom-window]')?.addEventListener('click', () => {
+    const nameEl = container.querySelector('[data-tg-custom-window-name]');
+    const startEl = container.querySelector('[data-tg-custom-window-start]');
+    const endEl = container.querySelector('[data-tg-custom-window-end]');
+    const label = nameEl.value.trim();
+    if (!label) { nameEl.focus(); return; }
+    const startMin = toMin(startEl.value || '00:00');
+    const endMin = toMin(endEl.value || '00:00');
+    if (endMin <= startMin) { endEl.focus(); return; }
+    ctx.onAddCustomWindow?.(label, startMin, endMin);
+  });
+  container.querySelectorAll('[data-tg-remove-custom-window]').forEach((el) => {
+    el.addEventListener('click', () => ctx.onRemoveCustomWindow?.(Number(el.dataset.tgRemoveCustomWindow)));
+  });
 
   // Post-hoc wiring for the two placeholder-div sections in each day block — both need a
   // live DOM container (renderTgClassStackedSection wires its own click handlers;
@@ -1153,6 +1411,10 @@ export async function renderTripGenSection(container, entries, ctx) {
       const lineChartEl = container.querySelector(`[data-tg-linechart="${dayKey}"]`);
       if (lineChartEl) {
         renderTgLineChartSection(lineChartEl, { parsed: day.parsed, dayType: day.dayType, peakWindows: ctx.peakWindows });
+      }
+      const comboChartEl = container.querySelector(`[data-tg-combochart="${dayKey}"]`);
+      if (comboChartEl) {
+        mountTgClassComboChart(comboChartEl, { parsed: day.parsed, categoryMap: ctx.categoryMap });
       }
       const qaEl = container.querySelector(`[data-tg-qa="${dayKey}"]`);
       if (qaEl) {

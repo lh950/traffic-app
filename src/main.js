@@ -575,6 +575,7 @@ function switchTgTab(name, btn) {
     // rendered yet if the user never opened "start a new count" first.
     tgSetClassificationsLocked(hasTripgenCountData());
     tgRenderClassificationsList();
+    renderTgCategoryMapEditor();
   }
 }
 
@@ -2220,6 +2221,8 @@ document.getElementById('btn-new-tripgen')?.addEventListener('click', () => {
   tripgenEntries.length = 0;
   tripgenDistribution = [];
   tripgenDistNextId = 1;
+  tripgenCustomWindows = [];
+  tripgenCustomWindowNextId = 1;
   // See home-btn-tripgen's handler above — classifications are project-wide config now and
   // must be cleared explicitly for a genuinely new project.
   tgResetClassifications();
@@ -5242,6 +5245,8 @@ function loadProject(proj, opts = {}) {
     if (proj.tgKeybindCfg) setTgKeybindCfg(proj.tgKeybindCfg);
     tripgenDistribution = JSON.parse(JSON.stringify(proj.distribution || []));
     tripgenDistNextId = tripgenDistribution.reduce((mx, ix) => Math.max(mx, ix.id + 1), 1);
+    tripgenCustomWindows = JSON.parse(JSON.stringify(proj.customWindows || []));
+    tripgenCustomWindowNextId = tripgenCustomWindows.reduce((mx, w) => Math.max(mx, w.id + 1), 1);
     if (proj.qaqcReviewerName) { const el = document.getElementById('qaqc-reviewer-name'); if (el) el.value = proj.qaqcReviewerName; }
     if (proj.qaqcReviewDate) { const el = document.getElementById('qaqc-review-date'); if (el) el.value = proj.qaqcReviewDate; }
     projectType = 'tripgen';
@@ -5464,8 +5469,8 @@ async function renderViewerContent(proj) {
     // wrapViewerDetail() in tripgenSection.js).
     await renderTripGenSection(content, tripgenEntries, {
       siteInfo: tripgenSiteInfo, categoryMap: tripgenCategoryMap, peakWindows: tripgenPeakWindows,
-      qaqc: tripgenQaqc, dataView: tripgenDataView,
-      onSiteInfoChange: () => {}, onCategoryMapChange: () => {}, onPeakWindowChange: () => {},
+      qaqc: tripgenQaqc, dataView: tripgenDataView, customWindows: tripgenCustomWindows,
+      onSiteInfoChange: () => {}, onPeakWindowChange: () => {},
       onPeakManualToggle: () => {}, onDataViewChange: () => {}, onFixedWindowChange: () => {},
       fixedWindowStartMin: tripgenFixedWindowStartMin, fixedWindowEndMin: tripgenFixedWindowEndMin,
       viewerMode: true,
@@ -5562,6 +5567,7 @@ function serializeCurrentProject() {
       classifications: tgGetClassifications(),
       tgKeybindCfg: getTgKeybindCfg(),
       peakWindows: JSON.parse(JSON.stringify(tripgenPeakWindows)),
+      customWindows: JSON.parse(JSON.stringify(tripgenCustomWindows)),
       qaqc: { ...tripgenQaqc },
       qaqcReviewerName: document.getElementById('qaqc-reviewer-name')?.value || '',
       qaqcReviewDate: document.getElementById('qaqc-review-date')?.value || '',
@@ -6040,6 +6046,15 @@ let tgPendingLocation = null; // { kind:'new', address, date, dayType } | { kind
 // equivalent). Not persisted across save/load, matching that side's own behavior.
 let tripgenFixedWindowStartMin = 8 * 60;   // 8:00
 let tripgenFixedWindowEndMin = 9 * 60;     // 9:00
+// Named, saved fixed windows (build brief item 2b — "a second section where the user can add
+// in their own peak periods to measure") — unlike the ad-hoc fixedWindowStartMin/EndMin above
+// (a single, ephemeral "what am I looking at right now" view), these ARE persisted with the
+// project, same as tripgenPeakWindows, since the whole point is measuring the same named
+// window (e.g. "school dismissal") consistently across sessions. Reuses fixedWindowForEntry's
+// exact windowed-sum logic (tripgenSection.js) — a fixed window is just that computation, run
+// once per saved entry instead of once for the current ad-hoc start/end.
+let tripgenCustomWindows = []; // [{id, label, startMin, endMin}]
+let tripgenCustomWindowNextId = 1;
 let tripgenDistribution = []; // [{id, name, allocs: {[dayType__peakLabel]: {pctIn, pctOut}}}]
 let tripgenDistNextId = 1;
 
@@ -6362,7 +6377,33 @@ document.getElementById('btn-tripgen-start-new')?.addEventListener('click', () =
     updateTgClassificationsSummary();
   }
 });
-document.getElementById('btn-tg-add-classification')?.addEventListener('click', () => tgAddClassification());
+document.getElementById('btn-tg-add-classification')?.addEventListener('click', () => { tgAddClassification(); renderTgCategoryMapEditor(); });
+
+// Classification grouping — moved to Setup's classifications tab from the Analysis screen per
+// direct user request ("classification grouping should be an option in classification
+// setup... a link at the top of the summary section to take the user there to edit"). Reads
+// the live classification list (not "every type ever seen in an entry," which the old
+// Analysis-page form used — that reads before any location exists, and classifications are
+// project-wide config now anyway) and backfills a starting suggestion via the same
+// categoryFor() heuristic the Analysis screen's grouping already relied on, so a freshly
+// added classification isn't left ungrouped until someone visits Analysis first.
+async function renderTgCategoryMapEditor() {
+  const tbody = document.querySelector('#tg-category-map-table tbody');
+  if (!tbody) return;
+  const labels = tgGetClassifications().map((c) => c.label).filter(Boolean);
+  await Promise.all(labels.map(async (label) => {
+    if (!(label in tripgenCategoryMap)) tripgenCategoryMap[label] = await analysisData.categoryFor(label);
+  }));
+  tbody.innerHTML = labels.map((label) => `
+    <tr><td>${escapeHtmlMain(label)}</td><td><input type="text" data-tg-category-field="${escapeHtmlMain(label)}" value="${escapeHtmlMain(tripgenCategoryMap[label] || '')}" style="width:160px" /></td></tr>
+  `).join('') || '<tr><td colspan="2" style="color:var(--text3)">Add a classification above first.</td></tr>';
+  tbody.querySelectorAll('[data-tg-category-field]').forEach((input) => {
+    input.addEventListener('change', () => {
+      tripgenCategoryMap[input.dataset.tgCategoryField] = input.value.trim() || input.dataset.tgCategoryField;
+      window.scheduleAutosave?.();
+    });
+  });
+}
 document.getElementById('btn-tg-jump-classifications')?.addEventListener('click', () => {
   // Item 13: this button now lives on the Location Counts screen too (the add-a-location
   // panel moved there), not only inside Setup itself — switchTgTab() only toggles internal
@@ -7647,9 +7688,19 @@ async function goToTripgenAnalyze() {
 async function rerenderTripgenAnalysis() {
   await renderTripGenSection(document.getElementById('analyze-root'), tripgenEntries, {
     siteInfo: tripgenSiteInfo, categoryMap: tripgenCategoryMap, peakWindows: tripgenPeakWindows,
-    qaqc: tripgenQaqc, dataView: tripgenDataView,
+    qaqc: tripgenQaqc, dataView: tripgenDataView, customWindows: tripgenCustomWindows,
     onSiteInfoChange: (field, value) => { tripgenSiteInfo[field] = value; rerenderTripgenAnalysis(); },
-    onCategoryMapChange: (label, group) => { tripgenCategoryMap[label] = group; rerenderTripgenAnalysis(); },
+    onAddCustomWindow: (label, startMin, endMin) => {
+      tripgenCustomWindows.push({ id: tripgenCustomWindowNextId++, label, startMin, endMin });
+      rerenderTripgenAnalysis();
+      window.scheduleAutosave?.();
+    },
+    onRemoveCustomWindow: (id) => {
+      const idx = tripgenCustomWindows.findIndex((w) => w.id === id);
+      if (idx >= 0) tripgenCustomWindows.splice(idx, 1);
+      rerenderTripgenAnalysis();
+      window.scheduleAutosave?.();
+    },
     onPeakWindowChange: (dayType, idx, edge, value) => {
       const w = tripgenPeakWindows[dayType][idx];
       if (edge === 'start') w.searchStartMin = value;
@@ -7664,6 +7715,11 @@ async function rerenderTripgenAnalysis() {
     },
     onDataViewChange: (view) => { tripgenDataView = view; rerenderTripgenAnalysis(); },
     onGotoQaqc: (key) => { openWorkspaceTab('tg-qaqc'); scrollToQaqcCard(key); },
+    onEditGroups: () => {
+      openWorkspaceTab('tg-setup');
+      const btn = document.querySelector('#tripgen-setup-screen .tg-tab[data-tgtab="classifications"]');
+      switchTgTab('classifications', btn);
+    },
     fixedWindowStartMin: tripgenFixedWindowStartMin,
     fixedWindowEndMin: tripgenFixedWindowEndMin,
     onFixedWindowChange: (startMin, endMin) => {

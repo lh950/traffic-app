@@ -314,6 +314,93 @@ export function renderLineChart({ labels, series, width = 900, height = 240 }) {
   `;
 }
 
+// Stacked classification bars + one or more overlaid total lines, sharing one axis — the
+// bars and lines are the SAME unit (vehicle-or-ped count), just two different cuts of the
+// same data (a per-classification/group breakdown vs. a per-location or overall total), not
+// two different measures, so a single shared axis is valid (never a second y-axis — see the
+// "one axis" rule this app's chart functions already follow). `barSeries`/`lineSeries` are
+// [{label, values, colorVar, dashed?}], values parallel to `labels`. Built for the
+// site-wide/per-location classification charts — reuses the exact stacked-bar and line-draw
+// logic already established in renderStackedBarChart/renderLineChart above rather than a
+// third, divergent implementation.
+export function renderComboChart({ labels, barSeries, lineSeries, width = 900, height = 280 }) {
+  const padL = 44, padB = 30, padT = 14, padR = 10;
+  const innerW = width - padL - padR;
+  const innerH = height - padT - padB;
+  const n = labels.length;
+  const barTotals = labels.map((_, i) => barSeries.reduce((s, ser) => s + (ser.values[i] || 0), 0));
+  const lineMax = Math.max(0, ...lineSeries.flatMap((s) => s.values));
+  const max = Math.max(1, ...barTotals, lineMax);
+  const barGap = Math.max(2, innerW / n * 0.2);
+  const barW = Math.max(1, innerW / n - barGap);
+  const xAt = (i) => padL + i * (barW + barGap) + barW / 2;
+  const yAt = (v) => padT + innerH - (v / max) * innerH;
+
+  const gridLines = [];
+  const steps = 4;
+  for (let i = 0; i <= steps; i++) {
+    const y = padT + innerH - (i / steps) * innerH;
+    const val = Math.round((i / steps) * max);
+    gridLines.push(
+      `<line class="chart-gridline" x1="${padL}" y1="${y}" x2="${width - padR}" y2="${y}" />` +
+      `<text class="chart-axis-label" x="${padL - 6}" y="${y + 3}" text-anchor="end">${val}</text>`
+    );
+  }
+
+  const bars = labels.map((label, i) => {
+    const x = padL + i * (barW + barGap);
+    let yCursor = padT + innerH;
+    return barSeries.map((s, si) => {
+      const v = s.values[i] || 0;
+      const h = (v / max) * innerH;
+      const y = yCursor - h;
+      yCursor = y;
+      if (v <= 0) return '';
+      const color = `var(${s.colorVar || SERIES_COLOR_VARS[si % SERIES_COLOR_VARS.length]})`;
+      return `<rect class="chart-bar chart-bar-stack" style="fill:${color}" x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${barW.toFixed(2)}" height="${Math.max(0, h).toFixed(2)}"><title>${escapeAttr(label)} — ${escapeAttr(s.label)}: ${v.toLocaleString()}</title></rect>`;
+    }).join('');
+  }).join('');
+
+  const lines = lineSeries.map((s) => {
+    if (!s.values.length) return '';
+    const color = `var(${s.colorVar})`;
+    const d = s.values.map((v, i) => `${i === 0 ? 'M' : 'L'}${xAt(i).toFixed(2)},${yAt(v).toFixed(2)}`).join(' ');
+    const path = `<path class="chart-line" style="stroke:${color}${s.dashed ? ';stroke-dasharray:5,4' : ''}" d="${d}" fill="none" />`;
+    const points = s.values.map((v, i) =>
+      `<circle class="chart-line-pt" style="fill:${color}" cx="${xAt(i).toFixed(2)}" cy="${yAt(v).toFixed(2)}" r="3"><title>${escapeAttr(s.label)} — ${escapeAttr(labels[i])}: ${v.toLocaleString()}</title></circle>`
+    ).join('');
+    return path + points;
+  }).join('');
+
+  const labelEvery = Math.max(1, Math.ceil(n / 10));
+  const xLabels = labels.map((l, i) => {
+    if (i % labelEvery !== 0) return '';
+    return `<text class="chart-axis-label" x="${xAt(i).toFixed(2)}" y="${height - 8}" text-anchor="middle">${escapeAttr(l)}</text>`;
+  }).join('');
+
+  const barLegend = barSeries.map((s, si) => {
+    const color = `var(${s.colorVar || SERIES_COLOR_VARS[si % SERIES_COLOR_VARS.length]})`;
+    return `<span class="legend-item"><span class="legend-swatch" style="background:${color}"></span>${escapeAttr(s.label)}</span>`;
+  }).join('');
+  const lineLegend = lineSeries.map((s) => {
+    const color = `var(${s.colorVar})`;
+    const borderStyle = s.dashed ? 'dashed' : 'solid';
+    return `<span class="legend-item"><span class="legend-swatch" style="background:transparent;border-bottom:2.5px ${borderStyle} ${color};height:0;width:14px"></span>${escapeAttr(s.label)}</span>`;
+  }).join('');
+
+  return `
+    <div class="chart-wrap">
+      <svg class="chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMinYMin meet">
+        ${gridLines.join('')}
+        ${bars}
+        ${lines}
+        ${xLabels}
+      </svg>
+    </div>
+    <div class="legend">${barLegend}${lineLegend}</div>
+  `;
+}
+
 export { SERIES_COLOR_VARS };
 
 function escapeAttr(s) {

@@ -18,7 +18,12 @@ const MAX_DATA_ROWS = 100; // 24h at 15-min = 96 rows; stop early if time values
 function categoryFor(label) {
   const l = (label || '').toLowerCase();
   if (l.includes('light goods')) return 'Light Goods';
-  if (l.includes('single-unit') || l.includes('tractor trailer')) return 'Trucks';
+  // Found live against a real 6-classification project (build brief item 2c/2d batch):
+  // 'single-unit' (hyphenated) never matched a real classification typed as "single unit
+  // trucks" (space), and 'tandem trailer' wasn't checked for at all — both silently fell
+  // into the generic catch-all below instead of 'Trucks'. Matching on 'single unit' (no
+  // hyphen required) and adding 'tandem trailer' fixes both against real-world labels.
+  if (l.includes('single-unit') || l.includes('single unit') || l.includes('tractor trailer') || l.includes('tandem trailer')) return 'Trucks';
   if (l.includes('pedestrian')) return 'Pedestrian';
   return 'Personal Vehicles+Peds+Pickup-Dropoff'; // autos, pickup/dropoff, bikes, motorcycles, buses — the source workbook's own name for this catch-all bucket, kept distinct from 'Pedestrian' above
 }
