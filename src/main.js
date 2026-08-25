@@ -78,7 +78,7 @@ import { exportShareablePage, buildShareableHTML } from './shareReport.js';
 import JSZip from 'jszip';
 import { printSummaryReport, printIntersectionReport } from './printPedReport.js';
 import { buildVolumeProfileSVG, buildCrosswalkBarSVG, buildChartLegend, dirSplitBar, CW_COLORS } from './chartUtils.js';
-import { renderTripGenSection, DEFAULT_PEAK_WINDOWS, computePeakVolumes } from './analysis/ui/tripgenSection.js';
+import { renderTripGenSection, DEFAULT_PEAK_WINDOWS, computePeakVolumes, computeQaqcPeakScore, renderQaqcDetailCardHTML } from './analysis/ui/tripgenSection.js';
 import { weekdayShort, dateLabelWithWeekday } from './analysis/ui/dateUtils.js';
 import { intervalBar, pctOfPeakCell } from './analysis/ui/intervalDetail.js';
 
@@ -5262,6 +5262,7 @@ function loadProject(proj, opts = {}) {
       const pl = proj.pendingLocation;
       tgPendingLocation = { kind: pl.kind, address: pl.address, date: pl.date, dayType: pl.dayType, entryId: pl.entryId, dayIdx: pl.dayIdx };
       tgCounterBackTarget = 'tripgen-setup-screen';
+      setTgCounterHeaderLabel(pl.kind === 'edit' ? (tripgenEntries.find((e) => e.id === pl.entryId)?.locationLabel || '') : pl.address);
       showScreen('tripgen-counter-screen');
       if (pl.kind === 'edit') {
         const entry = tripgenEntries.find((e) => e.id === pl.entryId);
@@ -6372,6 +6373,16 @@ document.getElementById('btn-tg-jump-classifications')?.addEventListener('click'
   const btn = document.querySelector('#tripgen-setup-screen .tg-tab[data-tgtab="classifications"]');
   switchTgTab('classifications', btn);
 });
+// Build brief item 1: the counter header should identify which location is being counted
+// whenever a site has more than one — a single-location site has nothing to disambiguate, so
+// the header stays plain in that case rather than always showing a label nobody needs to read.
+// Deliberately checked at call time (not cached), since tripgenEntries.length can cross the
+// 1->2 threshold mid-session (e.g. this call happens right after the 2nd location's entry is
+// pushed, in the same click handler).
+function setTgCounterHeaderLabel(locationLabel) {
+  const el = document.getElementById('tg-counter-sub');
+  if (el) el.textContent = tripgenEntries.length > 1 ? `— ${locationLabel}` : '';
+}
 document.getElementById('btn-tg-begin-counting')?.addEventListener('click', () => {
   const ctx = requireLocationContext();
   if (!ctx) return;
@@ -6415,6 +6426,7 @@ document.getElementById('btn-tg-begin-counting')?.addEventListener('click', () =
   tgPendingLocation = { kind: 'edit', entryId, dayIdx: 0 };
   clearLocationContext();
   renderTripgenLocationsList();
+  setTgCounterHeaderLabel(ctx.address);
   showScreen('tripgen-counter-screen');
 });
 
@@ -6429,6 +6441,7 @@ function editTripgenDay(entryId, dayIdx, backTarget) {
   const day = entry?.days[dayIdx];
   if (!day?.editSnapshot) return;
   tgCounterBackTarget = backTarget || 'tripgen-setup-screen';
+  setTgCounterHeaderLabel(entry.locationLabel);
   showScreen('tripgen-counter-screen');
   tgPendingLocation = { kind: 'edit', entryId, dayIdx };
   tgBeginEditing(day.editSnapshot, day.parsed, (parsed, editSnapshot) => {
@@ -6553,6 +6566,23 @@ document.getElementById('btn-qaqc-to-setup')?.addEventListener('click', () => sh
 document.getElementById('btn-qaqc-to-analyze')?.addEventListener('click', () => goToTripgenAnalyze());
 document.getElementById('btn-analyze-to-qaqc')?.addEventListener('click', () => { showScreen('tripgen-qaqc-screen'); renderQaqcScreen(); });
 
+// Build brief item 2a: scrolls to and briefly highlights one QA/QC card, used by the
+// Analysis page's summary-row "QA/QC →" links. renderQaqcScreen() is async and
+// openWorkspaceTab('tg-qaqc') doesn't await it (its own switch-case signature is sync, and
+// changing that ripples through every other case), so the target card may not exist in the
+// DOM yet the instant this runs — polls briefly rather than assuming the render already
+// finished.
+function scrollToQaqcCard(key, attemptsLeft = 20) {
+  const el = document.querySelector(`[data-qaqc-card="${CSS.escape(key)}"]`);
+  if (!el) {
+    if (attemptsLeft > 0) setTimeout(() => scrollToQaqcCard(key, attemptsLeft - 1), 50);
+    return;
+  }
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  el.classList.add('qaqc-card-highlight');
+  setTimeout(() => el.classList.remove('qaqc-card-highlight'), 1600);
+}
+
 async function renderQaqcScreen() {
   const root = document.getElementById('tripgen-qaqc-list');
   if (!tripgenEntries.length) { root.innerHTML = '<div class="stat-detail">No locations counted yet — add one from setup first.</div>'; return; }
@@ -6561,10 +6591,13 @@ async function renderQaqcScreen() {
     for (const day of entry.days) {
       const intervalMinutes = inferIntervalMinutes(day.parsed.intervals);
       for (const w of tripgenPeakWindows[day.dayType]) {
-        const peak = w.manualStartMin != null
-          ? await analysisData.peakHourInWindow(day.parsed.intervals, intervalMinutes, w.manualStartMin, w.manualStartMin + 1, 'vehicle')
-          : await analysisData.peakHourInWindow(day.parsed.intervals, intervalMinutes, w.searchStartMin, w.searchEndMin, 'vehicle');
         const key = qaqcPeakKey(entry.id, day.sheetName, w.label);
+        // Single source of truth (build brief item 2a): the peak lookup AND the
+        // interval-by-interval score comparison both come from computeQaqcPeakScore, the
+        // exact same function the Analysis page's summary row uses — this screen's "Hour
+        // found" line and score can never disagree with what the summary table shows.
+        const computed = await computeQaqcPeakScore(entry, day, w, tripgenQaqc);
+        const { peak } = computed;
         const recounts = tripgenQaqc[key]?.recounts || [];
         const hasHour = peak.startIdx >= 0;
         const defaultStart = hasHour ? peak.startIdx * intervalMinutes + (day.parsed.intervals[0] ? toMinFromLabel(day.parsed.intervals[0].start) : 0) : w.searchStartMin;
@@ -6582,6 +6615,11 @@ async function renderQaqcScreen() {
                 }).join('') : '<tr><td colspan="5" style="color:var(--text3)">No recounts yet.</td></tr>'}
               </tbody>
             </table>
+            ${hasHour && recounts.length ? `
+            <div style="border-top:.5px solid var(--border);padding-top:10px;margin-bottom:10px">
+              <div style="font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text2);margin-bottom:8px">Score detail</div>
+              ${renderQaqcDetailCardHTML(computed)}
+            </div>` : ''}
             <div data-qaqc-form-area="${key}" style="display:none;border-top:.5px solid var(--border);padding-top:10px;margin-bottom:10px">
               <div class="setup-grid" style="margin-bottom:10px">
                 <div class="setup-field"><label>start time</label><input type="time" data-qaqc-start="${key}" value="${minToTimeStr(defaultStart)}"></div>
@@ -7625,6 +7663,7 @@ async function rerenderTripgenAnalysis() {
       rerenderTripgenAnalysis();
     },
     onDataViewChange: (view) => { tripgenDataView = view; rerenderTripgenAnalysis(); },
+    onGotoQaqc: (key) => { openWorkspaceTab('tg-qaqc'); scrollToQaqcCard(key); },
     fixedWindowStartMin: tripgenFixedWindowStartMin,
     fixedWindowEndMin: tripgenFixedWindowEndMin,
     onFixedWindowChange: (startMin, endMin) => {

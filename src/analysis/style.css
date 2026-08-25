@@ -129,6 +129,10 @@ label{font-size:12px;font-weight:500;color:var(--text2)}
 .crosswalk-table{width:100%;font-size:12.5px;margin-top:8px}
 .crosswalk-table td,.crosswalk-table th{padding:5px 8px;text-align:right;border-bottom:.5px solid var(--border)}
 .crosswalk-table td:first-child,.crosswalk-table th:first-child{text-align:left}
+.tg-qaqc-row:hover{background:var(--blue-bg)}
+.tg-qaqc-link-cell{color:var(--blue-text);white-space:nowrap}
+@keyframes qaqcCardHighlight{0%,100%{box-shadow:none}30%{box-shadow:0 0 0 2px var(--blue-border)}}
+.qaqc-card-highlight{animation:qaqcCardHighlight 1.6s ease-out}
 .chart-gridline{stroke:var(--chart-grid);stroke-width:1}
 .chart-tooltip{position:absolute;background:var(--surface);border:.5px solid var(--border2);
   border-radius:var(--r);padding:6px 10px;font-size:11.5px;box-shadow:0 4px 12px rgba(0,0,0,.12);

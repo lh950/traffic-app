@@ -1,5 +1,11 @@
 # Changelog
 
+## v3.47.0-alpha.1 — 2026-08-24
+
+### Added
+- **Counter header now shows the location name once a site has more than one location.** Single-location sites are unchanged (no ambiguity to resolve). Applies to starting a new count, resuming/editing an existing one, and reload-resume.
+- **QA/QC summary on the Analysis page is now score + pass/fail per peak, with a link to that count.** The full interval-by-interval primary-vs-recount comparison moved to the QA/QC screen itself, right on the card where the recount was entered — click any Analysis-page row to jump straight there.
+
 ## v3.46.0-alpha.5 — 2026-08-22
 
 ### Changed
