@@ -107,11 +107,6 @@ function qaqcKey(entryId, sheetName, peakLabel, quarterIdx) {
   return `${entryId}__${sheetName}__${peakLabel}__${quarterIdx}`;
 }
 
-function ratingBadge(rating) {
-  const map = { Good: 'badge-pass', Borderline: 'badge-caution', Failed: 'badge-fail', Incomplete: '' };
-  return `<span class="tag ${map[rating] || ''}">${rating}</span>`;
-}
-
 // Read-only shared viewer only (see main.js's renderViewerContent, which passes
 // ctx.viewerMode: true): tucks a detailed table behind the same <details>/.interval-detail
 // toggle already used for Interval Detail elsewhere, collapsed by default. No-op (returns
@@ -808,8 +803,15 @@ async function renderDayBlock(entry, day, dayIdx, ctx) {
   `;
 }
 
-function qaqcPeakKey(entryId, sheetName, peakLabel) {
-  return `${entryId}__${sheetName}__${peakLabel}`;
+// Keyed by the WINDOW'S ID now, not its label — labels are user-editable free text once QA/QC
+// windows became fully custom (v3.47-alpha.4), so a label is no longer a stable key (a rename
+// would silently orphan its own recount data). `qaqcWindowsKey` is the separate, coarser key
+// for looking up a location/day's whole LIST of custom windows.
+export function qaqcPeakKey(entryId, sheetName, windowId) {
+  return `${entryId}__${sheetName}__${windowId}`;
+}
+export function qaqcWindowsKey(entryId, sheetName) {
+  return `${entryId}__${sheetName}`;
 }
 
 // Sums one recount's classifications into one in+out total per interval — recounts always
@@ -818,6 +820,75 @@ function qaqcPeakKey(entryId, sheetName, peakLabel) {
 // quarters only needs the combined total per interval.
 function recountIntervalTotals(recount) {
   return recount.parsed.intervals.map((iv) => iv.inbound.reduce((a, b) => a + b, 0) + iv.outbound.reduce((a, b) => a + b, 0));
+}
+
+// Per-classification counterpart to recountIntervalTotals — looks the classification up BY
+// LABEL in the recount's own types list (BUG-019/020 discipline), not by column position,
+// since a recount's classification order isn't guaranteed to match the primary count's.
+// Returns 0 for every interval if the recount didn't carry this classification at all.
+function recountClassIntervalTotals(recount, label) {
+  const ci = recount.parsed.types.indexOf(label);
+  if (ci < 0) return recount.parsed.intervals.map(() => 0);
+  return recount.parsed.intervals.map((iv) => (iv.inbound[ci] || 0) + (iv.outbound[ci] || 0));
+}
+
+// Direct clock-time window lookup for a QA/QC window — unlike resolvePeak (which SEARCHES a
+// range for the busiest rolling hour), a QA/QC window is now a literal user-picked [startMin,
+// endMin) the field crew actually recounted, so there's nothing to auto-detect: just locate
+// those exact intervals, or report "doesn't fit this day's data" if the window falls outside
+// what was actually counted. Returns the same shape resolvePeak/peakHourInWindow return
+// (startIdx/endIdx/volume/label/inbound/outbound) so downstream code (renderQaqcDetailCardHTML,
+// main.js's renderQaqcScreen) didn't need to change how it reads a resolved window.
+function resolveQaqcWindow(parsed, intervalMinutes, w) {
+  const empty = { startIdx: -1, endIdx: -1, volume: 0, label: 'N/A', inbound: 0, outbound: 0 };
+  if (!parsed.intervals.length) return empty;
+  const dayStartMin = toMin(parsed.intervals[0].start);
+  const slots = parsed.intervals.length;
+  const startIdx = Math.round((w.startMin - dayStartMin) / intervalMinutes);
+  const windowSize = Math.max(1, Math.round((w.endMin - w.startMin) / intervalMinutes));
+  const endIdx = startIdx + windowSize - 1;
+  if (startIdx < 0 || endIdx >= slots) return empty;
+  const slice = parsed.intervals.slice(startIdx, endIdx + 1);
+  const inbound = slice.reduce((s, iv) => s + iv.inbound.reduce((a, b) => a + b, 0), 0);
+  const outbound = slice.reduce((s, iv) => s + iv.outbound.reduce((a, b) => a + b, 0), 0);
+  return { startIdx, endIdx, volume: inbound + outbound, label: `${slice[0].start}–${slice[slice.length - 1].end}`, inbound, outbound };
+}
+
+// One-time load-time migration for projects saved before QA/QC windows became fully custom
+// (v3.47-alpha.4): copies the 3 fixed AM/Midday/PM (or weekend) windows every location/day
+// already had into the new per-location/day custom-window list, using the SAME hour each
+// already resolved to (recomputed via the OLD resolvePeak/DEFAULT_PEAK_WINDOWS search-range
+// logic, which is unchanged and still used by the separate "Peak periods" chart) rather than
+// guessing a new default — then remaps any already-entered recount data from the old
+// label-keyed qaqc store to the new id-keyed one, so a project with real recount data on file
+// doesn't lose it just because the window model's shape changed. Called once from main.js's
+// loadProject() when a saved project has no `qaqcWindows` field of its own (proj.qaqcWindows
+// == null is the only signal available — there's no separate schema-version flag for this).
+export async function migrateQaqcWindows(entries, oldQaqc) {
+  const qaqcWindows = {};
+  const qaqc = {};
+  let nextId = 1;
+  for (const entry of entries) {
+    for (const day of entry.days) {
+      const { parsed, dayType, sheetName } = day;
+      if (!parsed.intervals.length) continue;
+      const intervalMinutes = inferIntervalMinutes(parsed.intervals);
+      const dayStartMin = toMin(parsed.intervals[0].start);
+      const windows = [];
+      for (const w of DEFAULT_PEAK_WINDOWS[dayType] || []) {
+        const peak = await resolvePeak(parsed, intervalMinutes, w);
+        if (peak.startIdx < 0) continue; // this default never resolved for this day — nothing to migrate
+        const id = nextId++;
+        const startMin = dayStartMin + peak.startIdx * intervalMinutes;
+        const endMin = dayStartMin + (peak.endIdx + 1) * intervalMinutes;
+        windows.push({ id, label: w.label, startMin, endMin });
+        const oldKey = qaqcPeakKey(entry.id, sheetName, w.label);
+        if (oldQaqc[oldKey]) qaqc[qaqcPeakKey(entry.id, sheetName, id)] = oldQaqc[oldKey];
+      }
+      if (windows.length) qaqcWindows[qaqcWindowsKey(entry.id, sheetName)] = windows;
+    }
+  }
+  return { qaqcWindows, qaqc, nextId };
 }
 
 // A recount only scores against a peak if its interval grid lines up exactly (same start
@@ -829,21 +900,22 @@ function recountAlignsWithPeak(recount, quarterIntervals) {
   return recount.parsed.intervals.every((iv, i) => iv.start === quarterIntervals[i].start);
 }
 
-// Computes one peak window's QA/QC score against whatever recounts have been entered for it
-// — the single source of truth for "what does this peak's score mean," shared by the
-// Analysis page's summary row (score + pass/fail only) and the QA/QC screen's own detail card
-// (the full interval-by-interval comparison), so the two can never disagree with each other.
-// Exported for main.js's renderQaqcScreen() to call directly.
+// Computes one QA/QC window's score against whatever recounts have been entered for it — the
+// single source of truth for "what does this window's score mean," shared by the Analysis
+// page's summary row (score + pass/fail only) and the QA/QC screen's own detail card (the full
+// interval-by-interval comparison), so the two can never disagree with each other. `w` is a
+// custom window ({id, label, startMin, endMin}, added/stored by main.js's renderQaqcScreen),
+// not a search range. Exported for main.js's renderQaqcScreen() to call directly.
 export async function computeQaqcPeakScore(entry, day, w, qaqc) {
   const { parsed, sheetName } = day;
   const intervalMinutes = inferIntervalMinutes(parsed.intervals);
-  const peak = await resolvePeak(parsed, intervalMinutes, w);
+  const peak = resolveQaqcWindow(parsed, intervalMinutes, w);
   if (peak.startIdx < 0) {
-    return { peak, intervalMinutes, quarterIntervals: [], quarterTotals: [], allRecounts: [], alignedRecounts: [], recountQuarters: [], scoreResult: { score: null, perQuarterPass: [], overallPass: null, rating: 'Incomplete' } };
+    return { peak, intervalMinutes, quarterIntervals: [], quarterTotals: [], allRecounts: [], alignedRecounts: [], recountQuarters: [], scoreResult: { score: null, perQuarterPass: [], overallPass: null, rating: 'Incomplete' }, perClassResults: [] };
   }
   const quarterIntervals = parsed.intervals.slice(peak.startIdx, peak.endIdx + 1);
   const quarterTotals = quarterIntervals.map((iv) => iv.inbound.reduce((a, b) => a + b, 0) + iv.outbound.reduce((a, b) => a + b, 0));
-  const key = qaqcPeakKey(entry.id, sheetName, w.label);
+  const key = qaqcPeakKey(entry.id, sheetName, w.id);
   const allRecounts = qaqc[key]?.recounts || [];
   const alignedRecounts = allRecounts.filter((r) => recountAlignsWithPeak(r, quarterIntervals));
   // Multiple recounts (extra confidence passes) are averaged per interval before scoring —
@@ -852,14 +924,26 @@ export async function computeQaqcPeakScore(entry, day, w, qaqc) {
     ? quarterIntervals.map((_, qi) => alignedRecounts.reduce((s, r) => s + recountIntervalTotals(r)[qi], 0) / alignedRecounts.length)
     : quarterIntervals.map(() => null);
   const scoreResult = await data.qaqcPeakHourScore(quarterTotals, recountQuarters);
-  return { peak, intervalMinutes, quarterIntervals, quarterTotals, allRecounts, alignedRecounts, recountQuarters, scoreResult };
+  // Per-classification breakdown — a combined-total pass can hide one classification that's
+  // badly off (masked by others balancing it out), and field recounts often focus on just one
+  // vehicle type rather than re-tallying everything, so this is the more actionable signal for
+  // "what's actually wrong" even though the combined score above stays the primary pass/fail.
+  const perClassResults = await Promise.all(parsed.types.map(async (label, ci) => {
+    const classQuarterTotals = quarterIntervals.map((iv) => (iv.inbound[ci] || 0) + (iv.outbound[ci] || 0));
+    const classRecountQuarters = alignedRecounts.length
+      ? quarterIntervals.map((_, qi) => alignedRecounts.reduce((s, r) => s + recountClassIntervalTotals(r, label)[qi], 0) / alignedRecounts.length)
+      : quarterIntervals.map(() => null);
+    const classScoreResult = await data.qaqcPeakHourScore(classQuarterTotals, classRecountQuarters);
+    return { label, quarterTotals: classQuarterTotals, recountQuarters: classRecountQuarters, scoreResult: classScoreResult };
+  }));
+  return { peak, intervalMinutes, quarterIntervals, quarterTotals, allRecounts, alignedRecounts, recountQuarters, scoreResult, perClassResults };
 }
 
-// Simple ✓/✗ pass-fail badge for ONE peak — deliberately not a 3-tier Good/Borderline/Failed
-// rating like ratingBadge() below: the source workbook's own scoring model only ever assigns
-// that 3-tier rating to the COMBINED three-peak-hour total (see threePeakHourRating's own
-// header comment — "matches the source: partial data isn't rated" at the individual-peak
-// level either), so a single peak's own real signal is just qaqcPeakHourScore's overallPass
+// Simple ✓/✗ pass-fail badge for ONE window — deliberately not a 3-tier Good/Borderline/Failed
+// rating: the source workbook's own scoring model only ever assigned that 3-tier rating to a
+// COMBINED three-peak-hour total, a concept this app's Three Peak Hour rollup dropped once QA
+// windows became fully custom (v3.47-alpha.4 — no more fixed count of exactly 3 to roll up),
+// so a window's own real signal is just qaqcPeakHourScore's overallPass
 // boolean. Inventing a 3-tier scale for one peak would be a rating the source data model
 // doesn't actually have.
 export function passFailBadge(overallPass) {
@@ -872,7 +956,7 @@ export function passFailBadge(overallPass) {
 // the QA page the more detailed breakdown, main analysis page is just a simple pass/fail and
 // score"). Exported so main.js can call it per peak-card without re-deriving the scoring math.
 export function renderQaqcDetailCardHTML(computed) {
-  const { peak, intervalMinutes, quarterIntervals, quarterTotals, allRecounts, alignedRecounts, recountQuarters, scoreResult } = computed;
+  const { peak, intervalMinutes, quarterIntervals, quarterTotals, allRecounts, alignedRecounts, recountQuarters, scoreResult, perClassResults } = computed;
   if (peak.startIdx < 0) return `<div class="stat-detail">No hour resolved yet for this peak window — nothing to score against.</div>`;
   const quarterRows = quarterIntervals.map((iv, qi) => `
     <tr>
@@ -885,6 +969,28 @@ export function renderQaqcDetailCardHTML(computed) {
   const skippedNote = allRecounts.length > alignedRecounts.length
     ? `<div class="stat-detail" style="margin-top:6px;color:var(--bad-text)">${allRecounts.length - alignedRecounts.length} recount(s) used a different time range/interval length than this peak and were excluded from scoring.</div>`
     : '';
+  // Per-classification breakdown — only worth showing once there's something to compare
+  // against (skip entirely when no recount has been entered yet, same gate as the quarters
+  // table's own "incomplete" state). A combined-total pass can still hide one classification
+  // that's badly off, and a field recount often focuses on one vehicle type rather than
+  // re-tallying everything — this surfaces which specific classification(s) drove the score.
+  const classRows = (alignedRecounts.length && perClassResults?.length) ? perClassResults.map((c) => {
+    const primaryTotal = c.quarterTotals.reduce((a, b) => a + b, 0);
+    const recountTotal = c.recountQuarters.reduce((a, b) => a + (b || 0), 0);
+    return `
+      <tr>
+        <td>${escapeHtml(c.label)}</td>
+        <td>${fmt(primaryTotal)}</td>
+        <td>${fmt(Math.round(recountTotal))}</td>
+        <td>${passFailBadge(c.scoreResult.overallPass)}</td>
+      </tr>`;
+  }).join('') : '';
+  const classSection = classRows ? `
+    <div class="stat-detail" style="margin-top:12px;margin-bottom:4px">By classification — which one(s) are driving the score above:</div>
+    <table class="crosswalk-table">
+      <thead><tr><th>Classification</th><th>Primary count</th><th>2nd-count recount</th><th>Result</th></tr></thead>
+      <tbody>${classRows}</tbody>
+    </table>` : '';
   return `
     <table class="crosswalk-table">
       <thead><tr><th>${intervalMinutes}-min interval</th><th>Primary count</th><th>2nd-count recount${alignedRecounts.length > 1 ? ` (avg of ${alignedRecounts.length})` : ''}</th><th>Band</th></tr></thead>
@@ -892,32 +998,30 @@ export function renderQaqcDetailCardHTML(computed) {
     </table>
     <div class="stat-detail" style="margin-top:6px">Hour score: ${scoreResult.score != null ? `${scoreResult.score}/${quarterIntervals.length + 1} — ${passFailBadge(scoreResult.overallPass)}` : `incomplete — add a recount covering all ${quarterIntervals.length} interval${quarterIntervals.length === 1 ? '' : 's'} above`}</div>
     ${skippedNote}
+    ${classSection}
   `;
 }
 
 // Dedicated QA/QC section — read-only summary of recounts entered via the standalone QA/QC
-// screen (main.js's renderQaqcScreen), covering every location × day × peak period in one
+// screen (main.js's renderQaqcScreen), covering every location × day × custom QA window in one
 // place. Just the score/pass-fail table now — the interval-by-interval detail lives on the
 // QA/QC screen itself (renderQaqcDetailCardHTML above), one click away via the row link.
+// Windows are fully user-defined now (v3.47-alpha.4 — no more built-in AM/Midday/PM search
+// ranges), so there's no longer a fixed "3 peaks" to roll up into the source workbook's Three
+// Peak Hour QC Rating (that 0-15 scale is specifically calibrated to exactly 3 canonical
+// peaks) — dropped rather than kept as a rating the new data shape can't actually support.
 async function renderQaqcSection(entries, ctx) {
-  const { peakWindows, qaqc } = ctx;
+  const { qaqcWindows, qaqc } = ctx;
   const summaryRows = [];
 
   for (const entry of entries) {
     for (const day of entry.days) {
-      const { sheetName, dayType } = day;
-      const scores = [];
-      for (const w of peakWindows[dayType]) {
+      const { sheetName } = day;
+      const windows = qaqcWindows?.[qaqcWindowsKey(entry.id, sheetName)] || [];
+      for (const w of windows) {
         const computed = await computeQaqcPeakScore(entry, day, w, qaqc);
         const { peak, scoreResult, quarterIntervals } = computed;
-        // Push null (not skip) when a peak window has no data at all — threePeakHourRating
-        // needs scores.length to always match peakWindows[dayType].length (3) so it reports
-        // "Incomplete" rather than silently scoring e.g. 1-of-3 peaks against the full
-        // 3-peak/15-point scale, which would misreport a partial study as "Failed".
-        scores.push(peak.startIdx < 0 ? null : scoreResult.score);
-        if (peak.startIdx < 0) continue;
-
-        const key = qaqcPeakKey(entry.id, sheetName, w.label);
+        const key = qaqcPeakKey(entry.id, sheetName, w.id);
         // The QA/QC input screen is owner-only edit UI (main.js's renderQaqcScreen) — a
         // shared viewer never has anywhere to navigate to, so the row-link affordance only
         // appears when ctx actually supplies a navigation callback (owner mode).
@@ -927,35 +1031,26 @@ async function renderQaqcSection(entries, ctx) {
             <td>${escapeHtml(entry.locationLabel)}</td>
             <td>${escapeHtml(sheetName)}</td>
             <td>${escapeHtml(w.label)}</td>
-            <td>${peak.label}</td>
+            <td>${peak.startIdx < 0 ? 'out of range' : peak.label}</td>
             <td>${scoreResult.score != null ? `${scoreResult.score}/${quarterIntervals.length + 1}` : 'incomplete'}</td>
             <td>${passFailBadge(scoreResult.overallPass)}</td>
             <td class="tg-qaqc-link-cell">${linkable ? 'QA/QC →' : ''}</td>
           </tr>
         `);
       }
-      const threePeak = await data.threePeakHourRating(scores);
-      summaryRows.push(`
-        <tr style="font-weight:600">
-          <td>${escapeHtml(entry.locationLabel)}</td>
-          <td>${escapeHtml(sheetName)}</td>
-          <td colspan="2">Three Peak Hour QC Rating</td>
-          <td>${threePeak.total != null ? `${threePeak.total}/15` : ''}</td>
-          <td>${ratingBadge(threePeak.rating)}</td>
-          <td></td>
-        </tr>
-      `);
     }
   }
 
   return `
     <div class="card" style="margin-bottom:14px">
       <h3>QA/QC summary</h3>
-      <div class="stat-detail" style="margin-bottom:10px">Second-counter recounts — entered and compared in full on the dedicated QA/QC screen — condensed here to a score and pass/fail per peak. Click any row to open that count. Bands are volume-dependent (≥75 trips → ≤5% diff, 50–75 → ≤7.5%, &lt;50 → ≤10%), traced from the source workbook's own QC-rating legend.</div>
-      <table class="crosswalk-table" data-tg-qaqc-summary>
-        <thead><tr><th>Location</th><th>Day</th><th>Period</th><th>Hour</th><th>Score</th><th>Pass/fail</th><th></th></tr></thead>
-        <tbody>${summaryRows.join('') || '<tr><td colspan="7" style="color:var(--text3)">No peak periods found yet.</td></tr>'}</tbody>
-      </table>
+      <div class="stat-detail" style="margin-bottom:10px">Second-counter recounts — entered and compared in full on the dedicated QA/QC screen — condensed here to a score and pass/fail per window. Click any row to open that count. Bands are volume-dependent (≥75 trips → ≤5% diff, 50–75 → ≤7.5%, &lt;50 → ≤10%), traced from the source workbook's own QC-rating legend.</div>
+      <div class="tbl-scroll">
+        <table class="crosswalk-table" data-tg-qaqc-summary>
+          <thead><tr><th>Location</th><th>Day</th><th>Window</th><th>Hour</th><th>Score</th><th>Pass/fail</th><th></th></tr></thead>
+          <tbody>${summaryRows.join('') || '<tr><td colspan="7" style="color:var(--text3)">No QA/QC time periods added yet — add one from the QA/QC screen.</td></tr>'}</tbody>
+        </table>
+      </div>
     </div>
   `;
 }
@@ -1298,6 +1393,9 @@ export async function renderTripGenSection(container, entries, ctx) {
       ${qaqcSectionHTML}
     </div>
 
+    <div class="section" style="margin-bottom:1.5rem">
+      <div class="section-head"><h2>Per-location detail</h2></div>
+    </div>
     ${locationTabsHTML}
     ${locationBlocks.join('')}
   `;

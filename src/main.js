@@ -78,7 +78,7 @@ import { exportShareablePage, buildShareableHTML } from './shareReport.js';
 import JSZip from 'jszip';
 import { printSummaryReport, printIntersectionReport } from './printPedReport.js';
 import { buildVolumeProfileSVG, buildCrosswalkBarSVG, buildChartLegend, dirSplitBar, CW_COLORS } from './chartUtils.js';
-import { renderTripGenSection, DEFAULT_PEAK_WINDOWS, computePeakVolumes, computeQaqcPeakScore, renderQaqcDetailCardHTML, passFailBadge } from './analysis/ui/tripgenSection.js';
+import { renderTripGenSection, DEFAULT_PEAK_WINDOWS, computePeakVolumes, computeQaqcPeakScore, renderQaqcDetailCardHTML, passFailBadge, migrateQaqcWindows, qaqcWindowsKey, qaqcPeakKey } from './analysis/ui/tripgenSection.js';
 import { weekdayShort, dateLabelWithWeekday } from './analysis/ui/dateUtils.js';
 import { intervalBar, pctOfPeakCell } from './analysis/ui/intervalDetail.js';
 
@@ -2382,6 +2382,9 @@ document.getElementById('btn-new-tripgen')?.addEventListener('click', () => {
   tripgenDistNextId = 1;
   tripgenCustomWindows = [];
   tripgenCustomWindowNextId = 1;
+  for (const k in tripgenQaqcWindows) delete tripgenQaqcWindows[k];
+  tripgenQaqcWindowNextId = 1;
+  for (const k in tripgenQaqc) delete tripgenQaqc[k];
   // See home-btn-tripgen's handler above — classifications are project-wide config now and
   // must be cleared explicitly for a genuinely new project.
   tgResetClassifications();
@@ -5393,6 +5396,11 @@ function loadProject(proj, opts = {}) {
     Object.assign(tripgenSiteInfo, proj.siteInfo || {});
     Object.assign(tripgenCategoryMap, proj.categoryMap || {});
     if (proj.peakWindows) Object.assign(tripgenPeakWindows, proj.peakWindows);
+    // Reset first — Object.assign alone only overwrites keys present in proj.qaqc, so loading a
+    // project with no/fewer recount keys than whatever was already loaded left stale entries
+    // from the PREVIOUS project visible on this one's QA/QC screen (BUG-027-class leak, same
+    // fix shape as intersectionQaqc's own reset-before-restore).
+    for (const k in tripgenQaqc) delete tripgenQaqc[k];
     Object.assign(tripgenQaqc, proj.qaqc || {});
     tripgenEntries.length = 0;
     tripgenEntries.push(...(proj.entries || []));
@@ -5416,6 +5424,23 @@ function loadProject(proj, opts = {}) {
     tripgenDistNextId = tripgenDistribution.reduce((mx, ix) => Math.max(mx, ix.id + 1), 1);
     tripgenCustomWindows = JSON.parse(JSON.stringify(proj.customWindows || []));
     tripgenCustomWindowNextId = tripgenCustomWindows.reduce((mx, w) => Math.max(mx, w.id + 1), 1);
+    for (const k in tripgenQaqcWindows) delete tripgenQaqcWindows[k];
+    if (proj.qaqcWindows) {
+      Object.assign(tripgenQaqcWindows, proj.qaqcWindows);
+      tripgenQaqcWindowNextId = Object.values(tripgenQaqcWindows).flat().reduce((mx, w) => Math.max(mx, w.id + 1), 1);
+    } else if (tripgenEntries.length) {
+      // Legacy project (saved before QA/QC windows became fully custom) — migrate the fixed
+      // defaults it already had, preserving any recount data already on file. See
+      // migrateQaqcWindows' own header comment (tripgenSection.js) for why this runs async
+      // without blocking the rest of loadProject — windows just aren't visible for the few ms
+      // until it resolves, a one-time cost since the project re-saves with qaqcWindows set.
+      migrateQaqcWindows(tripgenEntries, tripgenQaqc).then(({ qaqcWindows, qaqc, nextId }) => {
+        Object.assign(tripgenQaqcWindows, qaqcWindows);
+        for (const k in tripgenQaqc) delete tripgenQaqc[k];
+        Object.assign(tripgenQaqc, qaqc);
+        tripgenQaqcWindowNextId = nextId;
+      });
+    }
     if (proj.qaqcReviewerName) { const el = document.getElementById('qaqc-reviewer-name'); if (el) el.value = proj.qaqcReviewerName; }
     if (proj.qaqcReviewDate) { const el = document.getElementById('qaqc-review-date'); if (el) el.value = proj.qaqcReviewDate; }
     projectType = 'tripgen';
@@ -5640,7 +5665,7 @@ async function renderViewerContent(proj) {
     // wrapViewerDetail() in tripgenSection.js).
     await renderTripGenSection(content, tripgenEntries, {
       siteInfo: tripgenSiteInfo, categoryMap: tripgenCategoryMap, peakWindows: tripgenPeakWindows,
-      qaqc: tripgenQaqc, dataView: tripgenDataView, customWindows: tripgenCustomWindows,
+      qaqc: tripgenQaqc, qaqcWindows: tripgenQaqcWindows, dataView: tripgenDataView, customWindows: tripgenCustomWindows,
       onSiteInfoChange: () => {}, onPeakWindowChange: () => {},
       onPeakManualToggle: () => {}, onDataViewChange: () => {}, onFixedWindowChange: () => {},
       fixedWindowStartMin: tripgenFixedWindowStartMin, fixedWindowEndMin: tripgenFixedWindowEndMin,
@@ -5741,6 +5766,7 @@ function serializeCurrentProject() {
       peakWindows: JSON.parse(JSON.stringify(tripgenPeakWindows)),
       customWindows: JSON.parse(JSON.stringify(tripgenCustomWindows)),
       qaqc: { ...tripgenQaqc },
+      qaqcWindows: JSON.parse(JSON.stringify(tripgenQaqcWindows)),
       qaqcReviewerName: document.getElementById('qaqc-reviewer-name')?.value || '',
       qaqcReviewDate: document.getElementById('qaqc-review-date')?.value || '',
       entries: JSON.parse(JSON.stringify(tripgenEntries)),
@@ -6204,6 +6230,11 @@ const tripgenSiteInfo = { location: '', landUseType: '', gsf: '', lotSf: '', par
 const tripgenCategoryMap = {};
 const tripgenPeakWindows = { weekday: DEFAULT_PEAK_WINDOWS.weekday.map((w) => ({ ...w })), weekend: DEFAULT_PEAK_WINDOWS.weekend.map((w) => ({ ...w })) };
 const tripgenQaqc = {};
+// QA/QC's own time periods to recount — fully user-defined (v3.47-alpha.4), decoupled from
+// tripgenPeakWindows above (which stays fixed AM/Midday/PM for the separate "Peak periods"
+// chart). Keyed by qaqcWindowsKey(entryId, sheetName) -> [{id, label, startMin, endMin}].
+const tripgenQaqcWindows = {};
+let tripgenQaqcWindowNextId = 1;
 const tripgenEntries = [];
 let tripgenDataView = 'raw';
 let tripgenNextId = 1;
@@ -6765,9 +6796,6 @@ ixQaqcWireKeydown();
 // can't be transcribed against the wrong category. Multiple recounts per peak are
 // supported via "+ add count" — qaqc[peakKey].recounts is an array, not a single value.
 // ═══════════════════════════════════════════
-function qaqcPeakKey(entryId, sheetName, peakLabel) {
-  return `${entryId}__${sheetName}__${peakLabel}`;
-}
 function inferIntervalMinutes(intervals) {
   if (intervals.length < 2) return 15;
   const toMin = (t) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
@@ -6799,33 +6827,47 @@ function scrollToQaqcCard(key, attemptsLeft = 20) {
 async function renderQaqcScreen() {
   const root = document.getElementById('tripgen-qaqc-list');
   if (!tripgenEntries.length) { root.innerHTML = '<div class="stat-detail">No locations counted yet — add one from setup first.</div>'; return; }
-  const cards = [];
+  const locGroups = [];
   for (const entry of tripgenEntries) {
+    const dayBlocks = [];
     for (const day of entry.days) {
       const intervalMinutes = inferIntervalMinutes(day.parsed.intervals);
-      for (const w of tripgenPeakWindows[day.dayType]) {
-        const key = qaqcPeakKey(entry.id, day.sheetName, w.label);
+      const winKey = qaqcWindowsKey(entry.id, day.sheetName);
+      const windows = tripgenQaqcWindows[winKey] || [];
+      const windowCards = [];
+      for (const w of windows) {
+        const key = qaqcPeakKey(entry.id, day.sheetName, w.id);
         // Single source of truth (build brief item 2a): the peak lookup AND the
         // interval-by-interval score comparison both come from computeQaqcPeakScore, the
         // exact same function the Analysis page's summary row uses — this screen's "Hour
         // found" line and score can never disagree with what the summary table shows.
         const computed = await computeQaqcPeakScore(entry, day, w, tripgenQaqc);
-        const { peak } = computed;
+        const { peak, alignedRecounts } = computed;
         const recounts = tripgenQaqc[key]?.recounts || [];
         const hasHour = peak.startIdx >= 0;
-        const defaultStart = hasHour ? peak.startIdx * intervalMinutes + (day.parsed.intervals[0] ? toMinFromLabel(day.parsed.intervals[0].start) : 0) : w.searchStartMin;
-        cards.push(`
+        const defaultStart = hasHour ? peak.startIdx * intervalMinutes + toMinFromLabel(day.parsed.intervals[0].start) : w.startMin;
+        const alignedIds = new Set(alignedRecounts.map((r) => r.id));
+        const avgNote = recounts.length > 1
+          ? `<div class="stat-detail" style="margin-bottom:6px;color:var(--text2)">${recounts.length} recounts on file — ${alignedRecounts.length > 1 ? `the ${alignedRecounts.length} that line up with this window are averaged per interval for the score below` : alignedRecounts.length === 1 ? 'only 1 lines up with this window and is used as-is' : 'none of them line up with this window’s time range/interval length'}.</div>`
+          : '';
+        windowCards.push(`
           <div class="card" style="margin-bottom:14px" data-qaqc-card="${key}">
-            <h3>${escapeHtmlMain(entry.locationLabel)} — ${escapeHtmlMain(day.sheetName)} — ${escapeHtmlMain(w.label)}</h3>
-            <div class="stat-detail" style="margin-bottom:8px">${hasHour ? `Hour found: ${peak.label} · volume ${peak.volume}` : 'No interval found in the search range yet — you can still recount a specific time window below.'}</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px">
+              <h3 style="margin:0">${escapeHtmlMain(w.label)} <span style="font-weight:400;color:var(--text3);font-size:12px">(${minToTimeStr(w.startMin)}–${minToTimeStr(w.endMin)})</span></h3>
+              <button type="button" class="no-print" data-qaqc-remove-window="${winKey}" data-qaqc-remove-window-id="${w.id}" style="font-size:11px;flex-shrink:0">× remove window</button>
+            </div>
+            <div class="stat-detail" style="margin-bottom:8px">${hasHour ? `Hour found: ${peak.label} · volume ${peak.volume}` : 'This window doesn’t fit this day’s counted time range — you can still recount below, but it won’t score.'}</div>
+            ${avgNote}
             <table class="crosswalk-table" style="margin-bottom:10px">
-              <thead><tr><th>#</th><th>Time range</th><th>Classifications</th><th>Total</th><th></th></tr></thead>
+              <thead><tr><th>#</th><th>Time range</th><th>Classifications</th><th>Total</th><th>Entered</th><th>In score?</th><th></th></tr></thead>
               <tbody>
                 ${recounts.length ? recounts.map((r, ri) => {
                   const total = r.parsed.intervals.reduce((s, iv) => s + iv.inbound.reduce((a, b) => a + b, 0) + iv.outbound.reduce((a, b) => a + b, 0), 0);
                   const range = `${r.parsed.intervals[0]?.start || ''} – ${r.parsed.intervals[r.parsed.intervals.length - 1]?.end || ''}`;
-                  return `<tr><td>${ri + 1}</td><td>${escapeHtmlMain(range)}</td><td>${r.classifications.length}</td><td>${total}</td><td><button data-qaqc-remove-key="${key}" data-qaqc-remove-id="${r.id}">×</button></td></tr>`;
-                }).join('') : '<tr><td colspan="5" style="color:var(--text3)">No recounts yet.</td></tr>'}
+                  const entered = r.enteredAt ? new Date(r.enteredAt).toLocaleString() : '—';
+                  const inScore = alignedIds.has(r.id) ? '✓' : '<span style="color:var(--text3)" title="Time range/interval length doesn’t match this window">—</span>';
+                  return `<tr><td>${ri + 1}</td><td>${escapeHtmlMain(range)}</td><td>${r.classifications.length}</td><td>${total}</td><td>${entered}</td><td>${inScore}</td><td><button data-qaqc-remove-key="${key}" data-qaqc-remove-id="${r.id}">×</button></td></tr>`;
+                }).join('') : '<tr><td colspan="7" style="color:var(--text3)">No recounts yet.</td></tr>'}
               </tbody>
             </table>
             ${hasHour && recounts.length ? `
@@ -6846,7 +6888,7 @@ async function renderQaqcScreen() {
                     <option value="60"${intervalMinutes === 60 ? ' selected' : ''}>60 min</option>
                   </select>
                 </div>
-                <div class="setup-field"><label>duration (minutes)</label><input type="number" min="1" data-qaqc-duration="${key}" value="60"></div>
+                <div class="setup-field"><label>duration (minutes)</label><input type="number" min="1" data-qaqc-duration="${key}" value="${Math.max(1, w.endMin - w.startMin)}"></div>
               </div>
               <button class="btn-primary" data-qaqc-begin="${key}">begin recount →</button>
             </div>
@@ -6854,10 +6896,59 @@ async function renderQaqcScreen() {
           </div>
         `);
       }
+      dayBlocks.push(`
+        <div style="margin-bottom:10px">
+          <div class="stat-detail" style="font-weight:600;color:var(--text);margin:10px 0 8px">${escapeHtmlMain(day.sheetName)}</div>
+          ${windowCards.join('') || '<div class="stat-detail" style="margin-bottom:10px">No time periods added yet — add one below.</div>'}
+          <div class="no-print" style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;padding:10px 0 4px;border-top:.5px dashed var(--border2)">
+            <div class="setup-field"><label>name</label><input type="text" data-qaqc-window-name="${winKey}" placeholder="e.g. AM peak" style="width:140px"></div>
+            <div class="setup-field"><label>start</label><input type="time" data-qaqc-window-start="${winKey}"></div>
+            <div class="setup-field"><label>end</label><input type="time" data-qaqc-window-end="${winKey}"></div>
+            <button type="button" class="btn-primary" data-qaqc-add-window="${winKey}" style="height:34px">+ add time period</button>
+          </div>
+        </div>
+      `);
     }
+    locGroups.push(`
+      <details class="interval-detail" open style="margin-bottom:16px">
+        <summary class="interval-detail-summary" style="font-size:14px;font-weight:600">${escapeHtmlMain(entry.locationLabel)}</summary>
+        ${dayBlocks.join('')}
+      </details>
+    `);
   }
-  root.innerHTML = cards.join('');
+  root.innerHTML = locGroups.join('');
 
+  root.querySelectorAll('[data-qaqc-add-window]').forEach((el) => {
+    el.addEventListener('click', () => {
+      const winKey = el.dataset.qaqcAddWindow;
+      const nameEl = root.querySelector(`[data-qaqc-window-name="${winKey}"]`);
+      const startEl = root.querySelector(`[data-qaqc-window-start="${winKey}"]`);
+      const endEl = root.querySelector(`[data-qaqc-window-end="${winKey}"]`);
+      const label = nameEl.value.trim();
+      const startMin = toMinFromLabel(startEl.value || '00:00');
+      const endMin = toMinFromLabel(endEl.value || '00:00');
+      if (!label) { alert('Name this time period first.'); return; }
+      if (endMin <= startMin) { alert('End time must be after start time.'); return; }
+      tripgenQaqcWindows[winKey] = tripgenQaqcWindows[winKey] || [];
+      tripgenQaqcWindows[winKey].push({ id: tripgenQaqcWindowNextId++, label, startMin, endMin });
+      renderQaqcScreen();
+      window.scheduleAutosave?.();
+    });
+  });
+  root.querySelectorAll('[data-qaqc-remove-window]').forEach((el) => {
+    el.addEventListener('click', () => {
+      const winKey = el.dataset.qaqcRemoveWindow;
+      const id = Number(el.dataset.qaqcRemoveWindowId);
+      if (!tripgenQaqcWindows[winKey]) return;
+      tripgenQaqcWindows[winKey] = tripgenQaqcWindows[winKey].filter((w) => w.id !== id);
+      // Also drop any recount data stored under the removed window's key — otherwise it's
+      // orphaned state that persists forever with no window left to display it against.
+      const [entryIdStr, sheetName] = winKey.split('__');
+      delete tripgenQaqc[qaqcPeakKey(Number(entryIdStr), sheetName, id)];
+      renderQaqcScreen();
+      window.scheduleAutosave?.();
+    });
+  });
   root.querySelectorAll('[data-qaqc-toggle-form]').forEach((el) => {
     el.addEventListener('click', () => {
       const area = root.querySelector(`[data-qaqc-form-area="${el.dataset.qaqcToggleForm}"]`);
@@ -6871,6 +6962,7 @@ async function renderQaqcScreen() {
       if (tripgenQaqc[key]) {
         tripgenQaqc[key].recounts = tripgenQaqc[key].recounts.filter((r) => r.id !== id);
         renderQaqcScreen();
+        window.scheduleAutosave?.();
       }
     });
   });
@@ -6899,7 +6991,7 @@ async function renderQaqcScreen() {
       document.getElementById('tg-counter-sub').textContent = `— QA/QC recount: ${entry.locationLabel} / ${day.sheetName}`;
       const started = tgBeginRecount(classificationList, recountCfg, (parsed) => {
         tripgenQaqc[key] = tripgenQaqc[key] || { recounts: [] };
-        tripgenQaqc[key].recounts.push({ id: tgQaqcNextId++, classifications: classificationList, cfg: recountCfg, parsed });
+        tripgenQaqc[key].recounts.push({ id: tgQaqcNextId++, classifications: classificationList, cfg: recountCfg, parsed, enteredAt: new Date().toISOString() });
         document.getElementById('tg-btn-finish').textContent = '✓ save location and exit';
         document.getElementById('tg-counter-sub').textContent = '';
         showScreen('tripgen-qaqc-screen');
@@ -7858,7 +7950,7 @@ async function goToTripgenAnalyze() {
 async function rerenderTripgenAnalysis() {
   await renderTripGenSection(document.getElementById('analyze-root'), tripgenEntries, {
     siteInfo: tripgenSiteInfo, categoryMap: tripgenCategoryMap, peakWindows: tripgenPeakWindows,
-    qaqc: tripgenQaqc, dataView: tripgenDataView, customWindows: tripgenCustomWindows,
+    qaqc: tripgenQaqc, qaqcWindows: tripgenQaqcWindows, dataView: tripgenDataView, customWindows: tripgenCustomWindows,
     onSiteInfoChange: (field, value) => { tripgenSiteInfo[field] = value; rerenderTripgenAnalysis(); },
     onAddCustomWindow: (label, startMin, endMin) => {
       tripgenCustomWindows.push({ id: tripgenCustomWindowNextId++, label, startMin, endMin });

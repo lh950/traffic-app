@@ -1,5 +1,19 @@
 # Changelog
 
+## v3.47.0-alpha.4 — 2026-08-25
+
+### Changed
+- **QA/QC time periods are now fully custom** — "+ add time period" replaces the fixed AM/Midday/PM (or weekend peak) listing. Decoupled from the "Peak periods" chart, which is unchanged. Fixes the Midday period not displaying (it no longer relies on a built-in search range that might not overlap your actual counted time).
+- **QA/QC screen groups collapse by location.**
+- **Score detail now includes a per-classification breakdown** ("By classification") showing which specific vehicle type(s) are driving a pass or fail — recounts still require the full classification list, this only changes what's shown.
+- Existing projects migrate automatically on next load — already-entered recount data is preserved under the new window model.
+- Dropped the "Three Peak Hour QC Rating" rollup (it required exactly 3 fixed peaks, which no longer applies once windows are custom). Each window keeps its own score/pass-fail.
+
+### Fixed
+- Analysis page's QA/QC summary table now scrolls instead of clipping when there are many rows.
+- Added a missing section header ("Per-location detail") after the QA/QC section on the Analysis page.
+- A 2nd+ recount now shows a note explaining it's averaged with the others for scoring, plus an "Entered" timestamp and "In score?" indicator per recount row.
+
 ## v3.47.0-alpha.3 — 2026-08-25
 
 ### Added
