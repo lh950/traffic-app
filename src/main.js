@@ -5439,6 +5439,13 @@ function loadProject(proj, opts = {}) {
         for (const k in tripgenQaqc) delete tripgenQaqc[k];
         Object.assign(tripgenQaqc, qaqc);
         tripgenQaqcWindowNextId = nextId;
+        // Real bug, not just "a few ms": if the user reaches QA/QC or Analysis before this
+        // promise settles, renderQaqcScreen()/rerenderTripgenAnalysis() already ran against
+        // the still-empty tripgenQaqcWindows and nothing re-renders afterward -- the screen
+        // stays showing "no time periods" forever, with real recount data sitting unreachable
+        // right there in tripgenQaqc. Re-render whichever of the two is currently on screen.
+        if (_currentScreen === 'tripgen-qaqc-screen') renderQaqcScreen();
+        else if (_currentScreen === 'analyze-screen') rerenderTripgenAnalysis();
       });
     }
     if (proj.qaqcReviewerName) { const el = document.getElementById('qaqc-reviewer-name'); if (el) el.value = proj.qaqcReviewerName; }
@@ -6827,6 +6834,15 @@ function scrollToQaqcCard(key, attemptsLeft = 20) {
 async function renderQaqcScreen() {
   const root = document.getElementById('tripgen-qaqc-list');
   if (!tripgenEntries.length) { root.innerHTML = '<div class="stat-detail">No locations counted yet — add one from setup first.</div>'; return; }
+  // This function awaits a real per-window peak-score computation (computeQaqcPeakScore) for
+  // every location/day/window before it has anything to show — on a real project (several
+  // locations, a full day's intervals, QA/QC on more than one location) that's long enough to
+  // look broken with nothing on screen. Callers don't await this (openWorkspaceTab's switch is
+  // sync), so paint a loading state before the async work starts — but only on a genuinely
+  // fresh/empty render (a first navigation here), not on the several in-place re-render calls
+  // below (add/remove a recount or window) where the root already has real content and
+  // flashing "Loading…" over it on every small edit would be worse than the delay itself.
+  if (!root.innerHTML) root.innerHTML = '<div class="stat-detail">Loading QA/QC…</div>';
   const locGroups = [];
   for (const entry of tripgenEntries) {
     const dayBlocks = [];
@@ -7948,6 +7964,12 @@ async function goToTripgenAnalyze() {
 }
 
 async function rerenderTripgenAnalysis() {
+  // Same rationale as renderQaqcScreen()'s loading state, immediately above this function's
+  // sibling in the file: renderTripGenSection() is real async work (peak-score computation,
+  // QA/QC scoring per location/day), and callers here don't await this function either — paint
+  // something before starting rather than leaving analyze-root looking blank while it runs.
+  const analyzeRoot = document.getElementById('analyze-root');
+  if (analyzeRoot && !analyzeRoot.innerHTML) analyzeRoot.innerHTML = '<div class="stat-detail">Loading analysis…</div>';
   await renderTripGenSection(document.getElementById('analyze-root'), tripgenEntries, {
     siteInfo: tripgenSiteInfo, categoryMap: tripgenCategoryMap, peakWindows: tripgenPeakWindows,
     qaqc: tripgenQaqc, qaqcWindows: tripgenQaqcWindows, dataView: tripgenDataView, customWindows: tripgenCustomWindows,

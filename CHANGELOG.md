@@ -1,5 +1,10 @@
 # Changelog
 
+## v3.47.0-alpha.5 — 2026-08-25
+
+### Fixed
+- **BUG-046: QA/QC and Analysis screens could load up permanently blank** for projects saved before the custom-time-periods redesign, if you navigated there before the one-time background migration finished — a real race, not a fixed delay. The migration itself was always correct and never lost data; nothing re-rendered the screen once it completed. Fixed, plus a "Loading…" state so a slow render never just sits blank. See `BUGS.md` BUG-046.
+
 ## v3.47.0-alpha.4 — 2026-08-25
 
 ### Changed
