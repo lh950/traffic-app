@@ -102,6 +102,7 @@ import {
   enableSharing as fbEnableSharing, disableSharing as fbDisableSharing,
   fetchSharedProject, pushSharedUpdate, setViewerMode as setShareViewerMode,
 } from './share.js';
+import { pushBackupSnapshot, listBackups, getBackup } from './backup.js';
 
 // ── Count type enabled flags ──
 const enabledModes = { ped: true, vehicle: true, turning: true };
@@ -598,6 +599,13 @@ function showScreen(id) {
   if (!_navLock && _currentScreen && _currentScreen !== id && id !== 'home-screen') {
     _navHistory.push(_currentScreen);
     if (_navHistory.length > 30) _navHistory.shift();
+  }
+  // Export reminder (layer 3) only makes sense while actually on a live counting screen —
+  // hide it (without recording a dismissal) the moment the user navigates away from one, so
+  // it doesn't linger over unrelated screens like Setup or Analysis.
+  if (_currentScreen !== id) {
+    const banner = document.getElementById('export-reminder-banner');
+    if (banner) banner.style.display = 'none';
   }
   _currentScreen = id;
   SCREENS.forEach((s) => {
@@ -1164,6 +1172,57 @@ document.getElementById('home-sync-input')?.addEventListener('change', (e) => {
   const file = e.target.files?.[0];
   if (file) importSyncFile(file);
   e.target.value = '';
+});
+
+// ── Count-data failsafe, layer 1: restore-from-backup UI ──
+async function openBackupsDialog() {
+  const modal = document.getElementById('backups-modal');
+  const list = document.getElementById('backups-list');
+  if (!modal || !list) return;
+  modal.classList.add('open');
+  list.innerHTML = `<div style="font-size:12px;color:var(--text3);padding:12px 0">Loading…</div>`;
+  const backups = await listBackups();
+  if (!backups.length) {
+    list.innerHTML = `<div style="font-size:12px;color:var(--text3);padding:12px 0">No backup snapshots yet — they're taken automatically as you work on a project.</div>`;
+    return;
+  }
+  const typeLabel = t => t === 'tripgen' ? 'Trip Gen' : t === 'area' ? 'Area Study' : t === 'parking' ? 'Parking' : 'Intersection';
+  list.innerHTML = backups.map(b => `
+    <div class="home-card" style="flex-direction:row;align-items:center;gap:12px;margin-bottom:8px">
+      <div style="flex:1;min-width:0;overflow:hidden">
+        <div class="home-card-title" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtmlMain(b.label)}</div>
+        <div class="home-card-desc">${typeLabel(b.projectType)} · ${formatTimeAgo(new Date(b.savedAt))} · ${escapeHtmlMain(b.summary || '')}</div>
+      </div>
+      <button class="btn-primary" data-restore-backup="${b.id}" style="white-space:nowrap;flex-shrink:0">Restore</button>
+    </div>`).join('');
+  list.querySelectorAll('[data-restore-backup]').forEach((btn) => {
+    btn.addEventListener('click', () => restoreBackup(Number(btn.dataset.restoreBackup)));
+  });
+}
+
+function closeBackupsDialog() {
+  document.getElementById('backups-modal')?.classList.remove('open');
+}
+
+async function restoreBackup(id) {
+  const record = await getBackup(id);
+  if (!record?.proj) return;
+  const ok = window.confirm(
+    `Restore "${record.label}" as it was ${formatTimeAgo(new Date(record.savedAt))}?\n\n` +
+    `This replaces whatever is currently open with this backup's data. The current state is not lost — it's still autosaved and its own recent backups remain available — but any changes made since this snapshot won't be in the restored version.`
+  );
+  if (!ok) return;
+  closeBackupsDialog();
+  loadProject(record.proj);
+  // Lock the recovered state in immediately rather than leaving it dependent on the next
+  // debounced autosave tick — a restore is a deliberate save-worthy action on its own.
+  commitProjectSave(serializeCurrentProject());
+}
+
+document.getElementById('home-btn-backups')?.addEventListener('click', openBackupsDialog);
+document.getElementById('backups-modal-close')?.addEventListener('click', closeBackupsDialog);
+document.getElementById('backups-modal')?.addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeBackupsDialog();
 });
 
 function openBugReportDialog() {
@@ -5796,6 +5855,114 @@ function setSaveState(msg, durationMs) {
   if (durationMs) _saveStateTimer = setTimeout(() => { el.textContent = ''; }, durationMs);
 }
 
+// ── Count-data failsafe, layer 2: "data just got smaller" detection ──
+// Generic guard against the BUG-047 class of bug (a background action silently overwrites a
+// finished location's real count with a much smaller one) — not a re-fix of BUG-047 itself
+// (already fixed by clearing tgPendingLocation at recount-begin), but a safety net that would
+// also catch a DIFFERENT, not-yet-found bug shaped the same way. Compares each Trip Gen
+// location/day's interval coverage in the incoming save against the last-known-good save.
+//
+// Distinguishing an intentional overwrite from an accidental one: tgPendingLocation is the
+// SAME marker editTripgenDay()/BUG-034's live-edit tracking already uses for "the user is
+// deliberately counting/recounting THIS exact location+day right now" — see BUG-047's own
+// writeup. Exactly one entry+day is allowed to shrink at a time: whichever one is the live
+// pending edit target. Any OTHER location/day shrinking is exactly the shape BUG-047 took
+// (an unrelated background write silently clobbering a location nobody was actively editing).
+const SHRINK_MIN_PREV_INTERVALS = 8; // below this, "shrink" is noise (e.g. a short QA window)
+const SHRINK_RATIO = 0.4; // new coverage must drop below 40% of previous to flag
+
+function detectTripgenShrink(prevProj, newProj) {
+  if (!prevProj || prevProj.projectType !== 'tripgen' || !prevProj.entries?.length) return null;
+  const exemptEntryId = tgPendingLocation?.kind === 'edit' ? tgPendingLocation.entryId : null;
+  const exemptDayIdx = tgPendingLocation?.dayIdx ?? null;
+  for (const prevEntry of prevProj.entries) {
+    const newEntry = (newProj.entries || []).find((e) => e.id === prevEntry.id);
+    if (!newEntry) continue; // entry removed entirely — a deliberate delete, not this check's concern
+    const days = prevEntry.days || [];
+    for (let dayIdx = 0; dayIdx < days.length; dayIdx++) {
+      if (prevEntry.id === exemptEntryId && dayIdx === exemptDayIdx) continue; // live edit target — expected to change
+      const prevCount = days[dayIdx]?.parsed?.intervals?.length || 0;
+      const newCount = newEntry.days?.[dayIdx]?.parsed?.intervals?.length || 0;
+      if (prevCount >= SHRINK_MIN_PREV_INTERVALS && newCount < prevCount * SHRINK_RATIO) {
+        return { label: prevEntry.locationLabel || '(unlabeled location)', prevCount, newCount };
+      }
+    }
+  }
+  return null;
+}
+
+// Single write path for every autosave write site (window.scheduleAutosave's debounced
+// callback, flushPendingAutosave, persistAreaStudySnapshotsOnly) — see DEVLOG "count-data
+// failsafe" entry. Runs the shrink check (layer 2) before committing, then writes to
+// localStorage as before, then fires a rolling backup snapshot (layer 1) on top.
+function commitProjectSave(proj) {
+  if (!proj) return;
+  if (proj.projectType === 'tripgen') {
+    let prevProj = null;
+    try { prevProj = JSON.parse(localStorage.getItem(LS_KEY) || 'null'); } catch (_) {}
+    const shrink = detectTripgenShrink(prevProj, proj);
+    if (shrink) {
+      const ok = window.confirm(
+        `Warning: "${shrink.label}" appears to have LOST data.\n\n` +
+        `It had ${shrink.prevCount} counted intervals in the last save — this save only has ${shrink.newCount}.\n\n` +
+        `This is exactly what happens when a background action (like a QA/QC recount) accidentally overwrites a location's real count.\n\n` +
+        `Click Cancel to keep the previous save and NOT overwrite this data (safest if you didn't mean to change this location). Click OK only if you intentionally cleared or are redoing this location's count.`
+      );
+      if (!ok) { setSaveState('', 0); return; }
+    }
+  }
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify(proj));
+    addToRecents(proj);
+    setSaveState('Saved', 2000);
+  } catch (_) {
+    // Most likely a quota-exceeded write failure — itself a save-failure scenario this
+    // failsafe needs to survive, not introduce. The rolling backup below is a separate
+    // IndexedDB store with its own much larger quota, so still attempt it even if the
+    // localStorage write itself failed — a snapshot that made it into backup history is
+    // strictly better than one that didn't, especially in exactly this failure mode.
+    setSaveState('Save failed — device storage may be full', 5000);
+  }
+  pushBackupSnapshot(proj, getProjectName(proj)).catch(() => {});
+  maybeShowExportReminder();
+}
+
+// ── Count-data failsafe, layer 3: export reminder ──
+// localStorage/IndexedDB are themselves a single point of failure independent of any app bug
+// — an OS storage-pressure eviction, a browser extension, or a "clear browsing data" click can
+// wipe them regardless of how good layers 1/2 are. A gentle, dismissible nudge to export a
+// real file (an independent copy outside the browser entirely) during a long live count is
+// the cheapest defense against that. Deliberately not naggy: only checked while actually on a
+// live counting screen, at most once per REMINDER_INTERVAL_MS per project (tracked in
+// localStorage so a dismissal or an export sticks across reloads, not just this tab session).
+const LIVE_COUNT_SCREENS = new Set(['counter-screen', 'tripgen-counter-screen', 'intersection-qaqc-counter-screen', 'parking-counter-screen']);
+const EXPORT_REMINDER_INTERVAL_MS = 2 * 60 * 60 * 1000; // 2 hours
+
+function maybeShowExportReminder() {
+  if (isViewerMode || !projectType || !projectUUID) return;
+  if (!LIVE_COUNT_SCREENS.has(_currentScreen)) return;
+  const banner = document.getElementById('export-reminder-banner');
+  if (!banner || banner.style.display !== 'none') return; // already showing (or missing from DOM)
+  const key = `tc_export_reminder_${projectUUID}`;
+  let last = 0;
+  try { last = Number(localStorage.getItem(key)) || 0; } catch (_) {}
+  if (Date.now() - last < EXPORT_REMINDER_INTERVAL_MS) return;
+  banner.style.display = 'flex';
+}
+
+function dismissExportReminder() {
+  const banner = document.getElementById('export-reminder-banner');
+  if (banner) banner.style.display = 'none';
+  if (!projectUUID) return;
+  try { localStorage.setItem(`tc_export_reminder_${projectUUID}`, String(Date.now())); } catch (_) {}
+}
+
+document.getElementById('export-reminder-dismiss')?.addEventListener('click', dismissExportReminder);
+document.getElementById('export-reminder-export')?.addEventListener('click', () => {
+  dismissExportReminder();
+  window.exportAnalyzeXLSX?.();
+});
+
 window.scheduleAutosave = function () {
   if (isViewerMode) return; // structural guard — a viewer's browser must never write locally
   if (!projectType) return;
@@ -5816,11 +5983,7 @@ window.scheduleAutosave = function () {
         if (day && live) { day.parsed = live.parsed; day.editSnapshot = live.editSnapshot; }
       }
       const proj = serializeCurrentProject();
-      if (proj) {
-        localStorage.setItem(LS_KEY, JSON.stringify(proj));
-        addToRecents(proj);
-        setSaveState('Saved', 2000);
-      }
+      commitProjectSave(proj);
       maybePushSharedUpdate(proj);
     } catch (_) { setSaveState('', 0); }
   }, 2000);
@@ -5861,11 +6024,7 @@ function flushPendingAutosave() {
   _autosaveTimer = null;
   try {
     const proj = serializeCurrentProject();
-    if (proj) {
-      localStorage.setItem(LS_KEY, JSON.stringify(proj));
-      addToRecents(proj);
-      setSaveState('Saved', 2000);
-    }
+    commitProjectSave(proj);
   } catch (_) { setSaveState('', 0); }
 }
 
@@ -5902,9 +6061,7 @@ function persistAreaStudySnapshotsOnly() {
       intersections: areaIntersections.map(ix => ({ name: ix.name, snapshot: ix.snapshot, street1: ix.street1 || '', street2: ix.street2 || '', corridor: ix.corridor || '', counterName: ix.counterName || '', lat: ix.lat || '', lng: ix.lng || '' })),
       shareInfo: { ...shareInfo },
     };
-    localStorage.setItem(LS_KEY, JSON.stringify(proj));
-    addToRecents(proj);
-    setSaveState('Saved', 2000);
+    commitProjectSave(proj);
     maybePushSharedUpdate(proj);
   } catch (_) { setSaveState('', 0); }
 }

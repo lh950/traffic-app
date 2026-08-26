@@ -1,6 +1,6 @@
 {
   "name": "traffic-app-v3",
-  "version": "3.47.0-alpha.6",
+  "version": "3.48.0-alpha.1",
   "private": true,
   "type": "module",
   "scripts": {

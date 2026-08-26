@@ -1,5 +1,13 @@
 # Changelog
 
+## v3.48.0-alpha.1 — 2026-08-26
+
+### Added
+- **Count-data failsafe** — three independent layers of protection against the class of bug BUG-034/035/036/047 all belonged to (real field-count data silently lost, discovered too late, unrecoverable from inside the app). See `DEVLOG.md` for the full design writeup.
+  1. **Rolling local backups.** Every autosave now also pushes a snapshot into a separate IndexedDB history (not just the single live `localStorage` slot that's always been overwritten in place) — up to 20 snapshots per project, throttled to at most one every 3 minutes, across up to 6 recently-active projects. New "Restore from backup…" link on the home screen opens a picker (project, type, time, quick data-volume summary) and restores any snapshot with one click plus a confirmation.
+  2. **Automatic "data just got smaller" detection.** Every Trip Gen autosave now compares the incoming save against the last-known-good save, location by location. If a location that wasn't being actively edited suddenly loses most of its counted intervals — exactly what BUG-047 did to Flatlands Ave — a hard-to-miss confirmation dialog blocks the save unless you explicitly confirm it was intentional.
+  3. **Export reminder.** A small dismissible banner nudges you to export a real file during a long live count, since `localStorage`/IndexedDB are themselves device-local and can be cleared independently of any app bug.
+
 ## v3.47.0-alpha.6 — 2026-08-25
 
 ### Fixed
