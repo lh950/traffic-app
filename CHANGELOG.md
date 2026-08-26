@@ -1,5 +1,10 @@
 # Changelog
 
+## v3.47.0-alpha.6 — 2026-08-25
+
+### Fixed
+- **BUG-047 (Critical): a QA/QC recount could silently overwrite a location's real count data.** If a location's edit session was left unfinished (not resumed and re-finished) and a QA/QC recount was then started for any location, the recount's own narrow time window could get autosaved into the abandoned location's data, replacing its full-day counts. Confirmed against real user save files. Fixed at the source — a recount is never mistaken for a location edit now. See `BUGS.md` BUG-047.
+
 ## v3.47.0-alpha.5 — 2026-08-25
 
 ### Fixed

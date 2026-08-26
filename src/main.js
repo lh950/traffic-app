@@ -7002,6 +7002,20 @@ async function renderQaqcScreen() {
       // already knows carry over); otherwise assigns fresh defaults from the same pool —
       // xlsx/paste imports never had keys of their own to begin with.
       const classificationList = day.editSnapshot?.classifications || tgDefaultClassificationsFor(day.parsed.types);
+      // BUG-047 (Critical, real data corruption): a recount reuses the same shared live-count
+      // module state (tgData/classifications/cfg in tripgenCount.js) as a genuine location
+      // edit, but never touched tgPendingLocation. If a PREVIOUS edit session on some location
+      // was left unfinished (tgPendingLocation only clears on finish, by design -- navigating
+      // away leaves it set, per BUG-034), the periodic autosave's "keep the pending edit's
+      // entry current" step (main.js, scheduleAutosave) kept trusting that stale reference
+      // with no check that the live session was still actually that edit -- so once a recount
+      // started, its own narrow one-hour data got captured and written into the STALE pending
+      // location's day.parsed, silently replacing its real full-day dataset. Confirmed against
+      // a real corrupted save: a location's count was overwritten with exactly one QA/QC
+      // recount's own narrow time window. Clearing it here (a recount is never a location
+      // edit) closes the hole at its source rather than trying to make the autosave capture
+      // smarter about detecting a session it has no reliable way to identify.
+      tgPendingLocation = null;
       tgCounterBackTarget = 'tripgen-qaqc-screen';
       document.getElementById('tg-btn-finish').textContent = '✓ finish recount';
       document.getElementById('tg-counter-sub').textContent = `— QA/QC recount: ${entry.locationLabel} / ${day.sheetName}`;
