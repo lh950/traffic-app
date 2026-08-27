@@ -1271,8 +1271,8 @@ function _bugReportPayload() {
       }
     } catch { storage[key] = localStorage.getItem(key); }
   }
-  let tgWriteLog = [];
-  try { tgWriteLog = JSON.parse(localStorage.getItem('tc_tg_write_log') || '[]'); } catch (_) {}
+  let countWriteLog = [];
+  try { countWriteLog = JSON.parse(localStorage.getItem('tc_count_write_log') || '[]'); } catch (_) {}
   return {
     timestamp: new Date().toISOString(),
     appVersion: document.title,
@@ -1281,11 +1281,12 @@ function _bugReportPayload() {
     projectType,
     navHistory: [..._navHistory],
     storage,
-    // Count-data write log (BUG-047/BUG-048 follow-up) — every commitLocationCounts() call
-    // this device has made, accepted or rejected, plus shrink-detection warnings. Lets a
-    // future "a location's data looks wrong" report be traced to the exact write, rather than
-    // narrowed down by hand after the fact.
-    tgWriteLog,
+    // Count-data write log (BUG-047/BUG-048 follow-up, generalized across every project type)
+    // — every project save, plus Trip Gen's own more detailed commitLocationCounts() entries
+    // (accepted or rejected) and shrink-detection warnings. Lets a future "this data looks
+    // wrong" report be traced to the exact write, rather than narrowed down by hand after the
+    // fact.
+    countWriteLog,
   };
 }
 
@@ -5938,21 +5939,42 @@ function detectTripgenShrink(prevProj, newProj) {
 // (exactly what happened in both prior bugs) and the write is rejected instead of silently
 // landing on the wrong location.
 const tgLastGoodByKey = new Map(); // `${entryId}:${dayIdx}` -> {parsed, editSnapshot, ts} — live in-memory mirror, independent of the periodic IndexedDB rolling backups (layer 1)
-const TG_WRITE_LOG_KEY = 'tc_tg_write_log';
-const TG_WRITE_LOG_MAX = 500;
+const COUNT_WRITE_LOG_KEY = 'tc_count_write_log';
+const COUNT_WRITE_LOG_MAX = 500;
 // Diagnostics (user request following BUG-048: a full day of work happened before the bug was
 // even noticed — a downloadable trail of every count-data write, including rejected ones,
 // lets a future incident be pinpointed to the exact write instead of narrowed down by hand
 // days later). Persisted to localStorage (not just in-memory) so it survives reloads across a
 // multi-day field session; folded into the existing "Report a bug" JSON download
-// (_bugReportPayload() below) rather than a new UI surface.
+// (_bugReportPayload() below) rather than a new UI surface. Generic across every project
+// type (not just Trip Gen, which is where this started) — see DEVLOG's cross-count-type
+// parity entry: commitProjectSave() itself logs a generic entry for every save regardless of
+// projectType, alongside Trip Gen's own more detailed commitLocationCounts()-level entries.
 function tgLogWrite(entry) {
   try {
-    const log = JSON.parse(localStorage.getItem(TG_WRITE_LOG_KEY) || '[]');
+    const log = JSON.parse(localStorage.getItem(COUNT_WRITE_LOG_KEY) || '[]');
     log.push({ t: new Date().toISOString(), ...entry });
-    if (log.length > TG_WRITE_LOG_MAX) log.splice(0, log.length - TG_WRITE_LOG_MAX);
-    localStorage.setItem(TG_WRITE_LOG_KEY, JSON.stringify(log));
+    if (log.length > COUNT_WRITE_LOG_MAX) log.splice(0, log.length - COUNT_WRITE_LOG_MAX);
+    localStorage.setItem(COUNT_WRITE_LOG_KEY, JSON.stringify(log));
   } catch (_) {}
+}
+// One-line "what's in this save" summary per project type, for the generic save-log entry
+// below — deliberately shallow (counts, not full data) since this is a diagnostics trail, not
+// a backup (layer 1's rolling IndexedDB snapshots already cover full-data recovery).
+function projectSaveSummary(proj) {
+  if (proj.projectType === 'tripgen') {
+    return { entries: (proj.entries || []).length, days: (proj.entries || []).reduce((s, e) => s + (e.days || []).length, 0) };
+  }
+  if (proj.projectType === 'area') {
+    return { intersections: (proj.intersections || []).length };
+  }
+  if (proj.projectType === 'intersection') {
+    return { periods: (proj.periods || []).length };
+  }
+  if (proj.projectType === 'parking') {
+    return { zones: (proj.zones || []).length };
+  }
+  return {};
 }
 function tgIntervalStats(parsed) {
   const intervals = parsed?.intervals || [];
@@ -6006,6 +6028,7 @@ function commitProjectSave(proj) {
   try {
     localStorage.setItem(LS_KEY, JSON.stringify(proj));
     addToRecents(proj);
+    tgLogWrite({ outcome: 'project-saved', source: 'commitProjectSave', projectType: proj.projectType, ...projectSaveSummary(proj) });
     setSaveState('Saved', 2000);
   } catch (_) {
     // Most likely a quota-exceeded write failure — itself a save-failure scenario this

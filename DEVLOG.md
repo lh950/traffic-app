@@ -4,6 +4,20 @@ Key decisions, scope constraints, and architectural choices.
 
 ---
 
+## 2026-08-27 — v3.49.0-alpha.2 (cross-count-type parity scoping for the BUG-047/048 fix)
+
+**Trigger.** User instruction, given right after the previous entry shipped: "when any backend or feature-dependent change is made to one count type, assume we want to make those same changes and fixes across the app" — a standing rule now also in `CLAUDE.md`'s Process section. First application: scope whether the Trip Gen `commitLocationCounts()` write-gate (previous entry) is needed for the intersection/area counter and the parking counter too.
+
+**Findings (investigated directly, not assumed from comments).**
+- **Intersection/area:** already protected, via an earlier fix — BUG-020/BUG-021 (v3.29.0-alpha.1). `flushPendingAutosave()` and `persistAreaStudySnapshotsOnly()` (`main.js`, ~line 6094+) close the same class of race (live counter state vs. a background switch of which entity is "active") that BUG-048 closed for Trip Gen, just via named flush calls at the two navigation entry points (`showIntersectionAnalysis`/`showIntersectionQaqc`) rather than a generic seq-gate. Read this code directly to confirm before accepting the claim. The intersection QA/QC recount engine (`intersectionQaqcCount.js`) doesn't share this risk at all — it's a genuinely standalone module (own local `rows`/`cfg`/`data`, never touches `state.js`) and writes its result through a closure-captured reference to the correct `areaIntersections[idx].snapshot.intersectionQaqc` object, not through a "currently active" marker — so there's no stale-marker misattribution path to gate in the first place. No code change needed here.
+- **Parking:** architecturally immune, not just untested — one project holds exactly one grid/study, with no list of locations/intersections to switch between mid-session and no secondary QA/QC recount flow at all. The BUG-047/048 shape (session A's data landing in session B's slot) has no second slot to land in.
+
+**What WAS missing and got added: diagnostics parity.** The write-log added in the previous entry only covered Trip Gen (`commitLocationCounts()`'s own entries). Generalized it: renamed the storage key from `tc_tg_write_log` to `tc_count_write_log`, and `commitProjectSave()` — the one save function every project type already routes through — now logs a generic `project-saved` entry (projectType + a shallow per-type summary: entry/day count for Trip Gen, intersection count for area, period count for intersection, zone count for parking) on every successful save, not just Trip Gen ones. Trip Gen keeps its extra, more detailed `commitLocationCounts()`-level entries (accepted/rejected writes with entryId/dayIdx/seq) on top of this generic layer. Verified live: loaded a synthetic parking project, forced an autosave, and confirmed `tc_count_write_log` picked up a `{outcome:'project-saved', projectType:'parking', zones:2}` entry.
+
+**Scope call.** Did not add a redundant seq-gate to the intersection QA/QC write path — the investigation found no active gap there (different, already-adequate mechanism), and adding one anyway would be speculative hardening against a risk that doesn't exist for that code path, which `CLAUDE.md`'s "simplicity first" guideline argues against. Documenting the finding here satisfies the parity instruction (checked, not silently skipped) without adding code that doesn't fix anything.
+
+---
+
 ## 2026-08-27 — v3.49.0-alpha.1 ("read-only outside the counter" write gate, plus a downloadable count-data diagnostics log)
 
 **Trigger.** After BUG-047 and BUG-048 shipped, the user was direct about the stakes: two real field days of count data had been lost to this class of bug, and "in this current condition I rightfully cannot share this app to be used [by other people]." Rather than wait for a third bug of the same shape to turn up, the user asked (after an earlier standing instruction to review the BUG-048 investigation before implementing) to go ahead with the architectural change discussed during that investigation — closing off the general failure mode, not just the two specific mechanisms found so far.

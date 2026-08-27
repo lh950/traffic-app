@@ -1,5 +1,13 @@
 # Changelog
 
+## v3.49.0-alpha.2 — 2026-08-27
+
+### Added
+- **Count-data diagnostics log now covers every project type**, not just Trip Gen — every project save (intersection, area, parking, Trip Gen) logs a generic entry to the same downloadable trail (folded into "Report a bug"). Trip Gen keeps its extra, more detailed write-level entries on top.
+
+### Checked, no change needed
+- Scoped the BUG-047/048 write-gate fix against the intersection/area counter and the parking counter. Intersection/area already has an equivalent fix (BUG-020/021); parking's single-grid architecture isn't exposed to this bug class at all. See `DEVLOG.md`.
+
 ## v3.49.0-alpha.1 — 2026-08-27
 
 ### Added
