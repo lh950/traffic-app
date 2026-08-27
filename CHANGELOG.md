@@ -1,5 +1,10 @@
 # Changelog
 
+## v3 · v0.49.10 — 2026-08-27
+
+### Fixed
+- **QA/QC pass/fail was checking the wrong thing.** Re-verified against the actual source workbook's live formulas: it scores each vehicle classification completely independently (four separate Good/Failed checks) — there is no combined-total rating anywhere in it. The app had been summing every classification into one hour total first, which can hide a badly-off classification behind others that balance it out (confirmed live: one classification off by 50% still produced a perfect 5/5 combined "Pass"). "By classification" is now the primary signal shown everywhere (QA/QC screen, Analysis summary table, score-detail screen); the old combined-total number is kept as a secondary, clearly-labeled informational extra rather than removed.
+
 ## v3 · v0.49.9 — 2026-08-27
 
 ### Added

@@ -78,7 +78,7 @@ import { exportShareablePage, buildShareableHTML } from './shareReport.js';
 import JSZip from 'jszip';
 import { printSummaryReport, printIntersectionReport } from './printPedReport.js';
 import { buildVolumeProfileSVG, buildCrosswalkBarSVG, buildChartLegend, dirSplitBar, CW_COLORS } from './chartUtils.js';
-import { renderTripGenSection, DEFAULT_PEAK_WINDOWS, computePeakVolumes, computeQaqcPeakScore, renderQaqcDetailCardHTML, renderQaqcScoreDetailHTML, passFailBadge, shapeCheckBadge, migrateQaqcWindows, qaqcWindowsKey, qaqcPeakKey, tgIncludedDays } from './analysis/ui/tripgenSection.js';
+import { renderTripGenSection, DEFAULT_PEAK_WINDOWS, computePeakVolumes, computeQaqcPeakScore, renderQaqcDetailCardHTML, renderQaqcScoreDetailHTML, passFailBadge, shapeCheckBadge, perClassSummaryBadge, migrateQaqcWindows, qaqcWindowsKey, qaqcPeakKey, tgIncludedDays } from './analysis/ui/tripgenSection.js';
 import { weekdayShort, dateLabelWithWeekday } from './analysis/ui/dateUtils.js';
 import { intervalBar, pctOfPeakCell } from './analysis/ui/intervalDetail.js';
 
@@ -7302,7 +7302,7 @@ async function renderQaqcScreen() {
         // exact same function the Analysis page's summary row uses — this screen's "Hour
         // found" line and score can never disagree with what the summary table shows.
         const computed = await computeQaqcPeakScore(entry, day, w, tripgenQaqc);
-        const { peak, alignedRecounts } = computed;
+        const { peak, alignedRecounts, perClassResults } = computed;
         const recounts = tripgenQaqc[key]?.recounts || [];
         const hasHour = peak.startIdx >= 0;
         const defaultStart = hasHour ? peak.startIdx * intervalMinutes + toMinFromLabel(day.parsed.intervals[0].start) : w.startMin;
@@ -7313,7 +7313,7 @@ async function renderQaqcScreen() {
         windowCards.push(`
           <div class="card" style="margin-bottom:14px" data-qaqc-card="${key}">
             <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px">
-              <h3 style="margin:0">${escapeHtmlMain(w.label)} <span style="font-weight:400;color:var(--text3);font-size:12px">(${minToTimeStr(w.startMin)}–${minToTimeStr(w.endMin)})</span></h3>
+              <h3 style="margin:0">${escapeHtmlMain(w.label)} <span style="font-weight:400;color:var(--text3);font-size:12px">(${minToTimeStr(w.startMin)}–${minToTimeStr(w.endMin)})</span> ${alignedRecounts.length ? perClassSummaryBadge(perClassResults) : ''}</h3>
               <button type="button" class="no-print" data-qaqc-remove-window="${winKey}" data-qaqc-remove-window-id="${w.id}" style="font-size:11px;flex-shrink:0">× remove window</button>
             </div>
             <div class="stat-detail" style="margin-bottom:8px">${hasHour ? `Hour found: ${peak.label} · volume ${peak.volume}` : 'This window doesn’t fit this day’s counted time range — you can still recount below, but it won’t score.'}</div>

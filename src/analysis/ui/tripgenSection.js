@@ -963,14 +963,39 @@ export async function computeQaqcPeakScore(entry, day, w, qaqc) {
 // so a window's own real signal is just qaqcPeakHourScore's overallPass
 // boolean. Inventing a 3-tier scale for one peak would be a rating the source data model
 // doesn't actually have.
+// This is the COMBINED-total pass/fail — all classifications summed into one hour total
+// before comparing. Traced against the actual source workbook (2026-08-27 re-verification,
+// not just the header/label — read the live formulas): the source has NO combined-total
+// rating anywhere. It scores each category (Auto+bike+bus+moto / light truck / truck /
+// Pedestrian) with four completely independent "Good"/"Failed" formulas (cells T10/Y10/AD10/
+// AI10 in the reference workbook), never summed together. perClassSummaryBadge() below is the
+// one that actually matches the source; this combined-total badge is kept as a secondary,
+// clearly-labeled informational extra per explicit user decision — it is NOT what the source
+// defines as pass/fail, despite the name.
 export function passFailBadge(overallPass) {
   if (overallPass == null) return `<span class="tag">Incomplete</span>`;
   return overallPass ? `<span class="tag badge-pass">✓ Pass</span>` : `<span class="tag badge-fail">✗ Fail</span>`;
 }
 
-// Second, independent signal alongside passFailBadge — see qaqcShapeCheck() in analyze.js.
-// Deliberately does NOT affect pass/fail; shown next to it, not merged into it, per explicit
-// decision to keep pass/fail exactly what the source workbook defines while this is explored.
+// THE primary, source-faithful signal — one independent Good/Failed rating per classification
+// (exactly the source workbook's own per-category T10/Y10/AD10/AI10 formula, just generalized
+// from its fixed 4 FHWA categories to however many classifications this project actually has).
+// Rolled up here into one glance-able badge for places that need a single verdict (a summary
+// table row) — "pass" only if EVERY classification's own independent rating passes, since the
+// source itself never rolls the four together and a single UI badge needs SOME rule; the full
+// per-classification breakdown (which classification, if any, is driving a fail) is always
+// available via renderQaqcDetailCardHTML/renderQaqcScoreDetailHTML, not hidden behind this one.
+export function perClassSummaryBadge(perClassResults) {
+  if (!perClassResults?.length) return `<span class="tag">—</span>`;
+  const withResult = perClassResults.filter((c) => c.scoreResult.overallPass != null);
+  if (withResult.length < perClassResults.length) return `<span class="tag">Incomplete</span>`;
+  const failing = withResult.filter((c) => !c.scoreResult.overallPass);
+  if (!failing.length) return `<span class="tag badge-pass">✓ All classifications pass</span>`;
+  return `<span class="tag badge-fail" title="${escapeHtml(failing.map((c) => c.label).join(', '))} — off band">✗ ${failing.length}/${withResult.length} classification${failing.length === 1 ? '' : 's'} off</span>`;
+}
+
+// Second, independent signal alongside the badges above — see qaqcShapeCheck() in analyze.js.
+// Deliberately does NOT affect either pass/fail badge; shown alongside them, not merged in.
 export function shapeCheckBadge(shapeCheck) {
   if (!shapeCheck?.applicable) return '';
   if (!shapeCheck.reliable) return `<span class="tag" title="Expected counts too small per quarter for a statistically reliable shape test — not enough volume to trust this check either way">Shape: n/a</span>`;
@@ -997,11 +1022,11 @@ export function renderQaqcDetailCardHTML(computed) {
   const skippedNote = allRecounts.length > alignedRecounts.length
     ? `<div class="stat-detail" style="margin-top:6px;color:var(--bad-text)">${allRecounts.length - alignedRecounts.length} recount(s) used a different time range/interval length than this peak and were excluded from scoring.</div>`
     : '';
-  // Per-classification breakdown — only worth showing once there's something to compare
-  // against (skip entirely when no recount has been entered yet, same gate as the quarters
-  // table's own "incomplete" state). A combined-total pass can still hide one classification
-  // that's badly off, and a field recount often focuses on one vehicle type rather than
-  // re-tallying everything — this surfaces which specific classification(s) drove the score.
+  // Per-classification breakdown — THE primary, source-faithful signal (see passFailBadge's
+  // own comment above: the reference workbook scores each category entirely independently,
+  // never summed). Only worth showing once there's something to compare against (skip
+  // entirely when no recount has been entered yet, same gate as the quarters table's own
+  // "incomplete" state).
   const classRows = (alignedRecounts.length && perClassResults?.length) ? perClassResults.map((c) => {
     const primaryTotal = c.quarterTotals.reduce((a, b) => a + b, 0);
     const recountTotal = c.recountQuarters.reduce((a, b) => a + (b || 0), 0);
@@ -1014,19 +1039,21 @@ export function renderQaqcDetailCardHTML(computed) {
       </tr>`;
   }).join('') : '';
   const classSection = classRows ? `
-    <div class="stat-detail" style="margin-top:12px;margin-bottom:4px">By classification — which one(s) are driving the score above:</div>
+    <div class="stat-detail" style="margin-bottom:4px"><strong>By classification</strong> — matches the source workbook's own per-category scoring, and is what actually decides pass/fail:</div>
     <table class="crosswalk-table">
       <thead><tr><th>Classification</th><th>Primary count</th><th>2nd-count recount</th><th>Result</th></tr></thead>
       <tbody>${classRows}</tbody>
-    </table>` : '';
+    </table>
+    <div class="stat-detail" style="margin-top:6px;margin-bottom:12px">${perClassSummaryBadge(perClassResults)}</div>` : '';
   return `
+    ${classSection}
+    <div class="stat-detail" style="margin-bottom:4px">Combined total (informational — all classifications summed into one hour; the source workbook has no such combined rating, this is provided as an extra reference only):</div>
     <table class="crosswalk-table">
       <thead><tr><th>${intervalMinutes}-min interval</th><th>Primary count</th><th>2nd-count recount${alignedRecounts.length > 1 ? ` (avg of ${alignedRecounts.length})` : ''}</th><th>Band</th></tr></thead>
       <tbody>${quarterRows}</tbody>
     </table>
-    <div class="stat-detail" style="margin-top:6px">Hour score: ${scoreResult.score != null ? `${scoreResult.score}/${quarterIntervals.length + 1} — ${passFailBadge(scoreResult.overallPass)}` : `incomplete — add a recount covering all ${quarterIntervals.length} interval${quarterIntervals.length === 1 ? '' : 's'} above`}</div>
+    <div class="stat-detail" style="margin-top:6px">Combined score: ${scoreResult.score != null ? `${scoreResult.score}/${quarterIntervals.length + 1} — ${passFailBadge(scoreResult.overallPass)}` : `incomplete — add a recount covering all ${quarterIntervals.length} interval${quarterIntervals.length === 1 ? '' : 's'} above`}</div>
     ${skippedNote}
-    ${classSection}
   `;
 }
 
@@ -1037,7 +1064,7 @@ export function renderQaqcDetailCardHTML(computed) {
 // locationLabel/dayLabel/windowLabel are passed in rather than re-derived, since main.js already
 // has them from the same lookup that found `computed`.
 export async function renderQaqcScoreDetailHTML(locationLabel, dayLabel, windowLabel, computed) {
-  const { peak, quarterIntervals, quarterTotals, recountQuarters, scoreResult, shapeCheck } = computed;
+  const { peak, quarterIntervals, quarterTotals, recountQuarters, scoreResult, shapeCheck, perClassResults } = computed;
   if (peak.startIdx < 0) {
     return `<div class="card"><div class="stat-detail">No hour resolved yet for "${escapeHtml(windowLabel)}" — nothing to explain until this window fits the counted time range.</div></div>`;
   }
@@ -1056,10 +1083,33 @@ export async function renderQaqcScoreDetailHTML(locationLabel, dayLabel, windowL
     return `<tr><td>${escapeHtml(iv.label)}</td><td>${fmt(p)}</td><td>${fmt(r)}</td><td>${p > 0 ? `${fmt(Math.round(diffPct * 10) / 10)}%` : (r === 0 ? '0%' : '—')}</td><td>${scoreResult.perQuarterPass[qi] ? '✓ within band' : '✗ over band'}</td></tr>`;
   }).join('');
 
+  // THE primary, source-faithful section — see passFailBadge's comment in this file for the
+  // full trace against the actual reference workbook (2026-08-27 re-verification): it scores
+  // each category with four completely independent Good/Failed formulas, never summed. Shown
+  // first, ahead of the combined-total section below.
+  const perClassSection = (perClassResults?.length) ? `
+    <div class="card" style="margin-bottom:14px">
+      <h3>By classification — this is what actually decides pass/fail</h3>
+      <div class="stat-detail" style="margin-bottom:8px">Matches the source workbook's own methodology: each classification gets its own independent hour-total check (same formula as the combined check below, just run once per classification instead of on everything summed together).</div>
+      <div class="tbl-scroll">
+        <table class="crosswalk-table">
+          <thead><tr><th>Classification</th><th>Primary total</th><th>Recount total</th><th>% diff</th><th>Threshold</th><th>Result</th></tr></thead>
+          <tbody>${perClassResults.map((c) => {
+            const cPrimary = c.quarterTotals.reduce((a, b) => a + b, 0);
+            const cRecount = c.recountQuarters.reduce((a, b) => a + (b || 0), 0);
+            const cDiffPct = cPrimary > 0 ? (Math.abs(cRecount - cPrimary) / cPrimary) * 100 : (cRecount === 0 ? 0 : 100);
+            const cTier = cPrimary >= 75 ? '5%' : cPrimary >= 50 ? '7.5%' : '10%';
+            return `<tr><td>${escapeHtml(c.label)}</td><td>${fmt(cPrimary)}</td><td>${fmt(Math.round(cRecount))}</td><td>${cPrimary > 0 ? `${fmt(Math.round(cDiffPct * 10) / 10)}%` : (cRecount === 0 ? '0%' : '—')}</td><td>${cTier}</td><td>${passFailBadge(c.scoreResult.overallPass)}</td></tr>`;
+          }).join('')}</tbody>
+        </table>
+      </div>
+      <div class="stat-detail" style="margin-top:8px">${perClassSummaryBadge(perClassResults)}</div>
+    </div>` : '';
+
   const aggregateSection = `
     <div class="card" style="margin-bottom:14px">
-      <h3>Aggregate check — this is what drives Pass/Fail</h3>
-      <div class="stat-detail" style="margin-bottom:8px">Compares the WHOLE hour's total (all quarters combined), traced from the source workbook's own QC-rating legend.</div>
+      <h3>Combined total — informational only, not what decides pass/fail</h3>
+      <div class="stat-detail" style="margin-bottom:8px">All classifications summed into one hour total. The source workbook has no combined rating like this at all — it's provided here only as an extra reference; the "By classification" section above is what actually decides pass/fail.</div>
       <div class="tbl-scroll">
         <table class="crosswalk-table">
           <tbody>
@@ -1072,12 +1122,12 @@ export async function renderQaqcScoreDetailHTML(locationLabel, dayLabel, windowL
           </tbody>
         </table>
       </div>
-      <div class="stat-detail" style="margin-top:8px;margin-bottom:4px">Per-quarter detail (informational — feeds the score below, does NOT gate Pass/Fail on its own):</div>
+      <div class="stat-detail" style="margin-top:8px;margin-bottom:4px">Per-quarter detail (feeds the combined score below):</div>
       <table class="crosswalk-table">
         <thead><tr><th>Interval</th><th>Primary</th><th>Recount</th><th>% diff</th><th>Within band?</th></tr></thead>
         <tbody>${quarterMathRows}</tbody>
       </table>
-      <div class="stat-detail" style="margin-top:8px"><strong>Score:</strong> ${scoreResult.perQuarterPass.filter(Boolean).length} quarter(s) within band + ${scoreResult.overallPass ? '1' : '0'} for the overall check = <strong>${scoreResult.score}/${quarterIntervals.length + 1}</strong>. The score is a diagnostic tally, not the pass/fail criterion — only the aggregate check above (bottom row) decides Pass/Fail.</div>
+      <div class="stat-detail" style="margin-top:8px"><strong>Combined score:</strong> ${scoreResult.perQuarterPass.filter(Boolean).length} quarter(s) within band + ${scoreResult.overallPass ? '1' : '0'} for the overall check = <strong>${scoreResult.score}/${quarterIntervals.length + 1}</strong>.</div>
     </div>`;
 
   const shapeSection = !shapeCheck.applicable ? `
@@ -1087,7 +1137,7 @@ export async function renderQaqcScoreDetailHTML(locationLabel, dayLabel, windowL
     </div>` : `
     <div class="card" style="margin-bottom:14px">
       <h3>Shape check — informational only, does not affect Pass/Fail</h3>
-      <div class="stat-detail" style="margin-bottom:8px">The aggregate check above only compares TOTALS — two quarters over-counted and two under-counted can cancel out and still pass. This is a separate test (chi-square goodness-of-fit): does the recount's quarter-by-quarter PATTERN match the primary's, regardless of whether the totals agree?</div>
+      <div class="stat-detail" style="margin-bottom:8px">The combined-total check above only compares TOTALS — two quarters over-counted and two under-counted can cancel out and still pass. This is a separate test (chi-square goodness-of-fit): does the recount's quarter-by-quarter PATTERN match the primary's, regardless of whether the totals agree?</div>
       ${!shapeCheck.reliable ? `<div class="stat-detail" style="color:var(--bad-text);margin-bottom:8px">⚠ Not reliable at this volume — chi-square needs an expected count of at least 5 in every quarter to trust the result (rule of thumb for the underlying approximation). Shown for reference only.</div>` : ''}
       <div class="tbl-scroll">
         <table class="crosswalk-table">
@@ -1109,6 +1159,7 @@ export async function renderQaqcScoreDetailHTML(locationLabel, dayLabel, windowL
 
   return `
     <div class="stat-detail" style="margin-bottom:14px">${escapeHtml(locationLabel)} — ${escapeHtml(dayLabel)} — ${escapeHtml(windowLabel)} (${peak.label})</div>
+    ${perClassSection}
     ${aggregateSection}
     ${shapeSection}
   `;
@@ -1132,7 +1183,7 @@ async function renderQaqcSection(entries, ctx) {
       const windows = qaqcWindows?.[qaqcWindowsKey(entry.id, sheetName)] || [];
       for (const w of windows) {
         const computed = await computeQaqcPeakScore(entry, day, w, qaqc);
-        const { peak, scoreResult, shapeCheck, quarterIntervals } = computed;
+        const { peak, scoreResult, shapeCheck, perClassResults, quarterIntervals } = computed;
         const key = qaqcPeakKey(entry.id, sheetName, w.id);
         // The QA/QC input screen is owner-only edit UI (main.js's renderQaqcScreen) — a
         // shared viewer never has anywhere to navigate to, so the row-link affordance only
@@ -1145,8 +1196,8 @@ async function renderQaqcSection(entries, ctx) {
             <td>${escapeHtml(sheetName)}</td>
             <td>${escapeHtml(w.label)}</td>
             <td>${peak.startIdx < 0 ? 'out of range' : peak.label}</td>
-            <td>${scoreResult.score != null ? `${scoreResult.score}/${quarterIntervals.length + 1}` : 'incomplete'}</td>
-            <td>${passFailBadge(scoreResult.overallPass)}</td>
+            <td>${perClassSummaryBadge(perClassResults)}</td>
+            <td>${scoreResult.score != null ? `${scoreResult.score}/${quarterIntervals.length + 1} — ${passFailBadge(scoreResult.overallPass)}` : 'incomplete'}</td>
             <td>${shapeCheckBadge(shapeCheck)}</td>
             <td class="tg-qaqc-link-cell">
               ${linkable ? 'QA/QC →' : ''}
@@ -1161,10 +1212,10 @@ async function renderQaqcSection(entries, ctx) {
   return `
     <div class="card" style="margin-bottom:14px">
       <h3>QA/QC summary</h3>
-      <div class="stat-detail" style="margin-bottom:10px">Second-counter recounts — entered and compared in full on the dedicated QA/QC screen — condensed here to a score and pass/fail per window. Click any row to open that count. Bands are volume-dependent (≥75 trips → ≤5% diff, 50–75 → ≤7.5%, &lt;50 → ≤10%), traced from the source workbook's own QC-rating legend. "Shape" is a separate, informational-only check (see "explain this score →") — it does not affect Pass/fail.</div>
+      <div class="stat-detail" style="margin-bottom:10px">Second-counter recounts — entered and compared in full on the dedicated QA/QC screen — condensed here per window. "By classification" is what actually decides pass/fail (each classification checked independently, matching the source workbook — traced 2026-08-27, it has no combined rating at all). "Combined" sums every classification into one hour total first — the source has nothing like it; kept here as an extra reference only. Bands are volume-dependent (≥75 trips → ≤5% diff, 50–75 → ≤7.5%, &lt;50 → ≤10%). "Shape" is a separate, informational-only check (see "explain this score →") — neither it nor "Combined" affects "By classification".</div>
       <div class="tbl-scroll">
         <table class="crosswalk-table" data-tg-qaqc-summary>
-          <thead><tr><th>Location</th><th>Day</th><th>Window</th><th>Hour</th><th>Score</th><th>Pass/fail</th><th>Shape</th><th></th></tr></thead>
+          <thead><tr><th>Location</th><th>Day</th><th>Window</th><th>Hour</th><th>By classification</th><th>Combined (informational)</th><th>Shape</th><th></th></tr></thead>
           <tbody>${summaryRows.join('') || '<tr><td colspan="8" style="color:var(--text3)">No QA/QC time periods added yet — add one from the QA/QC screen.</td></tr>'}</tbody>
         </table>
       </div>

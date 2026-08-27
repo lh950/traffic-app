@@ -4,6 +4,24 @@ Key decisions, scope constraints, and architectural choices.
 
 ---
 
+## 2026-08-27 — v3 · v0.49.10 (QA/QC pass/fail was wrong: source workbook scores per-classification, not combined — corrected)
+
+**Trigger.** User: "I believe the primary driver on pass/fail is on individual classifications and not on the total tally." Re-opened the actual source workbook (`QA_QC_Lindenwood_FedEx_flatlands.xlsx`, per `reference_qaqc_source` memory) and read its live formulas directly rather than relying on the earlier trace summary.
+
+**What the source actually does, confirmed cell-by-cell.** Four completely independent scoring blocks, one per FHWA category (Auto+bike+bus+moto / light truck / truck / Pedestrian — columns P–T/U–Y/Z–AD/AE–AI). Each has its own "Good"/"Failed" formula, e.g. `T10: =IF(((IF(T8<=T9,1,0))+T7)>=3,"Good","Failed")` — same shape independently in Y10/AD10/AI10. Confirmed with a workbook-wide search: **no cell anywhere combines these four into one number.** "One Peak Hour QC Rating" (cell BD4) is just the name of the shared 0-5 legend applied four separate times — not a combined score.
+
+**The app had this backwards.** `qaqcPeakHourScore` sums every classification into one hour total first, and that combined result was what drove the Pass/Fail badge — `perClassResults` (the correct, source-faithful per-category computation) already existed but was demoted to secondary/informational. Confirmed live with a constructed case: Autos primary 100 → recount 105 (+5%, right at the 5% threshold, passes on its own), Trucks primary 20 → recount 10 (-50%, badly fails its own 10% threshold) — combined total 120 → 115 is only 4.2% off, comfortably passing at a perfect **5/5 combined score**, completely hiding that Trucks was wrong by half.
+
+**Fix — per user decision (asked directly, given three options).** Kept the combined-total badge's underlying math exactly as it was (no change to `qaqcPeakHourScore` or `passFailBadge`'s meaning), but made the per-classification result ("By classification") the PRIMARY signal shown everywhere, with the combined number demoted to a secondary, explicitly-labeled "informational only — the source has no such rating" extra:
+- New `perClassSummaryBadge()` (`tripgenSection.js`) — rolls the per-classification results into one glance-able badge ("✓ All classifications pass" / "✗ N/M classifications off", naming which ones), used where a summary table row needs one verdict. Since the source itself never combines the four ratings, "pass only if every classification's own independent rating passes" is this app's own synthesis for that one spot, not something traced from the workbook.
+- QA/QC screen (`main.js`): the badge now sits right in each window's card header, at a glance.
+- Analysis summary table (`tripgenSection.js`'s `renderQaqcSection`): new "By classification" column, ahead of the renamed "Combined (informational)" column.
+- `renderQaqcDetailCardHTML`/`renderQaqcScoreDetailHTML`: reordered so the per-classification breakdown (with its own worked arithmetic — primary/recount/%diff/threshold per classification) comes first; the combined-total math is still shown in full underneath, just relabeled "informational only, not what decides pass/fail."
+
+**Verified live**, via the real dev server: built the exact Autos/Trucks scenario above through the real counter (not synthetic data) — confirmed the combined score read `5/5 — ✓ Pass` while the per-classification badge correctly read `✗ 1/2 classification off` (Trucks), on the QA/QC screen, the Analysis summary table, and the score-detail screen — three places, one consistent, correct verdict now surfaced ahead of the misleading one.
+
+---
+
 ## 2026-08-27 — v3 · v0.49.7 (per-table CSV download for the live counter; a second, independent QA/QC signal — chi-square shape check — plus a score-detail explainer screen)
 
 **Live counter CSV download (user request).** Added a "⭳ CSV" button to the Trip Gen live counter header, exporting exactly what's on screen right now (every interval, every classification's in/out, running total, note) via `tgLiveState()` (`tripgenCount.js`) — works mid-count, not just after finishing. Filename derived from the counter header's current location label.
