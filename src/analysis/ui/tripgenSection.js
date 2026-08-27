@@ -674,20 +674,24 @@ async function renderDayBlock(entry, day, dayIdx, ctx) {
 
   // Trip rate per category per day (rawDayTotalsArr — rate is always computed off the
   // as-counted day total, matching the source; "balanced" view doesn't change the rate).
+  // Headline is the actual trip count for the facility's REAL square footage (user request:
+  // "should show the count for the facility square footage and not by 1000") — the
+  // ITE-standard per-1000-GSF figure (tripRate()) is kept as a secondary reference line, since
+  // it's the number that's directly comparable to published ITE rates, just not the headline.
   const rawGroups = groupTotals(parsed.types, rawDayTotalsArr, categoryMap);
   const rateCards = await Promise.all(Object.keys(rawGroups).map(async (g) => {
-    const rate = await data.tripRate(rawGroups[g], siteInfo.gsf);
+    const rate = siteInfo.gsf ? await data.tripRate(rawGroups[g], siteInfo.gsf) : null;
     return `
       <div class="stat-card">
         <div class="stat-label">${escapeHtml(g)}</div>
-        <div class="stat-value">${rate != null ? rate : '—'}<span class="unit">${rate != null ? '/ 1000 GSF' : ''}</span></div>
-        <div class="stat-detail">${fmt(rawGroups[g])} day total</div>
+        <div class="stat-value">${fmt(rawGroups[g])}<span class="unit">${siteInfo.gsf ? `/ ${fmt(siteInfo.gsf)} GSF` : ''}</span></div>
+        <div class="stat-detail">${rate != null ? `${rate} / 1000 GSF (ITE-style rate)` : `${fmt(rawGroups[g])} day total`}</div>
       </div>`;
   }));
   const tripRateHTML = `
     <div class="card" style="margin-bottom:14px">
       <h3>Trip rate</h3>
-      ${!siteInfo.gsf ? '<div class="stat-detail" style="margin-bottom:8px">Enter site square footage above to compute rates.</div>' : ''}
+      ${!siteInfo.gsf ? '<div class="stat-detail" style="margin-bottom:8px">Enter site square footage above for a per-GSF rate — showing raw trip counts until then.</div>' : ''}
       <div class="card-grid">${rateCards.join('')}</div>
     </div>
   `;
@@ -1488,12 +1492,12 @@ export async function renderTripGenSection(container, entries, ctx) {
   const siteWideRateSections = await Promise.all(Object.keys(crossGroups).map(async (bucket) => {
     const cards = await Promise.all(allGroupNames.map(async (g) => {
       const vol = crossGroups[bucket][g] || 0;
-      const rate = await data.tripRate(vol, siteInfo.gsf);
+      const rate = siteInfo.gsf ? await data.tripRate(vol, siteInfo.gsf) : null;
       return `
         <div class="stat-card">
           <div class="stat-label">${escapeHtml(g)}</div>
-          <div class="stat-value">${rate != null ? rate : '—'}<span class="unit">${rate != null ? '/ 1000 GSF' : ''}</span></div>
-          <div class="stat-detail">${fmt(vol)} combined total</div>
+          <div class="stat-value">${fmt(vol)}<span class="unit">${siteInfo.gsf ? `/ ${fmt(siteInfo.gsf)} GSF` : ''}</span></div>
+          <div class="stat-detail">${rate != null ? `${rate} / 1000 GSF (ITE-style rate)` : `${fmt(vol)} combined total`}</div>
         </div>`;
     }));
     return `<div style="margin-bottom:10px"><div class="stat-detail" style="font-weight:600;color:var(--text);margin-bottom:6px;text-transform:capitalize">${escapeHtml(bucket)}</div><div class="card-grid">${cards.join('')}</div></div>`;
@@ -1502,7 +1506,7 @@ export async function renderTripGenSection(container, entries, ctx) {
     <div class="card" style="margin-bottom:14px">
       <h3>Site-wide trip rate</h3>
       <div class="stat-detail" style="margin-bottom:8px">Every location combined, by day type — not a single location's own rate (see that location's own card below for per-site figures).</div>
-      ${!siteInfo.gsf ? '<div class="stat-detail" style="margin-bottom:8px">Enter site square footage above to compute rates.</div>' : ''}
+      ${!siteInfo.gsf ? '<div class="stat-detail" style="margin-bottom:8px">Enter site square footage above for a per-GSF rate — showing raw trip counts until then.</div>' : ''}
       ${siteWideRateSections.join('')}
     </div>
   `;

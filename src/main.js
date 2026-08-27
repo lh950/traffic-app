@@ -6004,6 +6004,18 @@ function commitLocationCounts(entryId, dayIdx, parsed, editSnapshot, seq, source
   }
   day.parsed = parsed;
   day.editSnapshot = editSnapshot;
+  // If this day is a non-destructive recount of another day (startTripgenRecount() sets
+  // supersedesDayIdx when it creates the new day), exclude the superseded day from analysis
+  // on every successful commit to THIS day — not just the first one. Checked here, in the
+  // single write path every finish route goes through (a direct finish, an abandon-then-
+  // resume via editTripgenDay's generic "resume count", or any future path), rather than in
+  // startTripgenRecount()'s own one-shot finish closure, which a resumed session bypasses
+  // entirely (real gap found by a pre-v1.0.0 stress test: abandoning a recount and resuming
+  // it via editTripgenDay left both the original and the recount active/counted).
+  const supersedesDayIdx = day.supersedesDayIdx;
+  if (supersedesDayIdx != null && entry.days[supersedesDayIdx]) {
+    entry.days[supersedesDayIdx].includeInAnalysis = false;
+  }
   tgLastGoodByKey.set(`${entryId}:${dayIdx}`, { parsed, editSnapshot, ts: Date.now() });
   tgLogWrite({ outcome: 'committed', source, entryId, dayIdx, seq, ...stats });
   return true;
@@ -6928,21 +6940,31 @@ function setTgCounterHeaderLabel(locationLabel) {
   const el = document.getElementById('tg-counter-sub');
   if (el) el.textContent = tripgenEntries.length > 1 ? `— ${locationLabel}` : '';
 }
+// Set by the "+ add another day" button on an existing location's card (below) — a genuinely
+// independent additional calendar day for a location that already has data (e.g. a weekday AND
+// a weekend count), NOT a QA redo of an existing day (that's "↻ recount", which supersedes the
+// day it replaces). Consumed once by btn-tg-begin-counting's handler and reset immediately, so
+// the very next "begin counting" click (from anywhere else) goes back to creating a brand-new
+// location as normal.
+let tgAddDayTargetEntryId = null;
 document.getElementById('btn-tg-begin-counting')?.addEventListener('click', () => {
   const ctx = requireLocationContext();
   if (!ctx) return;
   const dayType = dayTypeFromDate(ctx.date);
+  const targetEntryId = tgAddDayTargetEntryId;
+  tgAddDayTargetEntryId = null;
+  const targetEntry = targetEntryId != null ? tripgenEntries.find((e) => e.id === targetEntryId) : null;
   // Item 13: the add-a-location form (and this "begin counting" button) now lives only on
   // the Location Counts screen, not Setup — so "save and exit" from the counter should
   // return there, not to Setup (which no longer has this form to come back to).
   tgCounterBackTarget = 'tripgen-locations-screen';
-  // entryId is assigned AFTER tgBeginCounting succeeds (below) but the finish callback closes
-  // over this outer variable, so it sees the real id once counting actually starts.
-  let entryId = null;
+  // entryId/dayIdx are assigned AFTER tgBeginCounting succeeds (below) but the finish callback
+  // closes over these outer variables, so it sees the real values once counting actually starts.
+  let entryId = null, dayIdx = 0;
   const started = tgBeginCounting((parsed, editSnapshot, seq) => {
-    commitLocationCounts(entryId, 0, parsed, editSnapshot, seq, 'begin-counting-finish');
+    commitLocationCounts(entryId, dayIdx, parsed, editSnapshot, seq, 'begin-counting-finish');
     const entry = tripgenEntries.find((e) => e.id === entryId);
-    const day = entry?.days?.[0];
+    const day = entry?.days?.[dayIdx];
     if (day) day.inProgress = false;
     tgPendingLocation = null;
     renderTripgenLocationsList();
@@ -6961,16 +6983,23 @@ document.getElementById('btn-tg-begin-counting')?.addEventListener('click', () =
   // (via the same editTripgenDay resume path finished entries already use) instead of
   // accidentally starting a second, conflicting session.
   const snap = tgCaptureLiveSnapshot(); // tgData is freshly zeroed at this point — safe placeholder
-  entryId = tripgenNextId++;
-  tripgenEntries.push({
-    id: entryId, filename: '(live count)', locationLabel: ctx.address,
-    meta: {}, days: [{ sheetName: formatDateLong(ctx.date), dayType, date: ctx.date, parsed: null, editSnapshot: null, inProgress: true }],
-  });
+  const newDay = { sheetName: formatDateLong(ctx.date), dayType, date: ctx.date, parsed: null, editSnapshot: null, inProgress: true };
+  if (targetEntry) {
+    // "+ add another day" — append to the EXISTING location's entry rather than creating a new
+    // one. A plain new day, no supersedesDayIdx/includeInAnalysis link to any other day — this
+    // is a genuinely separate calendar day's count, included in analysis like any other.
+    entryId = targetEntry.id;
+    dayIdx = targetEntry.days.length;
+    targetEntry.days.push(newDay);
+  } else {
+    entryId = tripgenNextId++;
+    tripgenEntries.push({ id: entryId, filename: '(live count)', locationLabel: ctx.address, meta: {}, days: [newDay] });
+  }
   // Reuse the exact same pending shape editTripgenDay() already uses to resume a finished
   // entry for editing — an in-progress entry is now just a special case of "editing an
   // existing entry," not a separate code path.
-  tgPendingLocation = { kind: 'edit', entryId, dayIdx: 0, seq: tgGetSessionSeq() };
-  if (snap) commitLocationCounts(entryId, 0, snap.parsed, snap.editSnapshot, snap.seq, 'begin-counting-placeholder');
+  tgPendingLocation = { kind: 'edit', entryId, dayIdx, seq: tgGetSessionSeq() };
+  if (snap) commitLocationCounts(entryId, dayIdx, snap.parsed, snap.editSnapshot, snap.seq, 'begin-counting-placeholder');
   clearLocationContext();
   renderTripgenLocationsList();
   setTgCounterHeaderLabel(ctx.address);
@@ -7024,11 +7053,12 @@ function tgInferCfgFromParsed(parsed) {
 // recount as its own new count") — rather than overwriting the source day, this pushes a
 // BRAND NEW day onto the same entry and counts into that, using the source day's own
 // classifications/timing (or, for an uploaded/pasted day with no live-count snapshot, timing
-// inferred from its parsed intervals). The original day is never touched — both are visible
-// afterward, and choosing which one to use for analysis is a decision left to the user, not
-// made destructively by this action. Routes through commitLocationCounts() on finish, the
-// same gated write path BUG-047/048 established, so this gets the same session-identity check
-// and diagnostics logging as every other count-data write, not a separate bespoke path.
+// inferred from its parsed intervals). The original day's data is never touched — on finish,
+// only its `includeInAnalysis` flag flips to false (see below), which is fully reversible via
+// the Locations list's own toggle, not a destructive edit. Routes through
+// commitLocationCounts() on finish, the same gated write path BUG-047/048 established, so this
+// gets the same session-identity check and diagnostics logging as every other count-data write,
+// not a separate bespoke path.
 function startTripgenRecount(entryId, sourceDayIdx, backTarget) {
   const entry = tripgenEntries.find((e) => e.id === entryId);
   const sourceDay = entry?.days?.[sourceDayIdx];
@@ -7036,7 +7066,7 @@ function startTripgenRecount(entryId, sourceDayIdx, backTarget) {
   const sourceLabel = sourceDay.date ? formatDateLong(sourceDay.date) : sourceDay.sheetName;
   const ok = window.confirm(
     `Start a new recount for "${entry.locationLabel}" — ${sourceLabel}?\n\n` +
-    `This adds a brand-new count as its own day, alongside the existing one. Nothing is discarded — both will be visible afterward.`
+    `This adds a brand-new count as its own day, alongside the existing one — nothing is deleted. As soon as the recount has real data (even before you click finish), the original day is automatically excluded from QA/QC and Analysis in its place — but it stays visible in the Locations list and can be switched back in at any time.`
   );
   if (!ok) return;
   const classificationList = sourceDay.editSnapshot?.classifications || tgDefaultClassificationsFor(sourceDay.parsed.types);
@@ -7048,17 +7078,18 @@ function startTripgenRecount(entryId, sourceDayIdx, backTarget) {
   entry.days.push({
     sheetName: `${sourceLabel} (recount)`, dayType: sourceDay.dayType, date: sourceDay.date,
     parsed: null, editSnapshot: null, inProgress: true,
+    // Persisted on the DAY itself, not just captured in this closure (stress-test finding:
+    // abandoning this recount before finishing and later resuming it via the generic
+    // editTripgenDay() "resume count" path bypasses this closure entirely — with the
+    // supersede-source-day step living only here, that path silently left both the original
+    // and the recount active, double-counting the location). commitLocationCounts() below
+    // checks this field on every commit regardless of which finish path reaches it.
+    supersedesDayIdx: sourceDayIdx,
   });
   tgPendingLocation = { kind: 'edit', entryId, dayIdx: newDayIdx };
   const started = tgBeginFullRecount(classificationList, recountCfg, (parsed, editSnapshot, seq) => {
     commitLocationCounts(entryId, newDayIdx, parsed, editSnapshot, seq, 'recount-finish');
     entry.days[newDayIdx].inProgress = false;
-    // Per user request: the original stays in the project (visible, restorable), but QA/QC
-    // and Analysis should use the recount's data going forward, not the original's — set only
-    // once the recount actually finishes (an abandoned/in-progress recount leaves the original
-    // fully active, since there's nothing to supersede it with yet). Reversible: toggled back
-    // via the "excluded from analysis — include again" control in the Locations list.
-    sourceDay.includeInAnalysis = false;
     tgPendingLocation = null;
     renderTripgenLocationsList();
     goToTripgenAnalyze();
@@ -7128,6 +7159,7 @@ function renderTripgenLocationsScreen() {
         <div class="card-grid" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr))">
           ${dayRows}
         </div>
+        <button type="button" class="no-print" data-tg-loc-add-day="${entry.id}" title="Count this same location on a different calendar day (e.g. a weekend in addition to a weekday) — a genuinely separate day, not a QA redo of an existing one" style="font-size:11px;margin-top:10px">+ add another day</button>
       </div>`;
   }).join('');
 
@@ -7144,6 +7176,29 @@ function renderTripgenLocationsScreen() {
       startTripgenRecount(Number(el.dataset.tgLocRecountEntry), Number(el.dataset.tgLocRecountDay), 'tripgen-locations-screen');
     });
   });
+  root.querySelectorAll('[data-tg-loc-add-day]').forEach((el) => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      startTripgenAddDay(Number(el.dataset.tgLocAddDay));
+    });
+  });
+}
+
+// "+ add another day" (user request) — a genuinely independent additional calendar day for a
+// location that already has data (e.g. a weekday AND a weekend count of the same driveway),
+// distinct from "↻ recount" (which supersedes the day it redoes for QA purposes). Pre-fills
+// the add-location form with this location's own address so the resulting count appends to
+// the SAME entry (see btn-tg-begin-counting's tgAddDayTargetEntryId handling) instead of
+// creating a new one, and just needs a date before "Start a new count…".
+function startTripgenAddDay(entryId) {
+  const entry = tripgenEntries.find((e) => e.id === entryId);
+  if (!entry) return;
+  tgAddDayTargetEntryId = entryId;
+  document.getElementById('tg-location-address').value = entry.locationLabel;
+  document.getElementById('tg-location-date').value = '';
+  const panel = document.getElementById('tg-loc-add-panel');
+  if (panel) { panel.style.display = ''; panel.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+  document.getElementById('tg-location-date')?.focus();
 }
 document.getElementById('btn-tg-locations-back')?.addEventListener('click', () => showScreen('tripgen-setup-screen'));
 // Item 13: "+ add a location" used to bounce back to Setup's own copy of this form — now the

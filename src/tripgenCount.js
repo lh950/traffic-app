@@ -404,9 +404,13 @@ export function beginRecount(classificationList, cfgIn, finishCallback) {
 // day's OWN classifications/timing (given explicitly, like beginRecount) rather than whatever
 // happens to be in the setup screen's editor — used when QA/QC finds the original count is bad
 // enough that it needs to be fully redone, not just spot-checked. Unlike beginRecount, this
-// DOES eventually overwrite the location's real day.parsed (via main.js's
-// commitLocationCounts()), so — like beginCounting/beginEditing — it mints a fresh sessionSeq
-// so that write is checked against the session that actually produced it.
+// DOES eventually write through main.js's commitLocationCounts() (like beginCounting/
+// beginEditing, so it mints a fresh sessionSeq for that write to be checked against) — but per
+// main.js's startTripgenRecount(), that write lands in a BRAND NEW day pushed onto the same
+// entry, never overwriting the source day's own day.parsed. The name is a holdover from an
+// earlier, destructive design (see BUGS.md/DEVLOG.md) — kept because the function's own
+// behavior (a zeroed count from given classifications/cfg, minting a new session) is unchanged;
+// only the caller's use of the result changed from replace to additive.
 export function beginFullRecount(classificationList, cfgIn, finishCallback) {
   classifications = classificationList.map((c) => ({ ...c }));
   cfg.startMinutes = cfgIn.startMinutes;
@@ -461,8 +465,8 @@ function buildKbd() {
     const i = idxOf(c);
     const dim = (focusMode && i !== focusTarget) ? ' dimmed' : '';
     return `
-    <span class="kbd-chip${dim}"><span class="ck">in</span><kbd id="tgk-in-${i}">${c.inKey.toUpperCase()}</kbd><span class="key-label">${c.label}</span></span>
-    <span class="kbd-chip${dim}"><span class="ck">out</span><kbd id="tgk-out-${i}">${c.outKey.toUpperCase()}</kbd><span class="key-label">${c.label}</span></span>
+    <span class="kbd-chip${dim}"><span class="ck">in</span><kbd id="tgk-in-${i}">${(c.inKey || '?').toUpperCase()}</kbd><span class="key-label">${c.label}</span></span>
+    <span class="kbd-chip${dim}"><span class="ck">out</span><kbd id="tgk-out-${i}">${(c.outKey || '?').toUpperCase()}</kbd><span class="key-label">${c.label}</span></span>
   `;
   }).join('') + `
     <span class="kbd-group-sep"></span>

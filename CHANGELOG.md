@@ -1,5 +1,19 @@
 # Changelog
 
+## v3 · v1.0.0 — 2026-08-27
+
+**First stable release.** The app is now considered safe to share beyond solo use — see `DEVLOG.md` for what that milestone means and the pre-launch stress test that preceded it.
+
+### Fixed
+- **Critical:** abandoning a Trip Gen "↻ recount" before finishing it, then resuming it via the generic "resume count →" path, silently left both the original day and the recount counted independently — double-counting that location's data with no error or indicator. Found by a dedicated pre-launch stress test. See BUG-050.
+- Trip Gen counter no longer crashes on a classification missing its key bindings (only reachable via a malformed/hand-edited save file, not normal use).
+
+### Added
+- **Trip Gen: "+ add another day"** — for a location legitimately counted on more than one calendar day (e.g. a weekday and a weekend), a genuinely independent day, separate from "↻ recount" (which is specifically a QA redo that supersedes the day it replaces).
+
+### Changed
+- **Trip rate display** now headlines the actual trip count for the facility's real square footage (e.g. "40 / 10,000 GSF") instead of a rate normalized to a fixed 1000 GSF baseline; the ITE-standard per-1000 rate is kept as a secondary reference line.
+
 ## v3 · v0.49.10 — 2026-08-27
 
 ### Fixed
