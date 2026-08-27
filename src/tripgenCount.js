@@ -30,6 +30,22 @@ let slot = 0;
 let undoStack = [], redoStack = [];
 let onFinish = null; // callback(parsed) supplied by main.js
 
+// ── Session identity (BUG-047/BUG-048 follow-up: "read-only outside the counter") ──
+// tgData/classifications/cfg are shared module state — every beginCounting/beginEditing/
+// beginRecount call resets and reuses the SAME variables rather than each session getting its
+// own isolated object. BUG-047 and BUG-048 were both, at root, a write site trusting that
+// whatever is currently sitting in this shared state still belongs to the session it thinks
+// is active, with no way to actually verify that. sessionSeq is a monotonically increasing id
+// minted fresh by every beginCounting/beginEditing call (NOT beginRecount — recounts write to
+// a separate qaqc structure in main.js, never to a location's own day.parsed, so they don't
+// need to participate in this check). main.js's commitLocationCounts() is the only place
+// permitted to write day.parsed/editSnapshot, and it refuses any write whose seq doesn't match
+// the seq recorded when that location/day's session began — so a write produced by a session
+// that has since been superseded (a recount reset tgData, a different location's edit began,
+// etc.) is rejected instead of silently landing in the wrong place.
+let sessionSeq = 0;
+export function getSessionSeq() { return sessionSeq; }
+
 // ── Focus mode ──
 // Locks keyboard input to a single classification at a time — same interaction model and
 // keybindings as the intersection counter's focus.js (toggle with \, cycle with [/]), but
@@ -289,6 +305,7 @@ export function beginCounting(finishCallback) {
   slot = 0; undoStack = []; redoStack = [];
   focusMode = false; focusTarget = 0; tgGroup = 0;
   onFinish = finishCallback;
+  sessionSeq++;
 
   buildKbd();
   buildTable();
@@ -317,6 +334,7 @@ export function beginEditing(snapshot, parsed, finishCallback) {
   slot = 0; undoStack = []; redoStack = [];
   focusMode = false; focusTarget = 0; tgGroup = 0;
   onFinish = finishCallback;
+  sessionSeq++;
 
   buildKbd();
   buildTable();
@@ -360,6 +378,14 @@ export function beginRecount(classificationList, cfgIn, finishCallback) {
   slot = 0; undoStack = []; redoStack = [];
   focusMode = false; focusTarget = 0; tgGroup = 0;
   onFinish = finishCallback;
+  // A recount never writes to a location's day.parsed itself (main.js routes recount results
+  // into the separate tripgenQaqc structure), so it doesn't need its own seq identity — but
+  // bumping sessionSeq here still matters defensively: it invalidates whatever seq a
+  // just-displaced edit session's tgPendingLocation was carrying, so if some future write site
+  // ever mistakenly called captureLiveSnapshot() during a recount, main.js's
+  // commitLocationCounts() would see a seq mismatch and reject it rather than silently writing
+  // the recount's own data into the wrong location (BUG-047/BUG-048's exact failure shape).
+  sessionSeq++;
 
   buildKbd();
   buildTable();
@@ -795,19 +821,23 @@ function buildParsedFromLiveData() {
 export function finishLocation() {
   const parsed = buildParsedFromLiveData();
   const cb = onFinish;
+  const seq = sessionSeq;
   onFinish = null; // clear BEFORE invoking cb — cb's own work (pushing the entry, etc.) is
   // already the source of truth once finish runs, so captureLiveSnapshot() must stop
   // reporting this session as "still in progress" from this point on, not after cb returns.
-  if (cb) cb(parsed, snapshotForEdit());
+  if (cb) cb(parsed, snapshotForEdit(), seq);
 }
 
 // Read-only capture of the live in-progress count (BUG-034) — returns null if no count is
 // currently active (nothing to capture), otherwise the same {parsed, editSnapshot} shape a
-// finished location carries, plus the current interval index so a reload restores the exact
-// spot the user was at, not just interval 0.
+// finished location carries, plus the current interval index (so a reload restores the exact
+// spot the user was at, not just interval 0) and this session's seq (see the "Session
+// identity" comment above beginCounting/beginEditing) — callers pass seq into
+// main.js's commitLocationCounts() so a write can be verified against the session it actually
+// came from before it's applied.
 export function captureLiveSnapshot() {
   if (!onFinish) return null; // no active count session
-  return { parsed: buildParsedFromLiveData(), editSnapshot: snapshotForEdit(), slot };
+  return { parsed: buildParsedFromLiveData(), editSnapshot: snapshotForEdit(), slot, seq: sessionSeq };
 }
 
 export function resetClassifications() {

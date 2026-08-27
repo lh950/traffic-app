@@ -93,6 +93,7 @@ import {
   renderClassificationsList as tgRenderClassificationsList,
   getClassifications as tgGetClassifications,
   getTgKeybindCfg, setTgKeybindCfg, resetTgKeybindCfg,
+  getSessionSeq as tgGetSessionSeq,
 } from './tripgenCount.js';
 import {
   beginIntersectionRecount as ixBeginRecount, wireKeydown as ixQaqcWireKeydown,
@@ -1270,6 +1271,8 @@ function _bugReportPayload() {
       }
     } catch { storage[key] = localStorage.getItem(key); }
   }
+  let tgWriteLog = [];
+  try { tgWriteLog = JSON.parse(localStorage.getItem('tc_tg_write_log') || '[]'); } catch (_) {}
   return {
     timestamp: new Date().toISOString(),
     appVersion: document.title,
@@ -1278,6 +1281,11 @@ function _bugReportPayload() {
     projectType,
     navHistory: [..._navHistory],
     storage,
+    // Count-data write log (BUG-047/BUG-048 follow-up) — every commitLocationCounts() call
+    // this device has made, accepted or rejected, plus shrink-detection warnings. Lets a
+    // future "a location's data looks wrong" report be traced to the exact write, rather than
+    // narrowed down by hand after the fact.
+    tgWriteLog,
   };
 }
 
@@ -5530,29 +5538,33 @@ function loadProject(proj, opts = {}) {
       setTgCounterHeaderLabel(pl.kind === 'edit' ? (tripgenEntries.find((e) => e.id === pl.entryId)?.locationLabel || '') : pl.address);
       showScreen('tripgen-counter-screen');
       if (pl.kind === 'edit') {
-        const entry = tripgenEntries.find((e) => e.id === pl.entryId);
-        const day = entry?.days[pl.dayIdx];
-        tgBeginEditing(pl.editSnapshot, pl.parsed, (parsed, editSnapshot) => {
-          if (day) { day.parsed = parsed; day.editSnapshot = editSnapshot; }
+        tgBeginEditing(pl.editSnapshot, pl.parsed, (parsed, editSnapshot, seq) => {
+          commitLocationCounts(pl.entryId, pl.dayIdx, parsed, editSnapshot, seq, 'resume-edit-finish');
           tgPendingLocation = null;
           renderTripgenLocationsList();
           goToTripgenAnalyze();
           window.scheduleAutosave?.();
         });
+        tgPendingLocation.seq = tgGetSessionSeq();
       } else {
         document.getElementById('tg-location-address').value = pl.address || '';
         document.getElementById('tg-location-date').value = pl.date || '';
-        tgBeginEditing(pl.editSnapshot, pl.parsed, (parsed, editSnapshot) => {
-          tripgenEntries.push({
-            id: tripgenNextId++, filename: '(live count)', locationLabel: pl.address,
-            meta: {}, days: [{ sheetName: formatDateLong(pl.date), dayType: pl.dayType, date: pl.date, parsed, editSnapshot }],
-          });
+        let resumeEntryId = null;
+        tgBeginEditing(pl.editSnapshot, pl.parsed, (parsed, editSnapshot, seq) => {
+          commitLocationCounts(resumeEntryId, 0, parsed, editSnapshot, seq, 'resume-new-finish');
           tgPendingLocation = null;
           clearLocationContext();
           renderTripgenLocationsList();
           goToTripgenAnalyze();
           window.scheduleAutosave?.();
         });
+        resumeEntryId = tripgenNextId++;
+        tripgenEntries.push({
+          id: resumeEntryId, filename: '(live count)', locationLabel: pl.address,
+          meta: {}, days: [{ sheetName: formatDateLong(pl.date), dayType: pl.dayType, date: pl.date, parsed: null, editSnapshot: null }],
+        });
+        tgPendingLocation = { kind: 'edit', entryId: resumeEntryId, dayIdx: 0, seq: tgGetSessionSeq() };
+        commitLocationCounts(resumeEntryId, 0, pl.parsed, pl.editSnapshot, tgGetSessionSeq(), 'resume-new-initial');
       }
     } else {
       showScreen('tripgen-setup-screen');
@@ -5909,6 +5921,66 @@ function detectTripgenShrink(prevProj, newProj) {
   return null;
 }
 
+// ── Count-data failsafe, layer 4: "read-only outside the counter" (BUG-047/BUG-048 follow-up)
+// ──
+// Both BUG-047 and BUG-048 were the same root shape: a write site trusted that tripgenCount.js's
+// shared live-counting state (tgData/classifications/cfg) still belonged to the session
+// tgPendingLocation claims is active, with no way to actually verify that. commitLocationCounts()
+// is now the ONLY function in this file allowed to write a location's real day.parsed/
+// editSnapshot — every write site (project-load resume, scheduleAutosave's debounced flush,
+// QA/QC recount-begin's pre-reset flush, "begin counting"'s finish callback, editTripgenDay's
+// finish callback) calls this instead of assigning day.parsed directly. `seq` is
+// tripgenCount.js's own session sequence number (see its "Session identity" comment) —
+// minted fresh by every beginCounting/beginEditing call and threaded through
+// captureLiveSnapshot()/finishLocation()'s callback. A write is only applied if `seq` still
+// matches the seq recorded on tgPendingLocation when THIS entryId/dayIdx's session began; a
+// mismatch means the shared module state has moved on to a different session since then
+// (exactly what happened in both prior bugs) and the write is rejected instead of silently
+// landing on the wrong location.
+const tgLastGoodByKey = new Map(); // `${entryId}:${dayIdx}` -> {parsed, editSnapshot, ts} — live in-memory mirror, independent of the periodic IndexedDB rolling backups (layer 1)
+const TG_WRITE_LOG_KEY = 'tc_tg_write_log';
+const TG_WRITE_LOG_MAX = 500;
+// Diagnostics (user request following BUG-048: a full day of work happened before the bug was
+// even noticed — a downloadable trail of every count-data write, including rejected ones,
+// lets a future incident be pinpointed to the exact write instead of narrowed down by hand
+// days later). Persisted to localStorage (not just in-memory) so it survives reloads across a
+// multi-day field session; folded into the existing "Report a bug" JSON download
+// (_bugReportPayload() below) rather than a new UI surface.
+function tgLogWrite(entry) {
+  try {
+    const log = JSON.parse(localStorage.getItem(TG_WRITE_LOG_KEY) || '[]');
+    log.push({ t: new Date().toISOString(), ...entry });
+    if (log.length > TG_WRITE_LOG_MAX) log.splice(0, log.length - TG_WRITE_LOG_MAX);
+    localStorage.setItem(TG_WRITE_LOG_KEY, JSON.stringify(log));
+  } catch (_) {}
+}
+function tgIntervalStats(parsed) {
+  const intervals = parsed?.intervals || [];
+  const volume = intervals.reduce((s, iv) => s + (iv.inbound || []).reduce((a, b) => a + b, 0) + (iv.outbound || []).reduce((a, b) => a + b, 0), 0);
+  return { intervalCount: intervals.length, volume };
+}
+function commitLocationCounts(entryId, dayIdx, parsed, editSnapshot, seq, source) {
+  const pending = tgPendingLocation;
+  const stats = tgIntervalStats(parsed);
+  const mismatch = !pending || pending.kind !== 'edit' || pending.entryId !== entryId || (pending.dayIdx ?? 0) !== (dayIdx ?? 0) || pending.seq !== seq;
+  if (mismatch) {
+    tgLogWrite({ outcome: 'rejected', source, entryId, dayIdx, seq, pending: pending ? { ...pending } : null, ...stats });
+    console.warn(`[commitLocationCounts] rejected mismatched write from "${source}" — entryId=${entryId} dayIdx=${dayIdx} seq=${seq}`, pending);
+    return false;
+  }
+  const entry = tripgenEntries.find((e) => e.id === entryId);
+  const day = entry?.days?.[dayIdx];
+  if (!day) {
+    tgLogWrite({ outcome: 'rejected-no-day', source, entryId, dayIdx, seq, ...stats });
+    return false;
+  }
+  day.parsed = parsed;
+  day.editSnapshot = editSnapshot;
+  tgLastGoodByKey.set(`${entryId}:${dayIdx}`, { parsed, editSnapshot, ts: Date.now() });
+  tgLogWrite({ outcome: 'committed', source, entryId, dayIdx, seq, ...stats });
+  return true;
+}
+
 // Single write path for every autosave write site (window.scheduleAutosave's debounced
 // callback, flushPendingAutosave, persistAreaStudySnapshotsOnly) — see DEVLOG "count-data
 // failsafe" entry. Runs the shrink check (layer 2) before committing, then writes to
@@ -5927,6 +5999,7 @@ function commitProjectSave(proj) {
         `This is exactly what happens when a background action (like a QA/QC recount) accidentally overwrites a location's real count.\n\n` +
         `Click Cancel to keep the previous save and NOT overwrite this data (safest if you didn't mean to change this location). Click OK only if you intentionally cleared or are redoing this location's count.`
       );
+      tgLogWrite({ outcome: ok ? 'shrink-warning-proceeded' : 'shrink-warning-cancelled', source: 'commitProjectSave', ...shrink });
       if (!ok) { setSaveState('', 0); return; }
     }
   }
@@ -5996,10 +6069,8 @@ window.scheduleAutosave = function () {
       // the same cadence as everything else, or it would sit visibly stale/zeroed in the
       // Locations list while a real count is happening.
       if (projectType === 'tripgen' && tgPendingLocation && tgPendingLocation.kind === 'edit' && tgPendingLocation.entryId != null) {
-        const entry = tripgenEntries.find((e) => e.id === tgPendingLocation.entryId);
-        const day = entry?.days?.[tgPendingLocation.dayIdx ?? 0];
         const live = tgCaptureLiveSnapshot();
-        if (day && live) { day.parsed = live.parsed; day.editSnapshot = live.editSnapshot; }
+        if (live) commitLocationCounts(tgPendingLocation.entryId, tgPendingLocation.dayIdx ?? 0, live.parsed, live.editSnapshot, live.seq, 'autosave-flush');
       }
       const proj = serializeCurrentProject();
       commitProjectSave(proj);
@@ -6821,10 +6892,11 @@ document.getElementById('btn-tg-begin-counting')?.addEventListener('click', () =
   // entryId is assigned AFTER tgBeginCounting succeeds (below) but the finish callback closes
   // over this outer variable, so it sees the real id once counting actually starts.
   let entryId = null;
-  const started = tgBeginCounting((parsed, editSnapshot) => {
+  const started = tgBeginCounting((parsed, editSnapshot, seq) => {
+    commitLocationCounts(entryId, 0, parsed, editSnapshot, seq, 'begin-counting-finish');
     const entry = tripgenEntries.find((e) => e.id === entryId);
     const day = entry?.days?.[0];
-    if (day) { day.parsed = parsed; day.editSnapshot = editSnapshot; day.inProgress = false; }
+    if (day) day.inProgress = false;
     tgPendingLocation = null;
     renderTripgenLocationsList();
     // "finish location" takes you straight into the data view, not back to a bare list.
@@ -6845,12 +6917,13 @@ document.getElementById('btn-tg-begin-counting')?.addEventListener('click', () =
   entryId = tripgenNextId++;
   tripgenEntries.push({
     id: entryId, filename: '(live count)', locationLabel: ctx.address,
-    meta: {}, days: [{ sheetName: formatDateLong(ctx.date), dayType, date: ctx.date, parsed: snap?.parsed || null, editSnapshot: snap?.editSnapshot || null, inProgress: true }],
+    meta: {}, days: [{ sheetName: formatDateLong(ctx.date), dayType, date: ctx.date, parsed: null, editSnapshot: null, inProgress: true }],
   });
   // Reuse the exact same pending shape editTripgenDay() already uses to resume a finished
   // entry for editing — an in-progress entry is now just a special case of "editing an
   // existing entry," not a separate code path.
-  tgPendingLocation = { kind: 'edit', entryId, dayIdx: 0 };
+  tgPendingLocation = { kind: 'edit', entryId, dayIdx: 0, seq: tgGetSessionSeq() };
+  if (snap) commitLocationCounts(entryId, 0, snap.parsed, snap.editSnapshot, snap.seq, 'begin-counting-placeholder');
   clearLocationContext();
   renderTripgenLocationsList();
   setTgCounterHeaderLabel(ctx.address);
@@ -6871,15 +6944,15 @@ function editTripgenDay(entryId, dayIdx, backTarget) {
   setTgCounterHeaderLabel(entry.locationLabel);
   showScreen('tripgen-counter-screen');
   tgPendingLocation = { kind: 'edit', entryId, dayIdx };
-  tgBeginEditing(day.editSnapshot, day.parsed, (parsed, editSnapshot) => {
-    day.parsed = parsed;
-    day.editSnapshot = editSnapshot;
+  tgBeginEditing(day.editSnapshot, day.parsed, (parsed, editSnapshot, seq) => {
+    commitLocationCounts(entryId, dayIdx, parsed, editSnapshot, seq, 'edit-day-finish');
     day.inProgress = false; // clears the "in progress" badge if this was the begin-counting placeholder entry
     tgPendingLocation = null;
     renderTripgenLocationsList();
     goToTripgenAnalyze();
     window.scheduleAutosave?.();
   });
+  tgPendingLocation.seq = tgGetSessionSeq();
 }
 window.editTripgenDay = editTripgenDay;
 
@@ -7209,10 +7282,8 @@ async function renderQaqcScreen() {
       // already does -- synchronously, right here, before the marker is cleared and tgData is
       // reset out from under it.
       if (tgPendingLocation && tgPendingLocation.kind === 'edit' && tgPendingLocation.entryId != null) {
-        const pendEntry = tripgenEntries.find((e) => e.id === tgPendingLocation.entryId);
-        const pendDay = pendEntry?.days?.[tgPendingLocation.dayIdx ?? 0];
         const live = tgCaptureLiveSnapshot();
-        if (pendDay && live) { pendDay.parsed = live.parsed; pendDay.editSnapshot = live.editSnapshot; }
+        if (live) commitLocationCounts(tgPendingLocation.entryId, tgPendingLocation.dayIdx ?? 0, live.parsed, live.editSnapshot, live.seq, 'qaqc-recount-begin-flush');
       }
       tgPendingLocation = null;
       tgCounterBackTarget = 'tripgen-qaqc-screen';

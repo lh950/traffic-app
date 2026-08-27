@@ -1,5 +1,11 @@
 # Changelog
 
+## v3.49.0-alpha.1 — 2026-08-27
+
+### Added
+- **"Read-only outside the counter" write gate for Trip Gen count data.** BUG-047 and BUG-048 were two different bugs with the same root shape — a write site trusting that the shared live-counting module state still belonged to the session it thought was active. `commitLocationCounts()` is now the ONLY function allowed to write a location's real count data; every write site (six in total) funnels through it, and it refuses any write whose session identity doesn't match what was recorded when that location's counting session began, instead of silently applying it. See `DEVLOG.md` for the full design.
+- **Downloadable count-data diagnostics.** Every count-data write (accepted or rejected) and every shrink-detection warning is now logged to a rolling, reload-surviving trail, included automatically in the existing "Report a bug" download. Added directly in response to BUG-048 having gone unnoticed for a full day of continued fieldwork before it was caught.
+
 ## v3.48.0-alpha.2 — 2026-08-26
 
 ### Fixed
