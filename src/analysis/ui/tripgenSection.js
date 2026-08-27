@@ -1430,6 +1430,32 @@ export async function renderTripGenSection(container, entries, ctx) {
   });
   const allGroupNames = [...new Set([...Object.values(crossGroups).flatMap((g) => Object.keys(g))])];
 
+  // Site-wide trip rate (user request) — same tripRate() formula the per-location day blocks
+  // already use (rawGroups off the as-counted total, matching the source; "balanced" view
+  // doesn't change the rate), just fed crossGroups' combined-across-every-location totals
+  // instead of one location's own. One row per day type, matching totalsTable's own grouping.
+  const siteWideRateSections = await Promise.all(Object.keys(crossGroups).map(async (bucket) => {
+    const cards = await Promise.all(allGroupNames.map(async (g) => {
+      const vol = crossGroups[bucket][g] || 0;
+      const rate = await data.tripRate(vol, siteInfo.gsf);
+      return `
+        <div class="stat-card">
+          <div class="stat-label">${escapeHtml(g)}</div>
+          <div class="stat-value">${rate != null ? rate : '—'}<span class="unit">${rate != null ? '/ 1000 GSF' : ''}</span></div>
+          <div class="stat-detail">${fmt(vol)} combined total</div>
+        </div>`;
+    }));
+    return `<div style="margin-bottom:10px"><div class="stat-detail" style="font-weight:600;color:var(--text);margin-bottom:6px;text-transform:capitalize">${escapeHtml(bucket)}</div><div class="card-grid">${cards.join('')}</div></div>`;
+  }));
+  const siteWideTripRateHTML = `
+    <div class="card" style="margin-bottom:14px">
+      <h3>Site-wide trip rate</h3>
+      <div class="stat-detail" style="margin-bottom:8px">Every location combined, by day type — not a single location's own rate (see that location's own card below for per-site figures).</div>
+      ${!siteInfo.gsf ? '<div class="stat-detail" style="margin-bottom:8px">Enter site square footage above to compute rates.</div>' : ''}
+      ${siteWideRateSections.join('')}
+    </div>
+  `;
+
   const qaqcSectionHTML = await renderQaqcSection(entries, ctx);
 
   const fixedWinStartMin = ctx.fixedWindowStartMin ?? (8 * 60);
@@ -1511,6 +1537,7 @@ export async function renderTripGenSection(container, entries, ctx) {
 
     <div class="section" style="margin-bottom:1.5rem">
       <div class="section-head"><h2>Site-wide summary</h2><span class="sub">every location, one chart per day</span></div>
+      ${siteWideTripRateHTML}
       <div class="tg-sw-root" data-tg-sitewide></div>
     </div>
 

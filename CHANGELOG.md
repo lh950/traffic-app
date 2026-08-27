@@ -1,5 +1,10 @@
 # Changelog
 
+## v3 · v0.49.8 — 2026-08-27
+
+### Added
+- **Trip Gen Analysis: Site-wide summary now shows trip rate** — every location's day-type totals combined, same trip-rate formula the per-location cards use, shown above the site-wide chart.
+
 ## v3 · v0.49.7 — 2026-08-27
 
 ### Added
