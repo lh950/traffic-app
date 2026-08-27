@@ -188,10 +188,20 @@ export async function balanceEntryExit(inboundByInterval, outboundByInterval) {
   if (mod?.balanceEntryExit) return mod.balanceEntryExit(inboundByInterval, outboundByInterval);
   return { inbound: [...inboundByInterval], outbound: [...outboundByInterval] };
 }
+export async function qaqcThresholdPct(volume) {
+  const mod = await loadReal();
+  if (!mod?.qaqcThresholdPct) throw new Error('qaqcThresholdPct requires the data layer.');
+  return mod.qaqcThresholdPct(volume);
+}
 export async function qaqcPeakHourScore(primaryQuarters, recountQuarters) {
   const mod = await loadReal();
   if (!mod?.qaqcPeakHourScore) throw new Error('qaqcPeakHourScore requires the data layer.');
   return mod.qaqcPeakHourScore(primaryQuarters, recountQuarters);
+}
+export async function qaqcShapeCheck(primaryQuarters, recountQuarters) {
+  const mod = await loadReal();
+  if (!mod?.qaqcShapeCheck) throw new Error('qaqcShapeCheck requires the data layer.');
+  return mod.qaqcShapeCheck(primaryQuarters, recountQuarters);
 }
 export async function threePeakHourRating(scores) {
   const mod = await loadReal();

@@ -1,5 +1,12 @@
 # Changelog
 
+## v3 · v0.49.7 — 2026-08-27
+
+### Added
+- **Trip Gen: "⭳ CSV" button on the live counter** — downloads exactly what's on screen (every interval, every classification's in/out) as a CSV, mid-count or after finishing.
+- **Trip Gen QA/QC: a second, independent quality signal — "Shape" check.** The existing Pass/Fail only ever compares whole-hour totals, which can hide compensating errors (two quarters over-counted, two under-counted, netting to zero). The new chi-square-based Shape check compares the quarter-by-quarter pattern instead. Shown as its own badge alongside Pass/Fail; does not change what Pass/Fail means.
+- **"explain this score →"** — a new detail screen (QA/QC screen, Analysis summary table, and the shared read-only viewer) showing the full worked arithmetic behind both checks for one window, not just the collapsed badges.
+
 ## v3 · v0.49.6 — 2026-08-27
 
 ### Fixed

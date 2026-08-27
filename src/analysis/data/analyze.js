@@ -314,6 +314,73 @@ export function qaqcPeakHourScore(primaryQuarters, recountQuarters) {
   return { score, perQuarterPass, overallPass, rating: null };
 }
 
+// Standard normal CDF, Abramowitz & Stegun 26.2.17 approximation (max error ~7.5e-8) — used
+// only by qaqcShapeCheck() below to turn a chi-square statistic into a p-value without pulling
+// in a stats library for one formula.
+function normalCdf(z) {
+  const t = 1 / (1 + 0.2316419 * Math.abs(z));
+  const d = 0.3989423 * Math.exp((-z * z) / 2);
+  let p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
+  if (z > 0) p = 1 - p;
+  return p;
+}
+
+// Wilson-Hilferty transform: converts a chi-square statistic to an approximately-standard-
+// normal value, accurate enough for df >= 2 (this function is only ever called with df =
+// quarters - 1, at least 1, typically 3) without needing a real incomplete-gamma-function
+// implementation for the exact chi-square CDF.
+function chiSquareUpperTailP(chiSq, df) {
+  if (df <= 0 || chiSq < 0) return null;
+  const h = 2 / (9 * df);
+  const z = (Math.pow(chiSq / df, 1 / 3) - (1 - h)) / Math.sqrt(h);
+  return 1 - normalCdf(z);
+}
+
+/**
+ * qaqcShapeCheck(primaryQuarters, recountQuarters) -> shape-agreement diagnostic
+ *
+ * qaqcPeakHourScore() above only ever compares TOTALS (the whole-hour aggregate, and each
+ * quarter independently but not gating anything on it) — two quarters can be over-counted and
+ * two under-counted, cancel out in the aggregate, and the hour still passes cleanly. This is a
+ * SEPARATE, independent test: does the recount's quarter-by-quarter SHAPE (its relative
+ * distribution across the hour) match the primary's, regardless of whether the totals agree —
+ * catching exactly that compensating-error pattern the aggregate check is blind to.
+ *
+ * Standard chi-square goodness-of-fit test: null hypothesis is "the recount was drawn from the
+ * same underlying distribution as the primary, just possibly a different total volume."
+ * Expected count per quarter under that null: Eᵢ = totalRecount × (primaryᵢ / totalPrimary).
+ * χ² = Σ (recountᵢ − Eᵢ)² / Eᵢ, df = (number of quarters − 1), p-value via the Wilson-Hilferty
+ * normal approximation above. Flagged as a shape mismatch at p < 0.10 — matching
+ * qaqcThresholdPct's own already-generous field-QC posture rather than the conventional 0.05.
+ *
+ * Deliberately informational only — does NOT feed into overallPass/score above. Pass/fail
+ * stays exactly what the source workbook defines; this is a second, independent signal shown
+ * alongside it, not a replacement.
+ *
+ * Chi-square's asymptotic approximation is unreliable when expected cell counts are small
+ * (standard rule of thumb: valid when every Eᵢ >= 5) — `reliable: false` on a low-volume hour
+ * means "not enough data to trust this test," not "shapes match."
+ */
+export function qaqcShapeCheck(primaryQuarters, recountQuarters) {
+  const n = primaryQuarters.length;
+  const totalPrimary = sum(primaryQuarters);
+  const recountNums = recountQuarters.map(Number);
+  const totalRecount = sum(recountNums);
+  if (n < 2 || totalPrimary <= 0 || totalRecount <= 0) {
+    return { applicable: false, reason: n < 2 ? 'Needs at least 2 quarters to test a shape.' : 'One side has zero total volume — nothing to compare a shape against.' };
+  }
+  const expected = primaryQuarters.map((p) => totalRecount * (p / totalPrimary));
+  const reliable = expected.every((e) => e >= 5);
+  let chiSquare = 0;
+  for (let i = 0; i < n; i++) {
+    if (expected[i] > 0) chiSquare += Math.pow(recountNums[i] - expected[i], 2) / expected[i];
+  }
+  const df = n - 1;
+  const pValue = chiSquareUpperTailP(chiSquare, df);
+  const shapeMismatch = reliable && pValue != null && pValue < 0.10;
+  return { applicable: true, reliable, expected, chiSquare, df, pValue, shapeMismatch, totalPrimary, totalRecount };
+}
+
 /**
  * threePeakHourRating(scores) -> { total, rating }
  * scores: up to 3 numbers (one per peak hour, 0-5 each, from qaqcPeakHourScore — null

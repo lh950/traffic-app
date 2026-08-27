@@ -4,6 +4,22 @@ Key decisions, scope constraints, and architectural choices.
 
 ---
 
+## 2026-08-27 — v3 · v0.49.7 (per-table CSV download for the live counter; a second, independent QA/QC signal — chi-square shape check — plus a score-detail explainer screen)
+
+**Live counter CSV download (user request).** Added a "⭳ CSV" button to the Trip Gen live counter header, exporting exactly what's on screen right now (every interval, every classification's in/out, running total, note) via `tgLiveState()` (`tripgenCount.js`) — works mid-count, not just after finishing. Filename derived from the counter header's current location label.
+
+**Statistical review, leading to a second QA/QC check.** Walked through how the existing pass/fail is computed (`qaqcPeakHourScore` in `analyze.js`): pass/fail is gated ONLY on the whole-hour aggregate total (primary vs. recount, within a volume-tiered 5/7.5/10% band traced from the source workbook); the 0-5 "score" shown alongside it is a separate diagnostic tally (quarters within band + the aggregate check), not the pass/fail criterion itself. This means two quarters over-counted and two under-counted can cancel out in the aggregate and still pass, even with a low score — confirmed live: primary `[20,5,20,5]`, recount `[5,20,5,20]` (same total, completely different pattern) → `1/5` score, still `✓ Pass`.
+
+**New `qaqcShapeCheck()`** (`analyze.js`) — a chi-square goodness-of-fit test on the recount's quarter-by-quarter SHAPE against the primary's, independent of whether totals agree: expected count per quarter `Eᵢ = totalRecount × (primaryᵢ / totalPrimary)`, `χ² = Σ(recountᵢ − Eᵢ)² / Eᵢ`, `df = quarters − 1`, p-value via a self-contained Wilson-Hilferty normal approximation (Abramowitz-Stegun 26.2.17 for the normal CDF — no stats library needed). Flags a mismatch at p < 0.10 (matching the existing check's own generous field-QC posture). Marked `reliable: false` when any expected cell count is under 5 (the standard validity threshold for chi-square's asymptotic approximation) rather than producing a misleading verdict on thin data. Verified against the `[20,5,20,5]`/`[5,20,5,20]` case above: χ²=112.5, df=3, p≈0 → correctly flagged, even though the aggregate check passed cleanly.
+
+**Deliberately informational only, per explicit decision** — shown as a second badge alongside the existing Pass/Fail (QA/QC screen's per-window cards and the Analysis page's summary table), does NOT feed into or change what Pass/Fail means. The source-workbook-traced aggregate check stays authoritative; this is presented as an additional signal while a broader "how should QA actually be scored" exploration is still open (deferred, not decided).
+
+**"explain this score →" detail screen.** New `tripgen-qaqc-detail-screen`, reached from both the QA/QC screen and the Analysis page's summary table (and now the shared read-only viewer too, since this view has zero edit affordances — unlike the QA/QC input screen itself, which stays owner-only). Shows the full worked arithmetic for one window: the aggregate check's actual numbers substituted into the formula, the per-quarter table, and the chi-square shape check's expected values / per-quarter terms / χ² / df / p-value — not just the collapsed badges. `renderQaqcScoreDetailHTML()` lives in `tripgenSection.js` alongside the existing `renderQaqcDetailCardHTML()`, keeping detail-rendering logic where the scoring logic already lives rather than duplicating it into `main.js`.
+
+**Verified live**, via the real dev server: built a location with a real primary count, ran an actual QA/QC recount through the live counter (real keystrokes, not synthetic data), confirmed the shape-mismatch badge and score both render correctly on the QA/QC screen AND the Analysis summary table, opened the detail screen from both entry points and confirmed the arithmetic matches by hand (χ² term-by-term: 11.25+45+11.25+45=112.5 ✓), and confirmed each entry point's "back" button returns to the right screen (QA/QC screen vs. Analysis screen) rather than a single hardcoded target.
+
+---
+
 ## 2026-08-27 — v3 · v0.49.5 ("recount" redesigned non-destructive; original day excluded from analysis, not deleted)
 
 **Trigger.** Immediate user correction to the "full recount" feature shipped in the previous entry: "lets keep the first count, add the recount as its own new count" — followed by "but the QA and analysis screens should not use that first counts data." Two requirements, not one: (1) never destroy the original, (2) the recount should be what analysis actually uses once it exists.

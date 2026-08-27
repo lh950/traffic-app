@@ -44,6 +44,8 @@ export {
   qaqcThresholdPct,
   /** qaqcPeakHourScore(primaryQuarters, recountQuarters) -> { score, perQuarterPass, overallPass, rating } */
   qaqcPeakHourScore,
+  /** qaqcShapeCheck(primaryQuarters, recountQuarters) -> chi-square shape-agreement diagnostic, independent of and does NOT feed qaqcPeakHourScore's pass/fail — see analyze.js for the full formula writeup */
+  qaqcShapeCheck,
   /** threePeakHourRating(scores) -> { total, rating: 'Good'|'Borderline'|'Failed'|'Incomplete' } */
   threePeakHourRating,
 } from './analyze.js';

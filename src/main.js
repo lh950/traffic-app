@@ -78,7 +78,7 @@ import { exportShareablePage, buildShareableHTML } from './shareReport.js';
 import JSZip from 'jszip';
 import { printSummaryReport, printIntersectionReport } from './printPedReport.js';
 import { buildVolumeProfileSVG, buildCrosswalkBarSVG, buildChartLegend, dirSplitBar, CW_COLORS } from './chartUtils.js';
-import { renderTripGenSection, DEFAULT_PEAK_WINDOWS, computePeakVolumes, computeQaqcPeakScore, renderQaqcDetailCardHTML, passFailBadge, migrateQaqcWindows, qaqcWindowsKey, qaqcPeakKey, tgIncludedDays } from './analysis/ui/tripgenSection.js';
+import { renderTripGenSection, DEFAULT_PEAK_WINDOWS, computePeakVolumes, computeQaqcPeakScore, renderQaqcDetailCardHTML, renderQaqcScoreDetailHTML, passFailBadge, shapeCheckBadge, migrateQaqcWindows, qaqcWindowsKey, qaqcPeakKey, tgIncludedDays } from './analysis/ui/tripgenSection.js';
 import { weekdayShort, dateLabelWithWeekday } from './analysis/ui/dateUtils.js';
 import { intervalBar, pctOfPeakCell } from './analysis/ui/intervalDetail.js';
 
@@ -95,6 +95,7 @@ import {
   getClassifications as tgGetClassifications,
   getTgKeybindCfg, setTgKeybindCfg, resetTgKeybindCfg,
   getSessionSeq as tgGetSessionSeq,
+  tgLiveState,
 } from './tripgenCount.js';
 import {
   beginIntersectionRecount as ixBeginRecount, wireKeydown as ixQaqcWireKeydown,
@@ -324,7 +325,7 @@ initApproaches();
 // ═══════════════════════════════════════════
 // SCREEN ROUTER
 // ═══════════════════════════════════════════
-const SCREENS = ['home-screen', 'help-screen', 'area-setup-screen', 'area-import-screen', 'summary-screen', 'area-aggregate-screen', 'export-screen', 'ix-analysis-screen', 'setup-screen', 'counter-screen', 'intersection-qaqc-screen', 'intersection-qaqc-counter-screen', 'streetlight-compare-screen', 'tripgen-setup-screen', 'tripgen-counter-screen', 'tripgen-locations-screen', 'tripgen-qaqc-screen', 'tripgen-distribution-screen', 'analyze-screen', 'parking-setup-screen', 'parking-counter-screen', 'share-viewer-screen'];
+const SCREENS = ['home-screen', 'help-screen', 'area-setup-screen', 'area-import-screen', 'summary-screen', 'area-aggregate-screen', 'export-screen', 'ix-analysis-screen', 'setup-screen', 'counter-screen', 'intersection-qaqc-screen', 'intersection-qaqc-counter-screen', 'streetlight-compare-screen', 'tripgen-setup-screen', 'tripgen-counter-screen', 'tripgen-locations-screen', 'tripgen-qaqc-screen', 'tripgen-qaqc-detail-screen', 'tripgen-distribution-screen', 'analyze-screen', 'parking-setup-screen', 'parking-counter-screen', 'share-viewer-screen'];
 let projectType = null; // 'intersection' | 'area' | 'tripgen' | 'parking' | null
 
 // ── Parking study state ──
@@ -5750,6 +5751,10 @@ async function renderViewerContent(proj) {
       onPeakManualToggle: () => {}, onDataViewChange: () => {}, onFixedWindowChange: () => {},
       fixedWindowStartMin: tripgenFixedWindowStartMin, fixedWindowEndMin: tripgenFixedWindowEndMin,
       viewerMode: true,
+      // Deliberately omitting onGotoQaqc — that link goes to the owner-only QA/QC EDIT screen,
+      // which a viewer has no business reaching. The score-detail view is pure read-only
+      // (no edit controls at all), so it's safe and useful to expose here too.
+      onGotoQaqcDetail: (key) => showTgQaqcDetail(key, 'share-viewer-screen'),
     });
   } else if (proj.projectType === 'area') {
     // Study-wide rollup (decision: conservative pick over per-intersection drill-down —
@@ -7158,6 +7163,37 @@ document.getElementById('btn-tgp-goto-locations')?.addEventListener('click', () 
 let tgCounterBackTarget = 'tripgen-setup-screen';
 document.getElementById('tg-btn-finish')?.addEventListener('click', () => tgFinishLocation());
 document.getElementById('tg-btn-to-setup')?.addEventListener('click', () => showScreen(tgCounterBackTarget));
+// Per-table CSV download for the live counter (user request) — exports exactly what's on
+// screen right now (every interval, every classification's in/out, running as typed so far),
+// not the project-wide export elsewhere. Uses tgLiveState() (tripgenCount.js) rather than
+// waiting for finish, so it works mid-count too.
+document.getElementById('tg-btn-export-csv')?.addEventListener('click', () => {
+  const { classifications, tgData, cfg } = tgLiveState();
+  if (!classifications.length) return;
+  const slots = Math.max(1, Math.round(cfg.durationMin / cfg.intervalMin));
+  const header = ['Time', ...classifications.flatMap((c) => [`${c.label} In`, `${c.label} Out`]), 'Total', 'Note'];
+  const rows = [header];
+  for (let i = 0; i < slots; i++) {
+    const start = cfg.startMinutes + i * cfg.intervalMin;
+    const label = `${minToTimeStr(start)}–${minToTimeStr(start + cfg.intervalMin)}`;
+    let rowTotal = 0;
+    const cells = classifications.flatMap((_, ci) => {
+      const inV = tgData.in[i]?.[ci] || 0, outV = tgData.out[i]?.[ci] || 0;
+      rowTotal += inV + outV;
+      return [inV, outV];
+    });
+    rows.push([label, ...cells, rowTotal, tgData.notes?.[i] || '']);
+  }
+  const csv = rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const label = (document.getElementById('tg-counter-sub')?.textContent || 'trip-gen-count').replace(/^—\s*/, '');
+  a.download = `${label.replace(/[^a-z0-9]/gi, '-') || 'trip-gen-count'}-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+});
 tgWireKeydown();
 ixQaqcWireKeydown();
 
@@ -7185,6 +7221,28 @@ document.getElementById('btn-analyze-to-qaqc')?.addEventListener('click', () => 
 // changing that ripples through every other case), so the target card may not exist in the
 // DOM yet the instant this runs — polls briefly rather than assuming the render already
 // finished.
+// "explain this score →" detail screen — reached from a QA/QC card's Score detail section and
+// from the Analysis page's QA/QC summary table (both pass the same qaqcPeakKey-format key).
+let tgQaqcDetailBackTarget = 'tripgen-qaqc-screen';
+async function showTgQaqcDetail(key, backTarget) {
+  tgQaqcDetailBackTarget = backTarget || 'tripgen-qaqc-screen';
+  const parts = key.split('__');
+  const entryId = Number(parts[0]);
+  const windowId = Number(parts[parts.length - 1]);
+  const sheetName = parts.slice(1, -1).join('__');
+  const entry = tripgenEntries.find((e) => e.id === entryId);
+  const day = entry?.days.find((d) => d.sheetName === sheetName);
+  const w = tripgenQaqcWindows[qaqcWindowsKey(entryId, sheetName)]?.find((win) => win.id === windowId);
+  const root = document.getElementById('tripgen-qaqc-detail-root');
+  showScreen('tripgen-qaqc-detail-screen');
+  if (!entry || !day || !w) { root.innerHTML = '<div class="stat-detail">This QA/QC window no longer exists.</div>'; return; }
+  root.innerHTML = '<div class="stat-detail">Loading…</div>';
+  const computed = await computeQaqcPeakScore(entry, day, w, tripgenQaqc);
+  const dayLabel = day.date ? formatDateLong(day.date) : day.sheetName;
+  root.innerHTML = await renderQaqcScoreDetailHTML(entry.locationLabel, dayLabel, w.label, computed);
+}
+document.getElementById('btn-qaqc-detail-back')?.addEventListener('click', () => showScreen(tgQaqcDetailBackTarget));
+
 function scrollToQaqcCard(key, attemptsLeft = 20) {
   const el = document.querySelector(`[data-qaqc-card="${CSS.escape(key)}"]`);
   if (!el) {
@@ -7253,7 +7311,10 @@ async function renderQaqcScreen() {
             </table>
             ${hasHour && recounts.length ? `
             <div style="border-top:.5px solid var(--border);padding-top:10px;margin-bottom:10px">
-              <div style="font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text2);margin-bottom:8px">Score detail</div>
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px">
+                <div style="font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text2)">Score detail ${shapeCheckBadge(computed.shapeCheck)}</div>
+                ${computed.scoreResult.score != null ? `<button type="button" class="no-print" data-qaqc-detail-open="${key}" style="font-size:11px">explain this score →</button>` : ''}
+              </div>
               ${renderQaqcDetailCardHTML(computed)}
             </div>` : ''}
             <div data-qaqc-form-area="${key}" style="display:none;border-top:.5px solid var(--border);padding-top:10px;margin-bottom:10px">
@@ -7299,6 +7360,9 @@ async function renderQaqcScreen() {
   }
   root.innerHTML = locGroups.join('');
 
+  root.querySelectorAll('[data-qaqc-detail-open]').forEach((el) => {
+    el.addEventListener('click', () => showTgQaqcDetail(el.dataset.qaqcDetailOpen, 'tripgen-qaqc-screen'));
+  });
   root.querySelectorAll('[data-qaqc-add-window]').forEach((el) => {
     el.addEventListener('click', () => {
       const winKey = el.dataset.qaqcAddWindow;
@@ -8399,6 +8463,7 @@ async function rerenderTripgenAnalysis() {
     },
     onDataViewChange: (view) => { tripgenDataView = view; rerenderTripgenAnalysis(); },
     onGotoQaqc: (key) => { openWorkspaceTab('tg-qaqc'); scrollToQaqcCard(key); },
+    onGotoQaqcDetail: (key) => showTgQaqcDetail(key, 'analyze-screen'),
     onEditGroups: () => {
       openWorkspaceTab('tg-setup');
       const btn = document.querySelector('#tripgen-setup-screen .tg-tab[data-tgtab="classifications"]');

@@ -923,7 +923,7 @@ export async function computeQaqcPeakScore(entry, day, w, qaqc) {
   const intervalMinutes = inferIntervalMinutes(parsed.intervals);
   const peak = resolveQaqcWindow(parsed, intervalMinutes, w);
   if (peak.startIdx < 0) {
-    return { peak, intervalMinutes, quarterIntervals: [], quarterTotals: [], allRecounts: [], alignedRecounts: [], recountQuarters: [], scoreResult: { score: null, perQuarterPass: [], overallPass: null, rating: 'Incomplete' }, perClassResults: [] };
+    return { peak, intervalMinutes, quarterIntervals: [], quarterTotals: [], allRecounts: [], alignedRecounts: [], recountQuarters: [], scoreResult: { score: null, perQuarterPass: [], overallPass: null, rating: 'Incomplete' }, shapeCheck: { applicable: false, reason: 'No hour resolved yet.' }, perClassResults: [] };
   }
   const quarterIntervals = parsed.intervals.slice(peak.startIdx, peak.endIdx + 1);
   const quarterTotals = quarterIntervals.map((iv) => iv.inbound.reduce((a, b) => a + b, 0) + iv.outbound.reduce((a, b) => a + b, 0));
@@ -936,6 +936,11 @@ export async function computeQaqcPeakScore(entry, day, w, qaqc) {
     ? quarterIntervals.map((_, qi) => alignedRecounts.reduce((s, r) => s + recountIntervalTotals(r)[qi], 0) / alignedRecounts.length)
     : quarterIntervals.map(() => null);
   const scoreResult = await data.qaqcPeakHourScore(quarterTotals, recountQuarters);
+  // Independent second signal (user-requested exploration of additional QA checks) — does the
+  // recount's quarter-by-quarter SHAPE match the primary's, regardless of whether the totals
+  // agree (scoreResult.overallPass above only ever compares totals). Only computable once every
+  // quarter is entered, same gate as scoreResult itself — a partial recount has no shape yet.
+  const shapeCheck = scoreResult.score != null ? await data.qaqcShapeCheck(quarterTotals, recountQuarters) : { applicable: false, reason: 'Incomplete — enter every quarter first.' };
   // Per-classification breakdown — a combined-total pass can hide one classification that's
   // badly off (masked by others balancing it out), and field recounts often focus on just one
   // vehicle type rather than re-tallying everything, so this is the more actionable signal for
@@ -948,7 +953,7 @@ export async function computeQaqcPeakScore(entry, day, w, qaqc) {
     const classScoreResult = await data.qaqcPeakHourScore(classQuarterTotals, classRecountQuarters);
     return { label, quarterTotals: classQuarterTotals, recountQuarters: classRecountQuarters, scoreResult: classScoreResult };
   }));
-  return { peak, intervalMinutes, quarterIntervals, quarterTotals, allRecounts, alignedRecounts, recountQuarters, scoreResult, perClassResults };
+  return { peak, intervalMinutes, quarterIntervals, quarterTotals, allRecounts, alignedRecounts, recountQuarters, scoreResult, shapeCheck, perClassResults };
 }
 
 // Simple ✓/✗ pass-fail badge for ONE window — deliberately not a 3-tier Good/Borderline/Failed
@@ -961,6 +966,17 @@ export async function computeQaqcPeakScore(entry, day, w, qaqc) {
 export function passFailBadge(overallPass) {
   if (overallPass == null) return `<span class="tag">Incomplete</span>`;
   return overallPass ? `<span class="tag badge-pass">✓ Pass</span>` : `<span class="tag badge-fail">✗ Fail</span>`;
+}
+
+// Second, independent signal alongside passFailBadge — see qaqcShapeCheck() in analyze.js.
+// Deliberately does NOT affect pass/fail; shown next to it, not merged into it, per explicit
+// decision to keep pass/fail exactly what the source workbook defines while this is explored.
+export function shapeCheckBadge(shapeCheck) {
+  if (!shapeCheck?.applicable) return '';
+  if (!shapeCheck.reliable) return `<span class="tag" title="Expected counts too small per quarter for a statistically reliable shape test — not enough volume to trust this check either way">Shape: n/a</span>`;
+  return shapeCheck.shapeMismatch
+    ? `<span class="tag badge-fail" title="Quarter-by-quarter pattern doesn't match the primary count's, even though the totals agree (p=${shapeCheck.pValue.toFixed(3)}) — may indicate compensating errors">⚠ Shape mismatch</span>`
+    : `<span class="tag badge-pass" title="Quarter-by-quarter pattern matches the primary count's (p=${shapeCheck.pValue.toFixed(3)})">✓ Shape OK</span>`;
 }
 
 // The interval-by-interval primary-vs-recount comparison for ONE peak — lives on the QA/QC
@@ -1014,6 +1030,90 @@ export function renderQaqcDetailCardHTML(computed) {
   `;
 }
 
+// "explain this score →" detail page — the full arithmetic behind ONE window's score, with
+// the actual numbers substituted in, so "why did this pass/fail" is answerable without reading
+// source code. User-requested after a 2/5 score turned out to still be a Pass (the score and
+// the pass/fail badge measure different things — see the aggregate-vs-shape split below).
+// locationLabel/dayLabel/windowLabel are passed in rather than re-derived, since main.js already
+// has them from the same lookup that found `computed`.
+export async function renderQaqcScoreDetailHTML(locationLabel, dayLabel, windowLabel, computed) {
+  const { peak, quarterIntervals, quarterTotals, recountQuarters, scoreResult, shapeCheck } = computed;
+  if (peak.startIdx < 0) {
+    return `<div class="card"><div class="stat-detail">No hour resolved yet for "${escapeHtml(windowLabel)}" — nothing to explain until this window fits the counted time range.</div></div>`;
+  }
+  if (scoreResult.score == null) {
+    return `<div class="card"><div class="stat-detail">This window's recount isn't complete yet — every one of its ${quarterIntervals.length} interval(s) needs a value entered before there's a score to explain.</div></div>`;
+  }
+  const primaryTotal = quarterTotals.reduce((a, b) => a + b, 0);
+  const recountTotal = recountQuarters.map(Number).reduce((a, b) => a + b, 0);
+  const overallDiffPct = primaryTotal > 0 ? (Math.abs(recountTotal - primaryTotal) / primaryTotal) * 100 : (recountTotal === 0 ? 0 : 100);
+  const overallThreshold = await data.qaqcThresholdPct(primaryTotal);
+  const volumeTier = primaryTotal >= 75 ? '≥75 trips → 5%' : primaryTotal >= 50 ? '50–74 trips → 7.5%' : '<50 trips → 10%';
+
+  const quarterMathRows = quarterIntervals.map((iv, qi) => {
+    const p = quarterTotals[qi], r = Number(recountQuarters[qi]);
+    const diffPct = p > 0 ? (Math.abs(r - p) / p) * 100 : (r === 0 ? 0 : 100);
+    return `<tr><td>${escapeHtml(iv.label)}</td><td>${fmt(p)}</td><td>${fmt(r)}</td><td>${p > 0 ? `${fmt(Math.round(diffPct * 10) / 10)}%` : (r === 0 ? '0%' : '—')}</td><td>${scoreResult.perQuarterPass[qi] ? '✓ within band' : '✗ over band'}</td></tr>`;
+  }).join('');
+
+  const aggregateSection = `
+    <div class="card" style="margin-bottom:14px">
+      <h3>Aggregate check — this is what drives Pass/Fail</h3>
+      <div class="stat-detail" style="margin-bottom:8px">Compares the WHOLE hour's total (all quarters combined), traced from the source workbook's own QC-rating legend.</div>
+      <div class="tbl-scroll">
+        <table class="crosswalk-table">
+          <tbody>
+            <tr><td>Primary total (this hour)</td><td>${fmt(primaryTotal)}</td></tr>
+            <tr><td>Recount total (this hour)</td><td>${fmt(recountTotal)}</td></tr>
+            <tr><td>Difference</td><td>|${fmt(recountTotal)} − ${fmt(primaryTotal)}| = ${fmt(Math.abs(recountTotal - primaryTotal))}</td></tr>
+            <tr><td>% difference</td><td>${fmt(Math.abs(recountTotal - primaryTotal))} / ${fmt(primaryTotal)} = ${fmt(Math.round(overallDiffPct * 10) / 10)}%</td></tr>
+            <tr><td>Threshold for this volume</td><td>${overallThreshold}% (${volumeTier})</td></tr>
+            <tr><td><strong>Result</strong></td><td><strong>${fmt(Math.round(overallDiffPct * 10) / 10)}% ${scoreResult.overallPass ? '≤' : '>'} ${overallThreshold}% → ${passFailBadge(scoreResult.overallPass)}</strong></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="stat-detail" style="margin-top:8px;margin-bottom:4px">Per-quarter detail (informational — feeds the score below, does NOT gate Pass/Fail on its own):</div>
+      <table class="crosswalk-table">
+        <thead><tr><th>Interval</th><th>Primary</th><th>Recount</th><th>% diff</th><th>Within band?</th></tr></thead>
+        <tbody>${quarterMathRows}</tbody>
+      </table>
+      <div class="stat-detail" style="margin-top:8px"><strong>Score:</strong> ${scoreResult.perQuarterPass.filter(Boolean).length} quarter(s) within band + ${scoreResult.overallPass ? '1' : '0'} for the overall check = <strong>${scoreResult.score}/${quarterIntervals.length + 1}</strong>. The score is a diagnostic tally, not the pass/fail criterion — only the aggregate check above (bottom row) decides Pass/Fail.</div>
+    </div>`;
+
+  const shapeSection = !shapeCheck.applicable ? `
+    <div class="card" style="margin-bottom:14px">
+      <h3>Shape check — informational only, does not affect Pass/Fail</h3>
+      <div class="stat-detail">Not applicable: ${escapeHtml(shapeCheck.reason)}</div>
+    </div>` : `
+    <div class="card" style="margin-bottom:14px">
+      <h3>Shape check — informational only, does not affect Pass/Fail</h3>
+      <div class="stat-detail" style="margin-bottom:8px">The aggregate check above only compares TOTALS — two quarters over-counted and two under-counted can cancel out and still pass. This is a separate test (chi-square goodness-of-fit): does the recount's quarter-by-quarter PATTERN match the primary's, regardless of whether the totals agree?</div>
+      ${!shapeCheck.reliable ? `<div class="stat-detail" style="color:var(--bad-text);margin-bottom:8px">⚠ Not reliable at this volume — chi-square needs an expected count of at least 5 in every quarter to trust the result (rule of thumb for the underlying approximation). Shown for reference only.</div>` : ''}
+      <div class="tbl-scroll">
+        <table class="crosswalk-table">
+          <thead><tr><th>Interval</th><th>Primary (p)</th><th>Expected recount (E = totalRecount × p/totalPrimary)</th><th>Actual recount (r)</th><th>(r−E)²/E</th></tr></thead>
+          <tbody>${quarterIntervals.map((iv, qi) => {
+            const e = shapeCheck.expected[qi];
+            const r = Number(recountQuarters[qi]);
+            const term = e > 0 ? Math.pow(r - e, 2) / e : 0;
+            return `<tr><td>${escapeHtml(iv.label)}</td><td>${fmt(quarterTotals[qi])}</td><td>${fmt(Math.round(e * 100) / 100)}</td><td>${fmt(r)}</td><td>${fmt(Math.round(term * 1000) / 1000)}</td></tr>`;
+          }).join('')}</tbody>
+        </table>
+      </div>
+      <div class="stat-detail" style="margin-top:8px">
+        χ² = sum of the last column = <strong>${fmt(Math.round(shapeCheck.chiSquare * 1000) / 1000)}</strong>, df = ${shapeCheck.df}, p-value ≈ <strong>${shapeCheck.pValue.toFixed(3)}</strong> (via the Wilson-Hilferty normal approximation).
+        Flagged as a mismatch below p = 0.10.
+      </div>
+      <div class="stat-detail" style="margin-top:4px"><strong>Result:</strong> ${shapeCheckBadge(shapeCheck)}</div>
+    </div>`;
+
+  return `
+    <div class="stat-detail" style="margin-bottom:14px">${escapeHtml(locationLabel)} — ${escapeHtml(dayLabel)} — ${escapeHtml(windowLabel)} (${peak.label})</div>
+    ${aggregateSection}
+    ${shapeSection}
+  `;
+}
+
 // Dedicated QA/QC section — read-only summary of recounts entered via the standalone QA/QC
 // screen (main.js's renderQaqcScreen), covering every location × day × custom QA window in one
 // place. Just the score/pass-fail table now — the interval-by-interval detail lives on the
@@ -1032,12 +1132,13 @@ async function renderQaqcSection(entries, ctx) {
       const windows = qaqcWindows?.[qaqcWindowsKey(entry.id, sheetName)] || [];
       for (const w of windows) {
         const computed = await computeQaqcPeakScore(entry, day, w, qaqc);
-        const { peak, scoreResult, quarterIntervals } = computed;
+        const { peak, scoreResult, shapeCheck, quarterIntervals } = computed;
         const key = qaqcPeakKey(entry.id, sheetName, w.id);
         // The QA/QC input screen is owner-only edit UI (main.js's renderQaqcScreen) — a
         // shared viewer never has anywhere to navigate to, so the row-link affordance only
         // appears when ctx actually supplies a navigation callback (owner mode).
         const linkable = !!ctx.onGotoQaqc;
+        const detailLinkable = !!ctx.onGotoQaqcDetail;
         summaryRows.push(`
           <tr class="tg-qaqc-row"${linkable ? ` data-tg-qaqc-link="${key}" style="cursor:pointer" title="Go to this QA/QC count"` : ''}>
             <td>${escapeHtml(entry.locationLabel)}</td>
@@ -1046,7 +1147,11 @@ async function renderQaqcSection(entries, ctx) {
             <td>${peak.startIdx < 0 ? 'out of range' : peak.label}</td>
             <td>${scoreResult.score != null ? `${scoreResult.score}/${quarterIntervals.length + 1}` : 'incomplete'}</td>
             <td>${passFailBadge(scoreResult.overallPass)}</td>
-            <td class="tg-qaqc-link-cell">${linkable ? 'QA/QC →' : ''}</td>
+            <td>${shapeCheckBadge(shapeCheck)}</td>
+            <td class="tg-qaqc-link-cell">
+              ${linkable ? 'QA/QC →' : ''}
+              ${detailLinkable ? `<button type="button" class="no-print" data-tg-qaqc-detail-link="${key}" style="font-size:11px;margin-left:6px" title="See exactly how these scores were calculated">explain this score →</button>` : ''}
+            </td>
           </tr>
         `);
       }
@@ -1056,11 +1161,11 @@ async function renderQaqcSection(entries, ctx) {
   return `
     <div class="card" style="margin-bottom:14px">
       <h3>QA/QC summary</h3>
-      <div class="stat-detail" style="margin-bottom:10px">Second-counter recounts — entered and compared in full on the dedicated QA/QC screen — condensed here to a score and pass/fail per window. Click any row to open that count. Bands are volume-dependent (≥75 trips → ≤5% diff, 50–75 → ≤7.5%, &lt;50 → ≤10%), traced from the source workbook's own QC-rating legend.</div>
+      <div class="stat-detail" style="margin-bottom:10px">Second-counter recounts — entered and compared in full on the dedicated QA/QC screen — condensed here to a score and pass/fail per window. Click any row to open that count. Bands are volume-dependent (≥75 trips → ≤5% diff, 50–75 → ≤7.5%, &lt;50 → ≤10%), traced from the source workbook's own QC-rating legend. "Shape" is a separate, informational-only check (see "explain this score →") — it does not affect Pass/fail.</div>
       <div class="tbl-scroll">
         <table class="crosswalk-table" data-tg-qaqc-summary>
-          <thead><tr><th>Location</th><th>Day</th><th>Window</th><th>Hour</th><th>Score</th><th>Pass/fail</th><th></th></tr></thead>
-          <tbody>${summaryRows.join('') || '<tr><td colspan="7" style="color:var(--text3)">No QA/QC time periods added yet — add one from the QA/QC screen.</td></tr>'}</tbody>
+          <thead><tr><th>Location</th><th>Day</th><th>Window</th><th>Hour</th><th>Score</th><th>Pass/fail</th><th>Shape</th><th></th></tr></thead>
+          <tbody>${summaryRows.join('') || '<tr><td colspan="8" style="color:var(--text3)">No QA/QC time periods added yet — add one from the QA/QC screen.</td></tr>'}</tbody>
         </table>
       </div>
     </div>
@@ -1468,6 +1573,12 @@ export async function renderTripGenSection(container, entries, ctx) {
   });
   container.querySelectorAll('[data-tg-qaqc-link]').forEach((el) => {
     el.addEventListener('click', () => ctx.onGotoQaqc(el.dataset.tgQaqcLink));
+  });
+  container.querySelectorAll('[data-tg-qaqc-detail-link]').forEach((el) => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation(); // nested inside the row's own data-tg-qaqc-link click target
+      ctx.onGotoQaqcDetail(el.dataset.tgQaqcDetailLink);
+    });
   });
   container.querySelector('[data-tg-edit-groups]')?.addEventListener('click', () => ctx.onEditGroups());
 
