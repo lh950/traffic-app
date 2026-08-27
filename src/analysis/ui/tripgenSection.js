@@ -4,6 +4,18 @@ import { weekdayShort, dateLabelWithWeekday } from './dateUtils.js';
 import { intervalBar, pctOfPeakCell } from './intervalDetail.js';
 import { runVehicleQA, renderQASection } from '../../qa.js';
 
+// A day is included in analysis/QA-QC/reports by default — `includeInAnalysis === false` is
+// the ONLY way to exclude it, so older saved projects (which never had this field) keep
+// working with no migration. Set to false by main.js's startTripgenRecount() on a location's
+// ORIGINAL day once its replacement recount finishes — per user request: "keep the first
+// count, add the recount as its own new count... but QA and analysis screens should not use
+// that first count's data." The original day is never deleted, just excluded here; the
+// Locations list (main.js) intentionally does NOT use this filter, so both days stay visible
+// and the exclusion is reversible.
+export function tgIncludedDays(entry) {
+  return (entry.days || []).filter((d) => d.includeInAnalysis !== false);
+}
+
 // Trip generation view — one entry per uploaded TripGenData.xlsx-style file (one physical
 // location: driveway/parking lot/storage lot/etc, all part of one site), each containing
 // several day-sheets (WKDY 1/2, WKND 1/2).
@@ -1015,7 +1027,7 @@ async function renderQaqcSection(entries, ctx) {
   const summaryRows = [];
 
   for (const entry of entries) {
-    for (const day of entry.days) {
+    for (const day of tgIncludedDays(entry)) {
       const { sheetName } = day;
       const windows = qaqcWindows?.[qaqcWindowsKey(entry.id, sheetName)] || [];
       for (const w of windows) {
@@ -1060,7 +1072,7 @@ async function renderQaqcSection(entries, ctx) {
 export async function computePeakVolumes(entries, peakWindows) {
   const volumes = {};
   for (const entry of entries) {
-    for (const day of entry.days) {
+    for (const day of tgIncludedDays(entry)) {
       const { parsed, dayType } = day;
       const intervalMinutes = inferIntervalMinutes(parsed.intervals);
       for (const w of peakWindows[dayType] || []) {
@@ -1086,7 +1098,7 @@ export async function computePeakVolumes(entries, peakWindows) {
 // set/order), and shows an explicit "no data" state when a location's counted day(s) don't
 // cover the requested window, rather than a silent zero.
 function fixedWindowForEntry(entry, startMin, endMin) {
-  for (const day of entry.days) {
+  for (const day of tgIncludedDays(entry)) {
     const { parsed } = day;
     if (!parsed.intervals.length) continue;
     const intervalMinutes = inferIntervalMinutes(parsed.intervals);
@@ -1196,7 +1208,7 @@ const LINE_COLOR_VARS = ['--chart-line', '--out-text', '--in-text', '--blue-text
 // alignment, not just cross-day) — a location with no data at a given time contributes 0
 // rather than misaligning against another location's grid.
 function mountTgSiteWideComboChart(container, { entries, categoryMap }) {
-  const types = entries[0]?.days[0]?.parsed.types || [];
+  const types = tgIncludedDays(entries[0] || {})[0]?.parsed.types || [];
   const visible = new Set(types);
   let mode = 'classification';
 
@@ -1204,7 +1216,7 @@ function mountTgSiteWideComboChart(container, { entries, categoryMap }) {
     const order = [];
     const map = new Map();
     entries.forEach((entry) => {
-      entry.days.forEach((day) => {
+      tgIncludedDays(entry).forEach((day) => {
         const key = day.date || day.sheetName;
         if (!map.has(key)) { map.set(key, []); order.push(key); }
         map.get(key).push({ entry, day });
@@ -1293,7 +1305,7 @@ function mountTgSiteWideComboChart(container, { entries, categoryMap }) {
 export async function renderTripGenSection(container, entries, ctx) {
   if (entries.length === 0) { container.innerHTML = ''; return; }
   const { siteInfo, categoryMap, dataView, viewerMode } = ctx;
-  const allTypes = entries[0]?.days[0]?.parsed.types || [];
+  const allTypes = tgIncludedDays(entries[0] || {})[0]?.parsed.types || [];
   // categoryMap may be missing entries for newly-seen classifications (e.g. a second
   // location file with slightly different columns) — fill defaults without clobbering
   // anything the user already customized. Editing itself now lives on Setup's
@@ -1303,7 +1315,7 @@ export async function renderTripGenSection(container, entries, ctx) {
 
   const crossGroups = {};
   entries.forEach((entry) => {
-    entry.days.forEach((day) => {
+    tgIncludedDays(entry).forEach((day) => {
       const totalsArr = dayTotalsByType(day.parsed);
       const groups = groupTotals(day.parsed.types, totalsArr, categoryMap);
       const bucket = day.dayType;
@@ -1321,7 +1333,16 @@ export async function renderTripGenSection(container, entries, ctx) {
   const customWindowsHTML = customWindowsSectionHtml(entries, ctx.customWindows || [], viewerMode);
 
   const locationBlocks = await Promise.all(entries.map(async (entry, ei) => {
-    const dayBlocks = await Promise.all(entry.days.map((d, di) => renderDayBlock(entry, d, di, { ...ctx, entryId: entry.id })));
+    // Preserve each day's ORIGINAL index (di) into entry.days even though excluded days are
+    // filtered out here — downstream dayKey (`${entry.id}__${di}`) lookups (the post-hoc chart
+    // wiring loop below, QA/QC screen navigation) key off that real index, not position within
+    // this filtered list.
+    const dayBlocks = await Promise.all(
+      entry.days
+        .map((d, di) => ({ d, di }))
+        .filter(({ d }) => d.includeInAnalysis !== false)
+        .map(({ d, di }) => renderDayBlock(entry, d, di, { ...ctx, entryId: entry.id }))
+    );
     const meta = entry.meta || {};
     return `
       <div class="tg-loc-block" data-tg-loc="${ei}">
@@ -1501,10 +1522,11 @@ export async function renderTripGenSection(container, entries, ctx) {
   // own renderVehicleClassStackedSection()/paintQA() post-render calls.
   for (const entry of entries) {
     entry.days.forEach((day, di) => {
+      if (day.includeInAnalysis === false) return; // no day block was rendered for this one above — nothing to wire
       const dayKey = `${entry.id}__${di}`;
       const classChartEl = container.querySelector(`[data-tg-classchart="${dayKey}"]`);
       if (classChartEl) {
-        renderTgClassStackedSection(classChartEl, { parsed: day.parsed, days: entry.days, dayType: day.dayType, peakWindows: ctx.peakWindows });
+        renderTgClassStackedSection(classChartEl, { parsed: day.parsed, days: tgIncludedDays(entry), dayType: day.dayType, peakWindows: ctx.peakWindows });
       }
       const lineChartEl = container.querySelector(`[data-tg-linechart="${dayKey}"]`);
       if (lineChartEl) {

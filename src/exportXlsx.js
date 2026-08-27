@@ -396,6 +396,7 @@ export function exportTripgenXLSX(entries, siteInfo, projectInfo) {
 
   for (const entry of entries) {
     for (const day of entry.days) {
+      if (day.includeInAnalysis === false) continue; // superseded by a later recount — see tgIncludedDays() in tripgenSection.js
       const types = day.parsed?.types || [];
       for (const type of types) {
         const ti = types.indexOf(type);
@@ -418,6 +419,7 @@ export function exportTripgenXLSX(entries, siteInfo, projectInfo) {
   const usedNames = {};
   for (const entry of entries) {
     for (const day of entry.days) {
+      if (day.includeInAnalysis === false) continue; // superseded by a later recount
       const types = day.parsed?.types || [];
       const intervals = day.parsed?.intervals || [];
       const nT = types.length;

@@ -1,5 +1,11 @@
 # Changelog
 
+## v3 · v0.49.5 — 2026-08-27
+
+### Changed
+- **Trip Gen "↻ recount" is now non-destructive.** The original day's count is never overwritten — a recount is added as its own new day on the same location, and the original stays fully visible and saved.
+- Once a recount finishes, the original day it replaces is automatically excluded from QA/QC and Analysis (so they use the recount's data going forward), but nothing is deleted — a new "✓ include in analysis / ✕ exclude from analysis" toggle per day (Setup screen's Locations list) lets you flip this either way at any time.
+
 ## v3 · v0.49.4 — 2026-08-27
 
 ### Added

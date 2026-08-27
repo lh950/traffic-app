@@ -78,7 +78,7 @@ import { exportShareablePage, buildShareableHTML } from './shareReport.js';
 import JSZip from 'jszip';
 import { printSummaryReport, printIntersectionReport } from './printPedReport.js';
 import { buildVolumeProfileSVG, buildCrosswalkBarSVG, buildChartLegend, dirSplitBar, CW_COLORS } from './chartUtils.js';
-import { renderTripGenSection, DEFAULT_PEAK_WINDOWS, computePeakVolumes, computeQaqcPeakScore, renderQaqcDetailCardHTML, passFailBadge, migrateQaqcWindows, qaqcWindowsKey, qaqcPeakKey } from './analysis/ui/tripgenSection.js';
+import { renderTripGenSection, DEFAULT_PEAK_WINDOWS, computePeakVolumes, computeQaqcPeakScore, renderQaqcDetailCardHTML, passFailBadge, migrateQaqcWindows, qaqcWindowsKey, qaqcPeakKey, tgIncludedDays } from './analysis/ui/tripgenSection.js';
 import { weekdayShort, dateLabelWithWeekday } from './analysis/ui/dateUtils.js';
 import { intervalBar, pctOfPeakCell } from './analysis/ui/intervalDetail.js';
 
@@ -5896,20 +5896,10 @@ function tgDayVolume(day) {
     (s, iv) => s + (iv.inbound || []).reduce((a, b) => a + b, 0) + (iv.outbound || []).reduce((a, b) => a + b, 0), 0);
 }
 
-// Set by startTripgenFullRecount()'s finish callback, right before it calls
-// window.scheduleAutosave() — a full recount deliberately, legitimately shrinks a location's
-// data (that's the entire point), and the user already explicitly confirmed that in
-// startTripgenFullRecount()'s own dialog. Without this, the very next autosave's shrink check
-// would immediately re-ask via a second, confusing confirm() — tgPendingLocation is already
-// null by then (nulled before scheduleAutosave, same as every other finish callback), so the
-// existing exemption below doesn't cover this moment. One-shot: consumed by the very next
-// commitProjectSave() call regardless of outcome (see commitProjectSave), not left standing.
-let tgShrinkExemptOnce = null; // { entryId, dayIdx }
-
 function detectTripgenShrink(prevProj, newProj) {
   if (!prevProj || prevProj.projectType !== 'tripgen' || !prevProj.entries?.length) return null;
-  const exemptEntryId = tgPendingLocation?.kind === 'edit' ? tgPendingLocation.entryId : (tgShrinkExemptOnce?.entryId ?? null);
-  const exemptDayIdx = tgPendingLocation?.kind === 'edit' ? (tgPendingLocation.dayIdx ?? null) : (tgShrinkExemptOnce?.dayIdx ?? null);
+  const exemptEntryId = tgPendingLocation?.kind === 'edit' ? tgPendingLocation.entryId : null;
+  const exemptDayIdx = tgPendingLocation?.dayIdx ?? null;
   for (const prevEntry of prevProj.entries) {
     const newEntry = (newProj.entries || []).find((e) => e.id === prevEntry.id);
     if (!newEntry) continue; // entry removed entirely — a deliberate delete, not this check's concern
@@ -6024,7 +6014,6 @@ function commitProjectSave(proj) {
     let prevProj = null;
     try { prevProj = JSON.parse(localStorage.getItem(LS_KEY) || 'null'); } catch (_) {}
     const shrink = detectTripgenShrink(prevProj, proj);
-    tgShrinkExemptOnce = null; // one-shot — consumed by this check regardless of outcome
     if (shrink) {
       const measure = shrink.kind === 'volume' ? 'counted vehicles' : 'counted intervals';
       const ok = window.confirm(
@@ -6674,8 +6663,10 @@ function renderTripgenLocationsList() {
           <div style="flex:1;min-width:160px">
             <span style="font-size:13px">${d.date ? formatDateLong(d.date) : escapeHtmlMain(d.sheetName)}</span>
             ${d.inProgress ? `<span class="in-progress-badge" title="Count in progress — not finished yet. Click Resume count to continue.">&#9679; in progress</span>` : ''}
+            ${d.includeInAnalysis === false ? `<span class="in-progress-badge" title="Superseded by a recount — not included in QA/QC or Analysis. Still saved and can be brought back.">excluded from analysis</span>` : ''}
             ${d.editSnapshot ? `<button data-tg-edit-entry="${e.id}" data-tg-edit-day="${i}" style="font-size:11px;margin-left:8px">${d.inProgress ? 'resume count' : 'edit counts'}</button>` : ''}
-            ${d.parsed && !d.inProgress ? `<button data-tg-full-recount-entry="${e.id}" data-tg-full-recount-day="${i}" title="Discard this day's count and start over — for when QA/QC finds the original count needs a full redo, not just a spot-check" style="font-size:11px;margin-left:6px">↻ full recount</button>` : ''}
+            ${d.parsed && !d.inProgress ? `<button data-tg-recount-entry="${e.id}" data-tg-recount-day="${i}" title="Start a new count for this location, added as its own day — for when QA/QC finds the original count needs a full redo, not just a spot-check" style="font-size:11px;margin-left:6px">↻ recount</button>` : ''}
+            ${d.parsed && !d.inProgress ? `<button data-tg-toggle-analysis-entry="${e.id}" data-tg-toggle-analysis-day="${i}" style="font-size:11px;margin-left:6px">${d.includeInAnalysis === false ? '✓ include in analysis' : '✕ exclude from analysis'}</button>` : ''}
           </div>
           <div style="display:flex;align-items:center;gap:8px">
             ${d.cameraImageUrl
@@ -6716,9 +6707,19 @@ function renderTripgenLocationsList() {
       editTripgenDay(Number(el.dataset.tgEditEntry), Number(el.dataset.tgEditDay));
     });
   });
-  root.querySelectorAll('[data-tg-full-recount-entry]').forEach((el) => {
+  root.querySelectorAll('[data-tg-recount-entry]').forEach((el) => {
     el.addEventListener('click', () => {
-      startTripgenFullRecount(Number(el.dataset.tgFullRecountEntry), Number(el.dataset.tgFullRecountDay));
+      startTripgenRecount(Number(el.dataset.tgRecountEntry), Number(el.dataset.tgRecountDay));
+    });
+  });
+  root.querySelectorAll('[data-tg-toggle-analysis-entry]').forEach((el) => {
+    el.addEventListener('click', () => {
+      const entry = tripgenEntries.find((e) => e.id === Number(el.dataset.tgToggleAnalysisEntry));
+      const day = entry?.days?.[Number(el.dataset.tgToggleAnalysisDay)];
+      if (!day) return;
+      day.includeInAnalysis = day.includeInAnalysis === false ? true : false;
+      renderTripgenLocationsList();
+      window.scheduleAutosave?.();
     });
   });
   // Access-point reference document upload (relabeled from "Zoning reference PDF" — see
@@ -7013,42 +7014,55 @@ function tgInferCfgFromParsed(parsed) {
 // added at the user's request after confirming no such path existed (only "edit counts",
 // which adds to/adjusts existing data with no bulk-clear, or deleting the whole location
 // entry and starting over from nothing, losing its camera image/reference PDF/label).
-// Discards this day's count data and starts a fresh keyboard count using the SAME
-// classifications/timing the original count used (or, for an uploaded/pasted day with no
-// live-count snapshot, timing inferred from its parsed intervals) — camera image, reference
-// PDF, and location label are untouched. Routes through commitLocationCounts() on finish, the
+//
+// Deliberately NON-destructive (revised per user request: "keep the first count, add the
+// recount as its own new count") — rather than overwriting the source day, this pushes a
+// BRAND NEW day onto the same entry and counts into that, using the source day's own
+// classifications/timing (or, for an uploaded/pasted day with no live-count snapshot, timing
+// inferred from its parsed intervals). The original day is never touched — both are visible
+// afterward, and choosing which one to use for analysis is a decision left to the user, not
+// made destructively by this action. Routes through commitLocationCounts() on finish, the
 // same gated write path BUG-047/048 established, so this gets the same session-identity check
 // and diagnostics logging as every other count-data write, not a separate bespoke path.
-function startTripgenFullRecount(entryId, dayIdx, backTarget) {
+function startTripgenRecount(entryId, sourceDayIdx, backTarget) {
   const entry = tripgenEntries.find((e) => e.id === entryId);
-  const day = entry?.days?.[dayIdx];
-  if (!day?.parsed) return;
-  const stats = tgIntervalStats(day.parsed);
+  const sourceDay = entry?.days?.[sourceDayIdx];
+  if (!sourceDay?.parsed) return;
+  const sourceLabel = sourceDay.date ? formatDateLong(sourceDay.date) : sourceDay.sheetName;
   const ok = window.confirm(
-    `Start a full recount for "${entry.locationLabel}" — ${day.date ? formatDateLong(day.date) : day.sheetName}?\n\n` +
-    `This will discard the current count (${stats.intervalCount} intervals, ${stats.volume} total counted) and start over from zero.\n\n` +
-    `The camera image, reference PDF, and location label are kept. This cannot be undone from within the app — a recent backup may still have the old data (see "Restore from backup..." on the home screen).`
+    `Start a new recount for "${entry.locationLabel}" — ${sourceLabel}?\n\n` +
+    `This adds a brand-new count as its own day, alongside the existing one. Nothing is discarded — both will be visible afterward.`
   );
   if (!ok) return;
-  const classificationList = day.editSnapshot?.classifications || tgDefaultClassificationsFor(day.parsed.types);
-  const recountCfg = day.editSnapshot?.cfg || tgInferCfgFromParsed(day.parsed);
+  const classificationList = sourceDay.editSnapshot?.classifications || tgDefaultClassificationsFor(sourceDay.parsed.types);
+  const recountCfg = sourceDay.editSnapshot?.cfg || tgInferCfgFromParsed(sourceDay.parsed);
   tgCounterBackTarget = backTarget || 'tripgen-setup-screen';
   setTgCounterHeaderLabel(entry.locationLabel);
   showScreen('tripgen-counter-screen');
-  tgPendingLocation = { kind: 'edit', entryId, dayIdx };
+  const newDayIdx = entry.days.length;
+  entry.days.push({
+    sheetName: `${sourceLabel} (recount)`, dayType: sourceDay.dayType, date: sourceDay.date,
+    parsed: null, editSnapshot: null, inProgress: true,
+  });
+  tgPendingLocation = { kind: 'edit', entryId, dayIdx: newDayIdx };
   const started = tgBeginFullRecount(classificationList, recountCfg, (parsed, editSnapshot, seq) => {
-    commitLocationCounts(entryId, dayIdx, parsed, editSnapshot, seq, 'full-recount-finish');
-    day.inProgress = false;
+    commitLocationCounts(entryId, newDayIdx, parsed, editSnapshot, seq, 'recount-finish');
+    entry.days[newDayIdx].inProgress = false;
+    // Per user request: the original stays in the project (visible, restorable), but QA/QC
+    // and Analysis should use the recount's data going forward, not the original's — set only
+    // once the recount actually finishes (an abandoned/in-progress recount leaves the original
+    // fully active, since there's nothing to supersede it with yet). Reversible: toggled back
+    // via the "excluded from analysis — include again" control in the Locations list.
+    sourceDay.includeInAnalysis = false;
     tgPendingLocation = null;
-    tgShrinkExemptOnce = { entryId, dayIdx }; // already confirmed above — don't re-ask via the shrink failsafe
     renderTripgenLocationsList();
     goToTripgenAnalyze();
     window.scheduleAutosave?.();
   });
-  if (!started) { tgPendingLocation = null; return; }
+  if (!started) { entry.days.splice(newDayIdx, 1); tgPendingLocation = null; return; }
   tgPendingLocation.seq = tgGetSessionSeq();
 }
-window.startTripgenFullRecount = startTripgenFullRecount;
+window.startTripgenRecount = startTripgenRecount;
 
 // ── Location Counts screen (sidebar "Location counts") — a larger, more detailed browse/
 // manage view of every location in the current Trip Gen project, distinct from Setup's
@@ -7081,6 +7095,7 @@ function renderTripgenLocationsScreen() {
           <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
             <span style="font-size:13px;font-weight:500">${dateLabel}</span>
             ${d.inProgress ? `<span class="in-progress-badge">&#9679; in progress</span>` : ''}
+            ${d.includeInAnalysis === false ? `<span class="in-progress-badge" title="Superseded by a recount — not included in QA/QC or Analysis">excluded</span>` : ''}
           </div>
           ${dayTypeLabel}
           <div style="display:flex;gap:14px;margin-top:6px">
@@ -7094,7 +7109,7 @@ function renderTripgenLocationsScreen() {
             </div>
           </div>
           ${canEdit ? `<div style="font-size:11px;color:var(--blue-text);margin-top:6px">${d.inProgress ? 'resume count →' : 'edit counts →'}</div>` : ''}
-          ${d.parsed && !d.inProgress ? `<button data-tg-loc-full-recount-entry="${entry.id}" data-tg-loc-full-recount-day="${i}" title="Discard this day's count and start over — for when QA/QC finds the original count needs a full redo" style="font-size:11px;margin-top:4px">↻ full recount</button>` : ''}
+          ${d.parsed && !d.inProgress ? `<button data-tg-loc-recount-entry="${entry.id}" data-tg-loc-recount-day="${i}" title="Start a new count for this location, added as its own day — for when QA/QC finds the original count needs a full redo" style="font-size:11px;margin-top:4px">↻ recount</button>` : ''}
         </div>`;
     }).join('');
 
@@ -7118,10 +7133,10 @@ function renderTripgenLocationsScreen() {
       editTripgenDay(Number(el.dataset.tgLocEditEntry), Number(el.dataset.tgLocEditDay), 'tripgen-locations-screen');
     });
   });
-  root.querySelectorAll('[data-tg-loc-full-recount-entry]').forEach((el) => {
+  root.querySelectorAll('[data-tg-loc-recount-entry]').forEach((el) => {
     el.addEventListener('click', (e) => {
       e.stopPropagation(); // nested inside the whole-card click-to-edit handler above
-      startTripgenFullRecount(Number(el.dataset.tgLocFullRecountEntry), Number(el.dataset.tgLocFullRecountDay), 'tripgen-locations-screen');
+      startTripgenRecount(Number(el.dataset.tgLocRecountEntry), Number(el.dataset.tgLocRecountDay), 'tripgen-locations-screen');
     });
   });
 }
@@ -7196,7 +7211,7 @@ async function renderQaqcScreen() {
   const locGroups = [];
   for (const entry of tripgenEntries) {
     const dayBlocks = [];
-    for (const day of entry.days) {
+    for (const day of tgIncludedDays(entry)) {
       const intervalMinutes = inferIntervalMinutes(day.parsed.intervals);
       const winKey = qaqcWindowsKey(entry.id, day.sheetName);
       const windows = tripgenQaqcWindows[winKey] || [];
