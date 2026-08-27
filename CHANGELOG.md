@@ -1,5 +1,10 @@
 # Changelog
 
+## v3 · v0.49.6 — 2026-08-27
+
+### Fixed
+- Trip Gen group-switch: `Numpad +` now also advances to the next group (previously only `Numpad -`/`=`/main-keyboard `=` did — user reached for the more natural minus/plus pairing and found plus did nothing).
+
 ## v3 · v0.49.5 — 2026-08-27
 
 ### Changed

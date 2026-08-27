@@ -473,7 +473,7 @@ function buildKbd() {
     <span class="kbd-chip"><kbd>Y</kbd><span class="key-label">redo</span></span>
   ` + (nG > 1 ? `
     <span class="kbd-chip"><kbd>Num ÷</kbd><kbd>-</kbd><span class="key-label">group ‹ prev</span></span>
-    <span class="kbd-chip"><kbd>Num -</kbd><kbd>=</kbd><span class="key-label">group next ›</span></span>
+    <span class="kbd-chip"><kbd>Num -</kbd><kbd>Num +</kbd><kbd>=</kbd><span class="key-label">group next ›</span></span>
   ` : '');
   if (nG > 1) grid.insertBefore(buildKbdGroupNav(nG), grid.firstChild);
   const numpadRef = document.getElementById('tg-kbd-numpad-ref');
@@ -825,13 +825,16 @@ function processTgKey(k, code) {
 }
 
 // Shared by the real keydown listener and the popup's passthrough handler below, so the two
-// can't drift out of sync on which physical keys mean "switch group". Both the numpad pair
+// can't drift out of sync on which physical keys mean "switch group". The numpad pair
 // (NumpadDivide/NumpadSubtract) and the main-keyboard pair (Minus/Equal) are always active,
 // regardless of the active counting-key preset (build brief follow-up: group-switch shouldn't
 // be tied to whichever preset the in/out counting keys happen to use — someone counting with
-// QWERTY keys may still prefer the numpad for group nav, and vice versa).
+// QWERTY keys may still prefer the numpad for group nav, and vice versa). NumpadAdd is also
+// accepted as an extra "next" key (user report: reached for Numpad + expecting it to pair
+// naturally with Numpad - for prev/next, found it did nothing) — additive, doesn't replace
+// NumpadSubtract as "next".
 function groupSwitchCodes() {
-  return { prevCodes: ['NumpadDivide', 'Minus'], nextCodes: ['NumpadSubtract', 'Equal'] };
+  return { prevCodes: ['NumpadDivide', 'Minus'], nextCodes: ['NumpadSubtract', 'Equal', 'NumpadAdd'] };
 }
 
 export function wireKeydown() {
