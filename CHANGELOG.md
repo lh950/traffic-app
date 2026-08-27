@@ -1,5 +1,10 @@
 # Changelog
 
+## v3.48.0-alpha.2 — 2026-08-26
+
+### Fixed
+- **BUG-048 (Critical): a QA/QC recount could silently discard the last few seconds of an in-progress location's real count.** A location's live keystrokes only reach its saved data via a 2-second debounced autosave; starting any QA/QC recount within that 2-second window reset the shared counting state before that flush happened, losing whatever was just typed with no error. Fixed by flushing the pending edit synchronously before a recount starts. Also closed a gap in the BUG-047 shrink-detection failsafe, which only checked interval COUNT and could not see this bug's shape (same interval count, zeroed values) — it now also compares total counted volume. See `BUGS.md` BUG-048.
+
 ## v3.48.0-alpha.1 — 2026-08-26
 
 ### Added

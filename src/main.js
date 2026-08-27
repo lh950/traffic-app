@@ -5870,6 +5870,17 @@ function setSaveState(msg, durationMs) {
 // (an unrelated background write silently clobbering a location nobody was actively editing).
 const SHRINK_MIN_PREV_INTERVALS = 8; // below this, "shrink" is noise (e.g. a short QA window)
 const SHRINK_RATIO = 0.4; // new coverage must drop below 40% of previous to flag
+// BUG-048's own shape doesn't reduce interval COUNT at all (a day keeps all 96 slots — they
+// just go quiet) — the interval-count check above cannot see it. This second, parallel check
+// looks at total counted volume (every inbound/outbound count added up) for the same day
+// instead. Same exemption, same ratio; a separate minimum because a real volume can
+// legitimately be small (a short access point) where 8 whole INTERVALS would already be a lot.
+const SHRINK_MIN_PREV_VOLUME = 8;
+
+function tgDayVolume(day) {
+  return (day?.parsed?.intervals || []).reduce(
+    (s, iv) => s + (iv.inbound || []).reduce((a, b) => a + b, 0) + (iv.outbound || []).reduce((a, b) => a + b, 0), 0);
+}
 
 function detectTripgenShrink(prevProj, newProj) {
   if (!prevProj || prevProj.projectType !== 'tripgen' || !prevProj.entries?.length) return null;
@@ -5881,10 +5892,17 @@ function detectTripgenShrink(prevProj, newProj) {
     const days = prevEntry.days || [];
     for (let dayIdx = 0; dayIdx < days.length; dayIdx++) {
       if (prevEntry.id === exemptEntryId && dayIdx === exemptDayIdx) continue; // live edit target — expected to change
-      const prevCount = days[dayIdx]?.parsed?.intervals?.length || 0;
-      const newCount = newEntry.days?.[dayIdx]?.parsed?.intervals?.length || 0;
+      const prevDay = days[dayIdx];
+      const newDay = newEntry.days?.[dayIdx];
+      const prevCount = prevDay?.parsed?.intervals?.length || 0;
+      const newCount = newDay?.parsed?.intervals?.length || 0;
       if (prevCount >= SHRINK_MIN_PREV_INTERVALS && newCount < prevCount * SHRINK_RATIO) {
-        return { label: prevEntry.locationLabel || '(unlabeled location)', prevCount, newCount };
+        return { label: prevEntry.locationLabel || '(unlabeled location)', prevCount, newCount, kind: 'intervals' };
+      }
+      const prevVol = tgDayVolume(prevDay);
+      const newVol = tgDayVolume(newDay);
+      if (prevVol >= SHRINK_MIN_PREV_VOLUME && newVol < prevVol * SHRINK_RATIO) {
+        return { label: prevEntry.locationLabel || '(unlabeled location)', prevCount: prevVol, newCount: newVol, kind: 'volume' };
       }
     }
   }
@@ -5902,9 +5920,10 @@ function commitProjectSave(proj) {
     try { prevProj = JSON.parse(localStorage.getItem(LS_KEY) || 'null'); } catch (_) {}
     const shrink = detectTripgenShrink(prevProj, proj);
     if (shrink) {
+      const measure = shrink.kind === 'volume' ? 'counted vehicles' : 'counted intervals';
       const ok = window.confirm(
         `Warning: "${shrink.label}" appears to have LOST data.\n\n` +
-        `It had ${shrink.prevCount} counted intervals in the last save — this save only has ${shrink.newCount}.\n\n` +
+        `It had ${shrink.prevCount} ${measure} in the last save — this save only has ${shrink.newCount}.\n\n` +
         `This is exactly what happens when a background action (like a QA/QC recount) accidentally overwrites a location's real count.\n\n` +
         `Click Cancel to keep the previous save and NOT overwrite this data (safest if you didn't mean to change this location). Click OK only if you intentionally cleared or are redoing this location's count.`
       );
@@ -7172,6 +7191,29 @@ async function renderQaqcScreen() {
       // recount's own narrow time window. Clearing it here (a recount is never a location
       // edit) closes the hole at its source rather than trying to make the autosave capture
       // smarter about detecting a session it has no reliable way to identify.
+      //
+      // BUG-048 (Critical, real data loss, found chasing a follow-up report on BUG-047 itself):
+      // clearing tgPendingLocation above is correct, but doing it with no flush first opened a
+      // SECOND hole. Whatever is currently live in tgData for a genuinely open edit session
+      // (a brand-new count in progress, or a finished location reopened via "edit counts") only
+      // ever reaches its entry's day.parsed via scheduleAutosave's debounced 2-second timer
+      // (see its own "keep pending edit's entry current" step above). If a QA/QC recount is
+      // started -- on ANY location, not necessarily the one being edited -- less than 2 seconds
+      // after the last keystroke, tgBeginRecount() below resets the shared tgData for its own
+      // use BEFORE that timer ever fires, so whatever was just typed is silently discarded --
+      // the location is left exactly as it was before those keystrokes, with no error and no
+      // warning. Reproduced live: a location with a single freshly-typed non-zero interval
+      // (2 keystrokes, entered under 100ms earlier) read back as entirely zero, every interval,
+      // immediately after starting and finishing an unrelated recount. Fix: flush the pending
+      // edit's live snapshot into its own entry/day -- the exact same capture scheduleAutosave
+      // already does -- synchronously, right here, before the marker is cleared and tgData is
+      // reset out from under it.
+      if (tgPendingLocation && tgPendingLocation.kind === 'edit' && tgPendingLocation.entryId != null) {
+        const pendEntry = tripgenEntries.find((e) => e.id === tgPendingLocation.entryId);
+        const pendDay = pendEntry?.days?.[tgPendingLocation.dayIdx ?? 0];
+        const live = tgCaptureLiveSnapshot();
+        if (pendDay && live) { pendDay.parsed = live.parsed; pendDay.editSnapshot = live.editSnapshot; }
+      }
       tgPendingLocation = null;
       tgCounterBackTarget = 'tripgen-qaqc-screen';
       document.getElementById('tg-btn-finish').textContent = '✓ finish recount';
