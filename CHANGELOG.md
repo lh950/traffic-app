@@ -1,5 +1,15 @@
 # Changelog
 
+## v3 · v0.49.4 — 2026-08-27
+
+### Added
+- **Trip Gen: "↻ full recount"** — discard a location's entire day count and start over, for when QA/QC finds the original count needs a full redo (not just a spot-check). Keeps the day's classifications/timing, camera image, reference PDF, and location label; routes through the same gated write path as every other count write. Available from both the Setup screen and the Location Counts screen.
+- **Trip Gen: direct cell editing** — click any interval cell to type an exact value, same mechanism the intersection counter already had. Manually-edited cells are marked distinctly and fully integrated with undo/redo.
+- **Trip Gen: group-switch keys now work on both the numpad and the main keyboard** at the same time, regardless of which counting-key preset is active (previously tied to the preset, mutually exclusive).
+
+### Fixed
+- Finishing a Trip Gen full recount no longer triggers a redundant second confirmation from the shrink-detection failsafe — the explicit confirm already shown by "full recount" now covers that save too.
+
 ## v3 · v0.49.3 — 2026-08-27
 
 ### Changed

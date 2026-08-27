@@ -26,6 +26,11 @@ export function setClassificationsLocked(v) { classificationsLocked = !!v; }
 const descExpanded = new Set();
 let cfg = { startMinutes: 0, intervalMin: 15, durationMin: 1440, get slots() { return Math.max(1, Math.round(this.durationMin / this.intervalMin)); } };
 let tgData = { in: [], out: [] };
+// Cells the user directly typed a value into (click-to-edit, see wireCellEdit()/startCellEdit()
+// below), as `${slot}-${col}` keys — tracked separately from tgData so buildTable() can mark
+// them visually, mirroring the intersection counter's vManual/pedManual/tmManual (record.js).
+// Reset alongside tgData at the start of every begin*() below.
+let tgManual = { in: new Set(), out: new Set() };
 let slot = 0;
 let undoStack = [], redoStack = [];
 let onFinish = null; // callback(parsed) supplied by main.js
@@ -302,7 +307,7 @@ export function beginCounting(finishCallback) {
 
   const n = classifications.length, s = cfg.slots;
   tgData = { in: Array.from({ length: s }, () => Array(n).fill(0)), out: Array.from({ length: s }, () => Array(n).fill(0)), notes: Array(s).fill('') };
-  slot = 0; undoStack = []; redoStack = [];
+  slot = 0; undoStack = []; redoStack = []; tgManual = { in: new Set(), out: new Set() };
   focusMode = false; focusTarget = 0; tgGroup = 0;
   onFinish = finishCallback;
   sessionSeq++;
@@ -331,7 +336,7 @@ export function beginEditing(snapshot, parsed, finishCallback) {
     out: parsed.intervals.map((iv) => iv.outbound.slice()),
     notes: parsed.intervals.map((iv) => iv.note || ''),
   };
-  slot = 0; undoStack = []; redoStack = [];
+  slot = 0; undoStack = []; redoStack = []; tgManual = { in: new Set(), out: new Set() };
   focusMode = false; focusTarget = 0; tgGroup = 0;
   onFinish = finishCallback;
   sessionSeq++;
@@ -375,7 +380,7 @@ export function beginRecount(classificationList, cfgIn, finishCallback) {
 
   const n = classifications.length, s = cfg.slots;
   tgData = { in: Array.from({ length: s }, () => Array(n).fill(0)), out: Array.from({ length: s }, () => Array(n).fill(0)), notes: Array(s).fill('') };
-  slot = 0; undoStack = []; redoStack = [];
+  slot = 0; undoStack = []; redoStack = []; tgManual = { in: new Set(), out: new Set() };
   focusMode = false; focusTarget = 0; tgGroup = 0;
   onFinish = finishCallback;
   // A recount never writes to a location's day.parsed itself (main.js routes recount results
@@ -385,6 +390,34 @@ export function beginRecount(classificationList, cfgIn, finishCallback) {
   // ever mistakenly called captureLiveSnapshot() during a recount, main.js's
   // commitLocationCounts() would see a seq mismatch and reject it rather than silently writing
   // the recount's own data into the wrong location (BUG-047/BUG-048's exact failure shape).
+  sessionSeq++;
+
+  buildKbd();
+  buildTable();
+  updateUndoUI();
+  updateFocusUI();
+  document.getElementById('tg-cur-interval').textContent = slotLabel(slot);
+  return true;
+}
+
+// Starts a fresh (zeroed) count for a location's day that already has real data, using that
+// day's OWN classifications/timing (given explicitly, like beginRecount) rather than whatever
+// happens to be in the setup screen's editor — used when QA/QC finds the original count is bad
+// enough that it needs to be fully redone, not just spot-checked. Unlike beginRecount, this
+// DOES eventually overwrite the location's real day.parsed (via main.js's
+// commitLocationCounts()), so — like beginCounting/beginEditing — it mints a fresh sessionSeq
+// so that write is checked against the session that actually produced it.
+export function beginFullRecount(classificationList, cfgIn, finishCallback) {
+  classifications = classificationList.map((c) => ({ ...c }));
+  cfg.startMinutes = cfgIn.startMinutes;
+  cfg.intervalMin = cfgIn.intervalMin;
+  cfg.durationMin = cfgIn.durationMin;
+
+  const n = classifications.length, s = cfg.slots;
+  tgData = { in: Array.from({ length: s }, () => Array(n).fill(0)), out: Array.from({ length: s }, () => Array(n).fill(0)), notes: Array(s).fill('') };
+  slot = 0; undoStack = []; redoStack = []; tgManual = { in: new Set(), out: new Set() };
+  focusMode = false; focusTarget = 0; tgGroup = 0;
+  onFinish = finishCallback;
   sessionSeq++;
 
   buildKbd();
@@ -439,7 +472,8 @@ function buildKbd() {
     <span class="kbd-chip"><kbd>Z</kbd><span class="key-label">undo</span></span>
     <span class="kbd-chip"><kbd>Y</kbd><span class="key-label">redo</span></span>
   ` + (nG > 1 ? `
-    <span class="kbd-chip"><kbd>${tgKeybindCfg.preset === 'numpad' ? 'Num ÷' : '-'}</kbd><kbd>${tgKeybindCfg.preset === 'numpad' ? 'Num -' : '='}</kbd><span class="key-label">group ‹ ›</span></span>
+    <span class="kbd-chip"><kbd>Num ÷</kbd><kbd>-</kbd><span class="key-label">group ‹ prev</span></span>
+    <span class="kbd-chip"><kbd>Num -</kbd><kbd>=</kbd><span class="key-label">group next ›</span></span>
   ` : '');
   if (nG > 1) grid.insertBefore(buildKbdGroupNav(nG), grid.firstChild);
   const numpadRef = document.getElementById('tg-kbd-numpad-ref');
@@ -565,7 +599,10 @@ function buildTable() {
       const inV = tgData.in[i][ci], outV = tgData.out[i][ci];
       rowTotal += inV + outV;
       const fc = colCls(ci);
-      return `<td class="${((inV > 0 ? 'nonzero' : '') + fc).trim()}">${inV}</td><td class="${((outV > 0 ? 'nonzero' : '') + fc).trim()}">${outV}</td>`;
+      const inEd = tgManual.in.has(`${i}-${ci}`) ? ' manually-edited' : '';
+      const outEd = tgManual.out.has(`${i}-${ci}`) ? ' manually-edited' : '';
+      return `<td class="${((inV > 0 ? 'nonzero' : '') + fc + inEd).trim()}" data-editable data-slot="${i}" data-col="${ci}" data-dir="in">${inV}</td>` +
+             `<td class="${((outV > 0 ? 'nonzero' : '') + fc + outEd).trim()}" data-editable data-slot="${i}" data-col="${ci}" data-dir="out">${outV}</td>`;
     }).join('');
     const note = tgData.notes?.[i] || '';
     // Note button is deliberately minimal (build brief item 11: "rarely have notes, doesn't
@@ -622,12 +659,47 @@ function saveNoteModal() {
 function wireNoteModal() {
   document.getElementById('tg-tbl-count')?.addEventListener('click', (e) => {
     const btn = e.target.closest('.tg-note-btn');
-    if (!btn) return;
-    openNoteModal(Number(btn.dataset.slot));
+    if (btn) { openNoteModal(Number(btn.dataset.slot)); return; }
+    const td = e.target.closest('td[data-editable]');
+    if (td) startCellEdit(td);
   });
   document.getElementById('tg-note-modal-close')?.addEventListener('click', closeNoteModal);
   document.getElementById('tg-note-cancel')?.addEventListener('click', closeNoteModal);
   document.getElementById('tg-note-save')?.addEventListener('click', saveNoteModal);
+}
+
+// ── Direct cell editing (click a count to type an exact value) — the same mechanism the
+// intersection counter already has (record.js's attachEditors/startCellEdit); Trip Gen never
+// got it. Delegated from the single click listener on #tg-tbl-count above (the same container
+// wireNoteModal already delegates from) rather than re-attached per cell on every buildTable()
+// re-render, since the container element itself persists across renders even though its
+// innerHTML is replaced each time.
+function startCellEdit(td) {
+  if (td.querySelector('input')) return; // already editing this cell
+  const dir = td.dataset.dir, slotIdx = Number(td.dataset.slot), col = Number(td.dataset.col);
+  const before = tgData[dir][slotIdx][col];
+  td.classList.add('editing');
+  const inp = document.createElement('input');
+  inp.type = 'number'; inp.min = '0'; inp.value = before;
+  td.textContent = ''; td.appendChild(inp);
+  inp.focus(); inp.select();
+  function commit() {
+    const raw = parseInt(inp.value, 10);
+    const after = isNaN(raw) || raw < 0 ? before : raw;
+    if (after !== before) {
+      pushUndo({ type: 'cell', dir, slot: slotIdx, col, before, after });
+      tgData[dir][slotIdx][col] = after;
+      tgManual[dir].add(`${slotIdx}-${col}`);
+      window.scheduleAutosave?.();
+    }
+    render();
+  }
+  inp.addEventListener('blur', commit);
+  inp.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter') { ev.preventDefault(); inp.blur(); }
+    if (ev.key === 'Escape') { inp.value = before; inp.blur(); }
+    ev.stopPropagation(); // don't let digit keys also register as a counting keystroke
+  });
 }
 
 function render() {
@@ -648,6 +720,13 @@ function updateUndoUI() {
   if (c) c.textContent = undoStack.length;
 }
 function applyAction(a, reverse) {
+  // 'cell' actions (a direct click-to-edit override, see startCellEdit() below) set an
+  // ABSOLUTE value rather than incrementing/decrementing by one keystroke's worth — undo
+  // restores the value it had before the edit, redo restores what was typed.
+  if (a.type === 'cell') {
+    tgData[a.dir][a.slot][a.col] = reverse ? a.before : a.after;
+    return;
+  }
   const delta = reverse ? -1 : 1;
   tgData[a.dir][a.slot][a.col] += delta;
   tgData[a.dir][a.slot][a.col] = Math.max(0, tgData[a.dir][a.slot][a.col]);
@@ -746,10 +825,13 @@ function processTgKey(k, code) {
 }
 
 // Shared by the real keydown listener and the popup's passthrough handler below, so the two
-// can't drift out of sync on which physical key means "switch group" for the active preset.
+// can't drift out of sync on which physical keys mean "switch group". Both the numpad pair
+// (NumpadDivide/NumpadSubtract) and the main-keyboard pair (Minus/Equal) are always active,
+// regardless of the active counting-key preset (build brief follow-up: group-switch shouldn't
+// be tied to whichever preset the in/out counting keys happen to use — someone counting with
+// QWERTY keys may still prefer the numpad for group nav, and vice versa).
 function groupSwitchCodes() {
-  const isNumpad = tgKeybindCfg.preset === 'numpad';
-  return { prevCode: isNumpad ? 'NumpadDivide' : 'Minus', nextCode: isNumpad ? 'NumpadSubtract' : 'Equal' };
+  return { prevCodes: ['NumpadDivide', 'Minus'], nextCodes: ['NumpadSubtract', 'Equal'] };
 }
 
 export function wireKeydown() {
@@ -758,11 +840,12 @@ export function wireKeydown() {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
     // Group-switch shortcuts (build brief item 5) — dedicated keys, separate from the existing
     // [ / ] (unchanged below: group nav outside focus mode, focus-cycle inside it). Checked via
-    // event.CODE so the numpad preset's Numpad/ and Numpad- can't collide with the QWERTY
-    // preset's Minus/Equal, matching the intersection counter's focus.js implementation.
-    const { prevCode, nextCode } = groupSwitchCodes();
-    if (e.code === prevCode) { e.preventDefault(); tgGroupPrev(); return; }
-    if (e.code === nextCode) { e.preventDefault(); tgGroupNext(); return; }
+    // event.CODE so the numpad pair (Numpad/ / Numpad-) can't collide with the main-keyboard
+    // pair (Minus/Equal) — both are always active now, matching the intersection counter's
+    // focus.js implementation for the code-based check itself.
+    const { prevCodes, nextCodes } = groupSwitchCodes();
+    if (prevCodes.includes(e.code)) { e.preventDefault(); tgGroupPrev(); return; }
+    if (nextCodes.includes(e.code)) { e.preventDefault(); tgGroupNext(); return; }
     const k = e.key.toLowerCase();
     const nav = ['arrowdown', 'arrowup', 'z', 'y', '\\', '[', ']'];
     if (nav.includes(k) || buildKeyMap()[k] || (focusMode && (e.code === 'Numpad7' || e.code === 'Numpad9'))) e.preventDefault();
@@ -786,9 +869,9 @@ export function wireKeydown() {
       // processTgKey's key-based fallback, which only recognizes [ / ] and would never fire for
       // the Numpad/Minus-Equal shortcuts at all. This was a real, reported gap: typing the
       // group-switch key directly into the popup did nothing.
-      const { prevCode, nextCode } = groupSwitchCodes();
-      if (d.code === prevCode) { tgGroupPrev(); return; }
-      if (d.code === nextCode) { tgGroupNext(); return; }
+      const { prevCodes, nextCodes } = groupSwitchCodes();
+      if (prevCodes.includes(d.code)) { tgGroupPrev(); return; }
+      if (nextCodes.includes(d.code)) { tgGroupNext(); return; }
       const k = d.key === ';' ? ';' : d.key.toLowerCase();
       processTgKey(k, d.code);
     } else if (d?.type === 'tg-group-nav') {
