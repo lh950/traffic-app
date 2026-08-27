@@ -7254,8 +7254,29 @@ function scrollToQaqcCard(key, attemptsLeft = 20) {
   setTimeout(() => el.classList.remove('qaqc-card-highlight'), 1600);
 }
 
+// Read-only classification reference (user request) — the reviewer doing a QA/QC recount
+// needs to know exactly what each classification means (its label and any description) to
+// count consistently with the original, but that list otherwise only lives on Setup's
+// classifications tab. Rather than sending the reviewer to go find it, show it right here.
+// Project-wide (tgGetClassifications(), not per-location/day) — matches how classifications
+// are stored (BUG-035: project-wide config, not per-count data).
+function renderQaqcClassificationRef() {
+  const root = document.getElementById('qaqc-classification-ref');
+  if (!root) return;
+  const list = tgGetClassifications();
+  if (!list.length) { root.innerHTML = ''; return; }
+  root.innerHTML = `
+    <div style="font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text2);margin-bottom:8px">Classifications (reference)</div>
+    <table class="crosswalk-table">
+      <thead><tr><th>Label</th><th>Description</th></tr></thead>
+      <tbody>${list.map((c) => `<tr><td>${escapeHtmlMain(c.label)}</td><td style="color:var(--text2)">${c.def ? escapeHtmlMain(c.def) : '<span style="color:var(--text3)">—</span>'}</td></tr>`).join('')}</tbody>
+    </table>
+  `;
+}
+
 async function renderQaqcScreen() {
   const root = document.getElementById('tripgen-qaqc-list');
+  renderQaqcClassificationRef();
   if (!tripgenEntries.length) { root.innerHTML = '<div class="stat-detail">No locations counted yet — add one from setup first.</div>'; return; }
   // This function awaits a real per-window peak-score computation (computeQaqcPeakScore) for
   // every location/day/window before it has anything to show — on a real project (several

@@ -1,5 +1,10 @@
 # Changelog
 
+## v3 · v0.49.9 — 2026-08-27
+
+### Added
+- **QA/QC screen: read-only classification reference** — every classification's label and description shown right on the QA/QC screen, so the reviewer doing a recount doesn't have to go find it on Setup's classifications tab.
+
 ## v3 · v0.49.8 — 2026-08-27
 
 ### Added
