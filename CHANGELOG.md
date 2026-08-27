@@ -1,5 +1,10 @@
 # Changelog
 
+## v3 · v0.49.3 — 2026-08-27
+
+### Changed
+- **Versioning scheme revised.** Retired the `-alpha.N` suffix (it hadn't been confirmed-and-dropped in 7+ weeks, so it had stopped signaling anything). MAJOR now tracks whether the app is safe to share beyond solo use — stays `0` until the user declares the BUG-047/048 class of data-loss risk resolved, then becomes `1.0.0`. `v3` is split out as a separate, permanent generation label (this is still the third rewrite of this app) rather than folded into a resettable MAJOR digit — shown as `v3 · v0.49.3`. See `DEVLOG.md` for the full reasoning, including a correction made mid-decision.
+
 ## v3.49.0-alpha.2 — 2026-08-27
 
 ### Added

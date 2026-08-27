@@ -56,23 +56,26 @@ If all four check out, push — no need to wait idle for the other session to fu
 
 ## Versioning scheme
 
-`MAJOR.MINOR.PATCH[-alpha.BUILD]`
+Two separate markers, shown together as `v3 · vMAJOR.MINOR.PATCH` (e.g. `v3 · v0.49.2`) — deliberately not one combined number.
 
-- **MAJOR** — incompatible schema change.
-- **MINOR** — one per batch of related work pushed together as a single session/push — **not one per individual feature.** If several features are built in sequence within one session, they all share one MINOR number; only the first commit in the batch bumps MINOR. A new MINOR bump starts only after the previous batch has actually been pushed and new, unrelated work begins.
-- **PATCH** — a bug fix or small tweak within an already-shipped (non-alpha) MINOR version.
-- **`-alpha.N` suffix** — the version is pushed but not yet confirmed stable in the deployed app. Every commit within an open batch increments the build number (`alpha.1` → `alpha.2` → …) rather than bumping MINOR — this is how multiple features in one push get distinguished from each other. Drop the suffix only when the user confirms it's stable in production; never drop it unprompted.
+**`v3`** is a fixed generation label, not a version — it means "the third rewrite of this app" (`traffic-app` → `traffic-app-v2` → this one), and never changes on its own. It lives in the repo/package name (`traffic-app-v3`) and is prefixed onto the display string in all 4 `index.html` spots below; don't bump it as part of routine version-bumping. It would only change on an actual next full rewrite, which isn't a routine event this scheme needs to plan for.
 
-**Session boundary:** a "batch" = a session, and it stays open (same MINOR, only `alpha.N` climbing) until the user confirms the final push. Don't close a batch just because a to-do list feels complete — if more work gets added before a push is confirmed, it folds into the same MINOR version.
+**`MAJOR.MINOR.PATCH`** (no `-alpha` suffix — retired 2026-08-27; see `DEVLOG.md`'s versioning-scheme entry for why) is the part that actually moves on every change:
 
-**Bump all 5 UI locations on every version-changing commit:**
-1. `package.json` — `"version"` field
+- **MAJOR** — reserved for the "safe to hand to other people" milestone, not schema compatibility. Stays `0` until the user explicitly declares the count-data-loss risk resolved (see `project_data_stability_gate` — two real field days were lost to BUG-047/048 before this rule existed) and the app is fit to share beyond the user's own solo use. Only bumps again after that on the user's own call, not a routine schema change.
+- **MINOR** — one per batch of related work pushed together as a single session — **not one per individual feature.** If several features are built in sequence within one session, they all share one MINOR number; only the first commit in the batch bumps MINOR. A new MINOR starts only once the previous batch is actually pushed and new, unrelated work begins. Same "batch = session, stays open until pushed" rule as before.
+- **PATCH** — increments on every commit within the open MINOR batch (this replaces what `-alpha.N` used to do — it was already functioning as a per-commit build counter, just under a "not yet confirmed" label that never actually got dropped in practice). Resets to `0` at the start of each new MINOR.
+
+**Session boundary:** a "batch" = a session, and it stays open (same MINOR, only PATCH climbing) until the user confirms the final push. Don't close a batch just because a to-do list feels complete — if more work gets added before a push is confirmed, it folds into the same MINOR version.
+
+**Bump all 5 UI locations on every version-changing commit** (only the `MAJOR.MINOR.PATCH` part changes; keep the `v3 · ` prefix as-is):
+1. `package.json` — `"version"` field (pure semver only, no `v3 · ` prefix — npm expects a bare semver string here)
 2. `index.html` — `<title>` tag
 3. `index.html` — home screen `.home-version` div
 4. `index.html` — sidebar version span (workspace mode)
 5. `index.html` — counter header inline version span
 
-Also bump `public/sw.js`'s `const CACHE = 'traffic-app-vX.Y.Za N'` service-worker cache key (no dots in the `aN` suffix, e.g. `v3.42.0a1`) — otherwise stale clients keep serving cached assets.
+Also bump `public/sw.js`'s `const CACHE = 'traffic-app-v3-X.Y.Z'` service-worker cache key — otherwise stale clients keep serving cached assets.
 
 **Before every push:** run `npm run build`. On a **local clone**, `.git/hooks/pre-push` already enforces this and blocks the push on failure — but that hook is local-only (`.git/hooks/` isn't tracked by git), so it will NOT exist on a fresh/remote clone. Run the build manually if you can't confirm the hook is present. The dev server's HMR does not catch a missing/renamed export across files; only a real build does.
 

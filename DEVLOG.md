@@ -4,6 +4,18 @@ Key decisions, scope constraints, and architectural choices.
 
 ---
 
+## 2026-08-27 — v3 · v0.49.3 (versioning scheme revised: retired `-alpha.N`, MAJOR now tracks the "safe to share" milestone, `v3` split out as a permanent generation marker)
+
+**Trigger.** Reviewing the versioning convention together, at the user's request. Two things stood out on inspection: the `-alpha.N` suffix was supposed to signal "pushed but not confirmed stable in production, drop once confirmed" — it hadn't dropped once in 7+ weeks (since `v3.5.0` in early July), every session just reset to `alpha.1` on a new MINOR instead, so the label had stopped carrying any real signal. Separately, MAJOR ("incompatible schema change") had also never actually meant anything in practice — this is a single-maintainer app with no external consumers depending on schema compatibility.
+
+**First decision, then a correction.** Retire `-alpha.N` entirely — PATCH now does what it was already doing under a different name (a per-commit counter within an open MINOR batch), just without the unused "confirm to drop" ritual — this part stuck. The first pass also repurposed MAJOR itself to track "safe to share" by resetting it to `0` (climbing to `1.0.0` once the user declares BUG-047/048's data-loss risk class resolved), renumbering `3.49.0-alpha.2` straight to `0.49.2`. The user pushed back: `v3` represents a real milestone (`traffic-app` → `traffic-app-v2` → this rewrite) and resetting to `0` throws that signal away from the version string even though the git history still has it.
+
+**Final design.** Split the two concerns apart instead of overloading one number. `v3` becomes a fixed, standalone generation label — not a version, never bumped as part of routine work, only changing if this app is ever rewritten again from scratch. The actual `MAJOR.MINOR.PATCH` semver sits alongside it, shown together as `v3 · vMAJOR.MINOR.PATCH` (e.g. `v3 · v0.49.2`). MAJOR keeps the "safe to share" repurposing (stays `0` until the user declares the data-loss risk resolved, then `1.0.0`); MINOR/PATCH meanings are unchanged from the first pass. `package.json`'s `"version"` field stays a bare semver (`0.49.2`, no prefix — required for npm tooling); the `v3 · ` prefix is display-only, added in the 4 `index.html` spots and the `sw.js` cache key (`traffic-app-v3-X.Y.Z`).
+
+**Renumbering.** Kept `0.49.2` (2nd commit in the still-open batch) rather than re-resetting again — the correction was about display/framing, not the underlying MAJOR-repurposing decision or the MINOR/PATCH counters. `CLAUDE.md`'s Versioning scheme section and the corresponding memory entries are updated to match.
+
+---
+
 ## 2026-08-27 — v3.49.0-alpha.2 (cross-count-type parity scoping for the BUG-047/048 fix)
 
 **Trigger.** User instruction, given right after the previous entry shipped: "when any backend or feature-dependent change is made to one count type, assume we want to make those same changes and fixes across the app" — a standing rule now also in `CLAUDE.md`'s Process section. First application: scope whether the Trip Gen `commitLocationCounts()` write-gate (previous entry) is needed for the intersection/area counter and the parking counter too.
