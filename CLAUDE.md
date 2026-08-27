@@ -29,6 +29,15 @@ Before starting substantive work (more than a one-line fix), check `SESSION_LOCK
 
 This isn't a hard distributed lock — two sessions could still race if they check at the exact same moment — but it makes the common case (one session picks up after the other) visible and safe, and git's own merge-conflict-on-push is the backstop if it's ever missed.
 
+**Is this push safe right now, or should it wait?** Sessions on this repo share the same physical working directory — there's no filesystem isolation unless a session was explicitly started in a git worktree. If `SESSION_LOCK.md` shows another session `active` (not stale) while you have a commit ready, check all of these before pushing:
+
+1. **File overlap** — does your change touch any file the active session is working in (per its check-in note, or files with uncommitted changes in `git status` that aren't yours)? If yes, wait or ask the user; don't push.
+2. **Staging is narrow** — stage only the specific files your own change touched (`git add <path>`, never `git add -A`/`git add .`). This matters more than usual here: another session's in-progress edits are sitting uncommitted in the same tree, and a broad `git add` would sweep them into your commit.
+3. **Build still passes** — run `npm run build` before pushing (the pre-push hook does this too, but check it yourself first). If it fails and the failure traces to files you didn't touch, that's a signal the other session's WIP is mid-edit/broken right now — wait rather than pushing through it.
+4. **You're not behind** — `git pull` (or check `git status`) before pushing in case the other session already pushed; use a normal merge/rebase, never force.
+
+If all four check out, push — no need to wait idle for the other session to fully finish. If any fail, wait or work in a clearly separate area instead, same as the file-overlap guidance above.
+
 ## ⚠️ If you are a remote/web session (claude.ai/code): you cannot push. Save your work for the main session instead.
 
 **Confirmed, not hypothetical:** the GitHub integration behind claude.ai/code sessions on this repo currently has read access only. Every push path has been tested and fails the same way — plain `git push`, an authenticated push with the session's own token, and the `mcp__github__push_files` MCP tool all get rejected (`403 Resource not accessible by integration` on `git/refs` — it can't create or update refs). This is a permission gap on the connector itself, not something fixable from within a session, and not something worth re-attempting more than once per session.
