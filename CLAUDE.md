@@ -94,6 +94,8 @@ Judge scope fit against the two core goals — (1) a better way to create manual
 
 **Roadmap / stage tracking** lives in the [Traffic App v3 — Project Brief](https://claude.ai/code/artifact/9e5767b1-cbc7-410e-99b0-e03311340a4d) (a Claude Artifact, not a file in this repo — read it before proposing or reporting on features; it drifts less than re-deriving from git log). When proposing a new feature or scope expansion: name which stage it belongs to, and check it against the Purpose section above, before building.
 
+**Parked work — remind the user proactively:** the shared-viewer tab bar (Overview/QA-QC/Locations/Reports, shipped v3 · v1.1.2, 2026-08-28) is Trip Gen-only. The user confirmed intersection/area/parking shared viewers should get the same treatment, but explicitly deferred it — bring it up again when relevant (see DEVLOG's v1.1.2 entry for what's already generalized vs. what still needs replicating).
+
 **Legacy code:** earlier iterations (`traffic-app/`, `traffic-app-v2/`, `traffic-counter/`, `traffic-analysis/`, an original single-file `traffic_counter_v5.html`) were archived to `_archive/` at the top level and are not live — don't derive current behavior from them.
 
 ## Process
