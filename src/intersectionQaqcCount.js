@@ -56,8 +56,13 @@ function slotLabel(i) { const { start, end } = slotStartEnd(i); return `${start}
 
 // rowsSpec: { vehicle: [{key,label,inKey,outKey}], ped: [{key,label,inKey,outKey}], tmc: [{key,label,countKey}] }
 // cfgIn: {startMinutes, intervalMin, durationMin}
-// finishCallback(result, cfgSnapshot) — result: { vehicle: {[key]: number[slot]}, ped: {...}, tmc: {...} },
-//   each array already combining in+out (vehicle/ped) or the raw count (tmc) per slot.
+// finishCallback(result, cfgSnapshot, detail) — result: { vehicle: {[key]: number[slot]}, ped: {...},
+//   tmc: {...} }, each array already combining in+out (vehicle/ped) or the raw count (tmc) per slot
+//   (used for scoring, unchanged). detail carries the split main.js's "apply as fix" (user request)
+//   needs to write a QA count back onto the primary in/out data: detail.vehicle[key]/detail.ped[key]
+//   = {in: number[slot], out: number[slot]}. No detail.tmc — a TMC row is already one combined
+//   approach-total with no in/out (or destination/type) split to preserve, so there's nothing finer
+//   to hand back; "apply as fix" for TMC rows is out of scope for exactly that reason.
 export function beginIntersectionRecount(rowsSpec, cfgIn, finishCallback) {
   rows = { vehicle: rowsSpec.vehicle || [], ped: rowsSpec.ped || [], tmc: rowsSpec.tmc || [] };
   if (!rows.vehicle.length && !rows.ped.length && !rows.tmc.length) {
@@ -250,15 +255,24 @@ export function assignRecountKeys({ vehicle = [], ped = [], tmc = [] }) {
 
 export function finishIntersectionRecount() {
   const result = { vehicle: {}, ped: {}, tmc: {} };
+  const detail = { vehicle: {}, ped: {} };
   rows.vehicle.forEach((r, i) => {
     result.vehicle[r.key] = Array.from({ length: cfg.slots }, (_, s) => data.vehicle.in[s][i] + data.vehicle.out[s][i]);
+    detail.vehicle[r.key] = {
+      in: Array.from({ length: cfg.slots }, (_, s) => data.vehicle.in[s][i]),
+      out: Array.from({ length: cfg.slots }, (_, s) => data.vehicle.out[s][i]),
+    };
   });
   rows.ped.forEach((r, i) => {
     result.ped[r.key] = Array.from({ length: cfg.slots }, (_, s) => data.ped.in[s][i] + data.ped.out[s][i]);
+    detail.ped[r.key] = {
+      in: Array.from({ length: cfg.slots }, (_, s) => data.ped.in[s][i]),
+      out: Array.from({ length: cfg.slots }, (_, s) => data.ped.out[s][i]),
+    };
   });
   rows.tmc.forEach((r, i) => {
     result.tmc[r.key] = Array.from({ length: cfg.slots }, (_, s) => data.tmc.count[s][i]);
   });
   const cfgSnapshot = { startMinutes: cfg.startMinutes, intervalMin: cfg.intervalMin, durationMin: cfg.durationMin };
-  if (onFinish) onFinish(result, cfgSnapshot);
+  if (onFinish) onFinish(result, cfgSnapshot, detail);
 }

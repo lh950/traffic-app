@@ -8259,7 +8259,7 @@ async function beginIxQaqcRecount(cardId, src) {
   const recountCfg = { startMinutes: startMin, intervalMin: snap.cfg.intervalMin, durationMin: 60 };
   const subEl = document.getElementById('ixqaqc-counter-sub');
   if (subEl) subEl.textContent = `— ${period.name} / ${windowLabel}`;
-  const started = ixBeginRecount(rowsSpec, recountCfg, (result) => {
+  const started = ixBeginRecount(rowsSpec, recountCfg, (result, _cfgSnapshot, detail) => {
     // Write into whichever store src resolved to — the live standalone `intersectionQaqc`
     // global, or the specific area-study intersection's own snapshot.intersectionQaqc
     // (mutated in place; src.persist() below then schedules the autosave that flushes
@@ -8268,7 +8268,10 @@ async function beginIxQaqcRecount(cardId, src) {
       Object.entries(result[modeKey] || {}).forEach(([rowKey, quarters]) => {
         const key = ixQaqcKey(periodIdx, windowLabel, modeKey, rowKey);
         src.qaqcStore[key] = src.qaqcStore[key] || { recounts: [] };
-        src.qaqcStore[key].recounts.push({ id: ixQaqcNextId++, cfg: recountCfg, quarters });
+        // detail (in/out split) only exists for vehicle/ped — "apply as fix" (user request) needs
+        // it to write back onto the primary count's own in/out arrays; a TMC row has no in/out (or
+        // destination/type) split to preserve, so detail is undefined there and apply is skipped.
+        src.qaqcStore[key].recounts.push({ id: ixQaqcNextId++, cfg: recountCfg, quarters, detail: detail[modeKey]?.[rowKey] });
       });
     });
     showScreen('intersection-qaqc-screen');
@@ -8337,6 +8340,19 @@ async function renderIntersectionQaqcScreen(snapshotCtx = null) {
           const resultLabel = !latest
             ? '<span class="tag" style="color:var(--text3)">no QA count</span>'
             : passFailBadge(!inRange || scoreResult?.rating === 'Incomplete' ? null : scoreResult?.overallPass);
+          // "Apply as fix" (user request, same PM-discretion opt-in already shipped for Trip
+          // Gen) — needs the recount's own in/out split (latest.detail; only vehicle/ped rows
+          // have one, see intersectionQaqcCount.js), the window still lining up with what was
+          // recounted (interval length + slot count match), and the primary data actually being
+          // live/writable (not a read-only area-study snapshot — see ixQaqcSource()'s header
+          // comment on why periods there are frozen).
+          const canApplyFix = latest && inRange && grp.modeKey !== 'tmc' && latest.detail
+            && latest.cfg.intervalMin === snap.cfg.intervalMin && latest.quarters.length === windowSize && !src.ctx.readOnly;
+          const fixCell = canApplyFix
+            ? (latest.appliedAsFix
+                ? `<span class="stat-detail" style="color:var(--text3)" title="${new Date(latest.appliedAsFix.at).toLocaleString()}">✓ applied</span> <button data-ixqaqc-apply-fix="${cardId}" data-ixqaqc-apply-fix-mode="${grp.modeKey}" data-ixqaqc-apply-fix-row="${r.rowKey}" data-ixqaqc-apply-fix-id="${latest.id}" data-ixqaqc-apply-fix-start="${startIdx}" style="font-size:11px">re-apply</button>`
+                : `<button data-ixqaqc-apply-fix="${cardId}" data-ixqaqc-apply-fix-mode="${grp.modeKey}" data-ixqaqc-apply-fix-row="${r.rowKey}" data-ixqaqc-apply-fix-id="${latest.id}" data-ixqaqc-apply-fix-start="${startIdx}" style="font-size:11px">apply as fix →</button>`)
+            : '';
           rowHtml.push(`<tr>
             <td>${escapeHtmlMain(r.label)}</td>
             <td>${primaryTotal}</td>
@@ -8344,13 +8360,14 @@ async function renderIntersectionQaqcScreen(snapshotCtx = null) {
             <td>${diff != null ? (diff > 0 ? '+' : '') + diff + (diffPct != null ? ` (${diffPct.toFixed(1)}%)` : '') : '—'}</td>
             <td>${thresh}%</td>
             <td>${resultLabel}</td>
+            <td>${fixCell}</td>
           </tr>`);
         }
         sectionsHtml.push(`
           <div style="margin-bottom:10px">
             <div style="font-size:12px;font-weight:600;margin-bottom:4px">${grp.modeLabel}${grp.modeKey === 'tmc' ? ' <span style="font-weight:400;color:var(--text3)">(per-approach total — see note below)</span>' : ''}</div>
             <table class="crosswalk-table" style="margin-bottom:6px">
-              <thead><tr><th>row</th><th>primary total</th><th>QA count total</th><th>diff</th><th>threshold</th><th>result</th></tr></thead>
+              <thead><tr><th>row</th><th>primary total</th><th>QA count total</th><th>diff</th><th>threshold</th><th>result</th><th></th></tr></thead>
               <tbody>${rowHtml.join('')}</tbody>
             </table>
           </div>`);
@@ -8397,6 +8414,65 @@ async function renderIntersectionQaqcScreen(snapshotCtx = null) {
   root.querySelectorAll('[data-ixqaqc-begin]:not([disabled])').forEach((el) => {
     el.addEventListener('click', () => beginIxQaqcRecount(el.dataset.ixqaqcBegin, src));
   });
+  root.querySelectorAll('[data-ixqaqc-apply-fix]').forEach((el) => {
+    el.addEventListener('click', () => applyIxQaqcRowAsFix(
+      src, el.dataset.ixqaqcApplyFix, el.dataset.ixqaqcApplyFixMode, el.dataset.ixqaqcApplyFixRow,
+      Number(el.dataset.ixqaqcApplyFixId), Number(el.dataset.ixqaqcApplyFixStart),
+    ));
+  });
+}
+
+// "Apply as fix" for intersection QA/QC (user request — same PM-discretion opt-in already
+// shipped for Trip Gen: [[applyQaqcRecountAsFix]]). Overwrites the primary count's in/out data
+// for one row (a vehicle pair or a crosswalk direction) across the QA window's slot range with
+// the QA count's own numbers — everything outside that row/range is untouched. TMC rows are
+// never offered this (see the row-render gate above): an approach total has no in/out or
+// destination/type split to write back onto. `startIdx` is passed in from the render that
+// produced this button rather than recomputed here, so applying does exactly what was on
+// screen when clicked — recomputing fresh could disagree for the manual "Additional hour"
+// window if its start-time field changed after the QA count was submitted.
+async function applyIxQaqcRowAsFix(src, cardId, modeKey, rowKey, recountId, startIdx) {
+  const sep = cardId.indexOf('__');
+  const periodIdx = Number(cardId.slice(0, sep));
+  const windowLabel = cardId.slice(sep + 2);
+  const snap = ixPeriodSnapshot(src, periodIdx);
+  if (!snap) return;
+  const key = ixQaqcKey(periodIdx, windowLabel, modeKey, rowKey);
+  const recount = src.qaqcStore[key]?.recounts.find((r) => r.id === recountId);
+  if (!recount?.detail) { alert('This QA count has no detailed in/out data to apply — refresh and try again.'); return; }
+  const rowGroups = ixQaqcActiveRowGroups(src.ctx);
+  const row = rowGroups.find((g) => g.modeKey === modeKey)?.rows.find((r) => r.rowKey === rowKey);
+  const ok = window.confirm(
+    `Apply this QA count as the corrected data for "${row?.label || rowKey}"?\n\n` +
+    `This overwrites the original count for this time range with the QA count's numbers. This can't be undone automatically — only by re-entering the original numbers yourself.`
+  );
+  if (!ok) return;
+  if (modeKey === 'vehicle') {
+    const i = Number(rowKey);
+    recount.detail.in.forEach((v, qi) => { if (snap.vData.in[startIdx + qi]) snap.vData.in[startIdx + qi][i] = v; });
+    recount.detail.out.forEach((v, qi) => { if (snap.vData.out[startIdx + qi]) snap.vData.out[startIdx + qi][i] = v; });
+  } else if (modeKey === 'ped') {
+    const xi = src.ctx.intersection.crosswalks.findIndex((cw, idx) => (cw.assign || String(idx)) === rowKey);
+    if (xi >= 0) {
+      recount.detail.in.forEach((v, qi) => {
+        const slotIdx = startIdx + qi;
+        snap.pedData[xi] = snap.pedData[xi] || [];
+        snap.pedData[xi][slotIdx] = snap.pedData[xi][slotIdx] || [0, 0];
+        snap.pedData[xi][slotIdx][0] = v;
+      });
+      recount.detail.out.forEach((v, qi) => {
+        const slotIdx = startIdx + qi;
+        snap.pedData[xi] = snap.pedData[xi] || [];
+        snap.pedData[xi][slotIdx] = snap.pedData[xi][slotIdx] || [0, 0];
+        snap.pedData[xi][slotIdx][1] = v;
+      });
+    }
+  } else {
+    return;
+  }
+  recount.appliedAsFix = { at: new Date().toISOString() };
+  await renderIntersectionQaqcScreen(ixQaqcActiveCtx);
+  src.persist();
 }
 
 // ═══════════════════════════════════════════

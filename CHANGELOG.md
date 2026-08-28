@@ -1,5 +1,10 @@
 # Changelog
 
+## v3 · v1.2.13 — 2026-08-28
+
+### Added
+- Intersection QA/QC: "apply as fix" is now available for vehicle and pedestrian rows too, matching Trip Gen — a PM-discretion, off-by-default action that overwrites a row's original in/out data for the QA window with the QA count's own numbers. Not available for turning-movement rows, since an approach-total QA count has no destination/type breakdown to write back onto.
+
 ## v3 · v1.2.12 — 2026-08-28
 
 ### Added
