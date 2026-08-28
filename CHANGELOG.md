@@ -1,5 +1,10 @@
 # Changelog
 
+## v3 · v1.2.10 — 2026-08-28
+
+### Fixed
+- Location Counts screen: the per-day "camera image" upload is now actually visible there. It was fully wired underneath, but only ever rendered into a legacy Setup sub-tab the app itself tells you to ignore in favor of this screen — never ported over when this screen was redesigned. Same field, same upload/remove behavior, now in the card you actually use.
+
 ## v3 · v1.2.9 — 2026-08-28
 
 ### Changed

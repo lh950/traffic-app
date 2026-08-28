@@ -7357,6 +7357,14 @@ function renderTripgenLocationsScreen() {
           </div>
           ${canEdit ? `<div style="font-size:11px;color:var(--blue-text);margin-top:6px">${d.inProgress ? 'resume count →' : 'edit counts →'}</div>` : ''}
           ${d.parsed && !d.inProgress ? `<button data-tg-loc-recount-entry="${entry.id}" data-tg-loc-recount-day="${i}" title="Start a new count for this location, added as its own day — for when QA/QC finds the original count needs a full redo" style="font-size:11px;margin-top:4px">↻ recount</button>` : ''}
+          <div style="margin-top:6px;display:flex;align-items:center;gap:6px" data-no-card-click>
+            ${d.cameraImageUrl
+              ? `<img src="${d.cameraImageUrl}" style="height:40px;width:64px;object-fit:cover;border-radius:3px;border:.5px solid var(--border)" title="Camera view">
+                 <button type="button" data-tg-loc-cam-clear="${entry.id}" data-tg-loc-cam-day="${i}" style="font-size:11px">× remove</button>`
+              : `<label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;font-size:12px;color:var(--blue-text)">
+                   📷 camera image <input type="file" accept="image/*" data-tg-loc-cam-upload="${entry.id}" data-tg-loc-cam-day="${i}" style="display:none">
+                 </label>`}
+          </div>
         </div>`;
     }).join('');
 
@@ -7386,6 +7394,42 @@ function renderTripgenLocationsScreen() {
       e.stopPropagation(); // nested inside the whole-card click-to-edit handler above
       startTripgenRecount(Number(el.dataset.tgLocRecountEntry), Number(el.dataset.tgLocRecountDay), 'tripgen-locations-screen');
     });
+  });
+  // Camera image (per day — the count video's vantage point/field of view, same
+  // entry.days[i].cameraImageUrl field the legacy Setup > locations sub-tab's own copy of this
+  // control already wrote to — see renderTripgenLocationsList()). That older render target
+  // (#tripgen-locations-list) is buried in a tab this screen's own redesign (build brief item
+  // 13) tells users to ignore in favor of THIS screen, so the upload never had anywhere real
+  // to be seen despite being fully wired underneath. Ported here rather than duplicating a new
+  // field — same data, same upload/clear behavior, now in the container users actually use.
+  root.querySelectorAll('[data-tg-loc-cam-upload]').forEach((input) => {
+    input.addEventListener('click', (e) => e.stopPropagation()); // nested in the card's own click-to-edit handler
+    input.addEventListener('change', (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const entry = tripgenEntries.find((en) => en.id === Number(input.dataset.tgLocCamUpload));
+      const dayIdx = Number(input.dataset.tgLocCamDay);
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        if (entry?.days[dayIdx]) entry.days[dayIdx].cameraImageUrl = evt.target.result;
+        renderTripgenLocationsScreen();
+        window.scheduleAutosave?.();
+      };
+      reader.readAsDataURL(file);
+    });
+  });
+  root.querySelectorAll('[data-tg-loc-cam-clear]').forEach((el) => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const entry = tripgenEntries.find((en) => en.id === Number(el.dataset.tgLocCamClear));
+      const dayIdx = Number(el.dataset.tgLocCamDay);
+      if (entry?.days[dayIdx]) entry.days[dayIdx].cameraImageUrl = null;
+      renderTripgenLocationsScreen();
+      window.scheduleAutosave?.();
+    });
+  });
+  root.querySelectorAll('[data-no-card-click]').forEach((el) => {
+    el.addEventListener('click', (e) => e.stopPropagation());
   });
   root.querySelectorAll('[data-tg-loc-add-day]').forEach((el) => {
     el.addEventListener('click', (e) => {

@@ -38,6 +38,17 @@ Severity levels:
 
 ---
 
+## BUG-057 (082820261542)
+**Status:** Fixed (v3 · v1.2.10)
+**Severity:** Minor (no data loss — the field/upload/data model all worked correctly, the control was just never visible in the UI users actually use)
+**Found in:** `renderTripgenLocationsScreen()` (the real, visible Location Counts screen) vs. `renderTripgenLocationsList()` (a legacy renderer still fully wired but writing into a different, buried element)
+**Description:** User asked for a way to upload a site/intersection image on the Location Counts screen — it already existed (`entry.days[i].cameraImageUrl`, upload/clear fully wired), but only ever rendered into `#tripgen-locations-list`, which lives inside Setup's "locations" sub-tab — a tab whose own markup tells the user "this tab is just a quick summary… Go to Location Counts →" (build brief item 13's redesign). When that redesign introduced the real Location Counts screen (`renderTripgenLocationsScreen()`/`#tripgen-locations-screen-root`), the camera-image upload (along with the per-location PDF upload and relabel field) never got ported to the new card layout — silently orphaning a working feature behind a screen the app itself tells users not to use.
+**Fix:** Ported the camera-image upload/thumbnail/remove control into `renderTripgenLocationsScreen()`'s own day cards — same `cameraImageUrl` field, same behavior, now inside the container the user actually sees. Nested inside an already-clickable card (whole-card click opens "edit counts"), so needed `e.stopPropagation()` on the new controls to avoid a stray click on the image button also triggering the card's own navigation — verified live it doesn't.
+**Note:** the per-location PDF upload and inline relabel field have the exact same orphaned status (still fully wired, still only reachable via the same buried Setup sub-tab) — not fixed here since only the image upload was asked about, but flagged here for a future pass.
+**Verified live:** uploaded a real PNG via the real Location Counts screen, confirmed the thumbnail + "× remove" button render in the day card and the screen stays on Location Counts afterward (no accidental navigation from the click propagating up to the card's own edit-counts handler).
+
+---
+
 ## BUG-053 (082820261044)
 **Status:** Fixed (v3 · v1.1.3)
 **Severity:** Minor (misleading, not broken data — a control looked interactive but silently did nothing)
