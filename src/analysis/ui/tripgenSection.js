@@ -1447,6 +1447,16 @@ async function slCompareLocationCardHtml(entry, zone, entries, peakWindows, ctx)
     ? `<div class="stat-detail" style="margin-top:8px">StreetLight's confidence range (all days, all day): ${fmt(Math.round(predictionAllDay.volume))} <span style="color:var(--text3)">(95% CI: ${fmt(Math.round(predictionAllDay.lower))}–${fmt(Math.round(predictionAllDay.upper))})</span></div>`
     : '';
 
+  // AADT — a genuinely different metric from the two above (seasonally-adjusted, full-year
+  // annualized), not just another confidence-range flavor of the same "all-day" figure, so
+  // it's labeled distinctly rather than merged into the predictionHtml line.
+  const aadtZones = ctx.streetlightAadt?.zones || [];
+  const aadtZone = aadtZones.find((z) => z.name === zone.name);
+  const aadtAllDay = aadtZone?.byDayType?.[0]?.[0];
+  const aadtHtml = aadtAllDay
+    ? `<div class="stat-detail" style="margin-top:4px">StreetLight estimated AADT: ${fmt(Math.round(aadtAllDay.volume))} <span style="color:var(--text3)">(95% CI: ${fmt(Math.round(aadtAllDay.lower))}–${fmt(Math.round(aadtAllDay.upper))})${aadtAllDay.inferred ? ' — inferred from nearby zones, not directly calculated' : ''}</span></div>`
+    : '';
+
   return `
     <div class="card" style="margin-bottom:10px" data-sl-loc="${entry.id}">
       <h3 style="margin:0 0 4px">${escapeHtml(entry.locationLabel)} <span style="font-weight:400;color:var(--text3);font-size:12px">— StreetLight zone: ${escapeHtml(zone.name)}</span></h3>
@@ -1454,14 +1464,16 @@ async function slCompareLocationCardHtml(entry, zone, entries, peakWindows, ctx)
       ${weekendHtml || ''}
       ${!weekdayHtml && !weekendHtml ? '<div class="stat-detail">No counted day for this location matches a day type StreetLight has data for.</div>' : ''}
       ${predictionHtml}
+      ${aadtHtml}
     </div>
   `;
 }
 
 async function streetlightCompareSectionHtml(entries, ctx) {
-  const { streetlightComparison, streetlightZoneMap, streetlightPredictionIntervals, peakWindows, viewerMode } = ctx;
+  const { streetlightComparison, streetlightZoneMap, streetlightPredictionIntervals, streetlightAadt, peakWindows, viewerMode } = ctx;
   const zones = streetlightComparison?.zones || [];
   const predictionZones = streetlightPredictionIntervals?.zones || [];
+  const aadtZones = streetlightAadt?.zones || [];
   if (!zones.length && viewerMode) return ''; // nothing imported — don't show an empty section to a viewer
   const canEdit = !viewerMode;
 
@@ -1509,6 +1521,13 @@ async function streetlightCompareSectionHtml(entries, ctx) {
         </div>
         <div class="stat-detail" style="margin-bottom:8px">${streetlightPredictionIntervals?.sourceFileName ? `Imported <strong style="color:var(--text)">${escapeHtml(streetlightPredictionIntervals.sourceFileName)}</strong> (${predictionZones.length} zone${predictionZones.length === 1 ? '' : 's'}) on ${new Date(streetlightPredictionIntervals.importedAt).toLocaleString()}.` : 'No prediction-interval file imported yet.'}</div>
         <div data-sl-predict-import-error style="color:var(--bad-text);font-size:12px;margin-bottom:8px"></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;padding-top:8px;border-top:.5px dashed var(--border2)">
+          <div class="stat-detail" style="margin-bottom:0">Optional — Average Annual Daily Traffic, a seasonally-adjusted full-year estimate (different from the period-specific averages above).</div>
+          <button type="button" data-sl-aadt-import-btn style="font-size:12px">Import Estimated AADT CSV…</button>
+          <input type="file" accept=".csv" data-sl-aadt-import-input style="display:none">
+        </div>
+        <div class="stat-detail" style="margin-bottom:8px">${streetlightAadt?.sourceFileName ? `Imported <strong style="color:var(--text)">${escapeHtml(streetlightAadt.sourceFileName)}</strong> (${aadtZones.length} zone${aadtZones.length === 1 ? '' : 's'}) on ${new Date(streetlightAadt.importedAt).toLocaleString()}.` : 'No AADT file imported yet.'}</div>
+        <div data-sl-aadt-import-error style="color:var(--bad-text);font-size:12px;margin-bottom:8px"></div>
         ${zones.length ? `<div class="stat-detail" style="margin-bottom:6px">Match each location to its StreetLight zone:</div>${mappingRowsHtml}` : ''}
       </div>` : ''}
       ${cardsHtml || (zones.length ? '<div class="stat-detail">No locations mapped to a StreetLight zone yet.</div>' : '')}
@@ -1841,6 +1860,21 @@ export async function renderTripGenSection(container, entries, ctx) {
     if (errEl) errEl.textContent = '';
     try {
       await ctx.onImportStreetlightPredictionCsv?.(file);
+    } catch (err) {
+      if (errEl) errEl.textContent = `Import failed: ${err.message}`;
+    }
+  });
+  container.querySelector('[data-sl-aadt-import-btn]')?.addEventListener('click', () => {
+    container.querySelector('[data-sl-aadt-import-input]')?.click();
+  });
+  container.querySelector('[data-sl-aadt-import-input]')?.addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    const errEl = container.querySelector('[data-sl-aadt-import-error]');
+    if (errEl) errEl.textContent = '';
+    try {
+      await ctx.onImportStreetlightAadtCsv?.(file);
     } catch (err) {
       if (errEl) errEl.textContent = `Import failed: ${err.message}`;
     }

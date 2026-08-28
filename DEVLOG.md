@@ -4,6 +4,18 @@ Key decisions, scope constraints, and architectural choices.
 
 ---
 
+## 2026-08-28 — v3 · v1.2.2 (StreetLight: Estimated AADT)
+
+Third StreetLight export type added this session, same pattern each time: user provides a real export from a different StreetLight analysis type against the same site, traced and validated against the actual file before any UI work (`parseStreetlightAadtCsv` reproduced 402 (95% CI: 200–800) for the Main Gate exactly).
+
+AADT (Average Annual Daily Traffic) is a genuinely different metric from the two already supported, not just another confidence-range flavor of the same figure — it's seasonally-adjusted and annualized to a full year, where Zone Activity's "all-day average" only covers whatever months StreetLight's underlying data happened to sample. Labeled and shown as its own distinct line for that reason, not merged into the Prediction Interval line even though both carry a 95% CI in the same shape.
+
+Also captures the export's `Inferred Volume` column (true/false — whether a zone's value was inferred from nearby zones rather than directly calculated) and surfaces it inline when true, since that's a real reliability caveat StreetLight itself flags.
+
+Same optional-import pattern as the other two additions: separate button, separate persisted state (`tripgenStreetlightAadt`), matched to a location via the same zone-name mapping already in place — no new UI concept introduced.
+
+---
+
 ## 2026-08-28 — v3 · v1.2.1 (StreetLight: 95% confidence range)
 
 Direct follow-up to v1.2.0, same session — user provided a second real StreetLight export type (`*_zone_prediction_interval.csv`, from a "Segment Analysis" — different analysis type, same site) alongside the Zone Activity file already supported. Traced and validated the same way (`parseStreetlightZonePredictionCsv` reproduced the real file's numbers exactly — 92 (95% CI: 0–200) for the Main Gate — before any UI was touched).

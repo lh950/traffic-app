@@ -1,5 +1,10 @@
 # Changelog
 
+## v3 · v1.2.2 — 2026-08-28
+
+### Added
+- StreetLight comparison: optional third import (Estimated AADT CSV) shows StreetLight's seasonally-adjusted, full-year Average Annual Daily Traffic estimate with its own 95% confidence range — distinct from the period-specific averages already shown.
+
 ## v3 · v1.2.1 — 2026-08-28
 
 ### Added

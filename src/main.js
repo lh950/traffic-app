@@ -74,7 +74,7 @@ import { parseTmcCsv } from './parseTmcCsv.js';
 import { parseRawCountXlsx, buildIntersectionFromMeta } from './parseRawCountXlsx.js';
 import { parseDotTmcXlsx, buildTmcIntersectionFromMeta } from './parseDotTmcXlsx.js';
 import { parseStreetlightXlsx } from './parseStreetlightXlsx.js';
-import { parseStreetlightZoneCsv, parseStreetlightZonePredictionCsv } from './parseStreetlightZoneCsv.js';
+import { parseStreetlightZoneCsv, parseStreetlightZonePredictionCsv, parseStreetlightAadtCsv } from './parseStreetlightZoneCsv.js';
 import { parseCSV, detectColumnsLocally, mapColumnsWithClaude, buildSnapshotFromMapping, saveLearnedMappings, saveImportTemplate, loadImportTemplates, deleteImportTemplate, findMatchingTemplate, LS_API_KEY } from './importCsv.js';
 import * as analysisData from './analysis/ui/dataAdapter.js';
 import { renderSummary } from './analysis/ui/summary.js';
@@ -2496,6 +2496,7 @@ document.getElementById('btn-new-tripgen')?.addEventListener('click', () => {
   tripgenStreetlightComparison = { zones: [], sourceFileName: null, importedAt: null };
   tripgenStreetlightZoneMap = {};
   tripgenStreetlightPredictionIntervals = { zones: [], sourceFileName: null, importedAt: null };
+  tripgenStreetlightAadt = { zones: [], sourceFileName: null, importedAt: null };
   // See home-btn-tripgen's handler above — classifications are project-wide config now and
   // must be cleared explicitly for a genuinely new project.
   tgResetClassifications();
@@ -5537,6 +5538,9 @@ function loadProject(proj, opts = {}) {
     tripgenStreetlightPredictionIntervals = proj.streetlightPredictionIntervals
       ? JSON.parse(JSON.stringify(proj.streetlightPredictionIntervals))
       : { zones: [], sourceFileName: null, importedAt: null };
+    tripgenStreetlightAadt = proj.streetlightAadt
+      ? JSON.parse(JSON.stringify(proj.streetlightAadt))
+      : { zones: [], sourceFileName: null, importedAt: null };
     if (proj.peakWindows) Object.assign(tripgenPeakWindows, proj.peakWindows);
     // Reset first — Object.assign alone only overwrites keys present in proj.qaqc, so loading a
     // project with no/fewer recount keys than whatever was already loaded left stale entries
@@ -5918,6 +5922,7 @@ async function renderViewerContent(proj) {
       streetlightComparison: tripgenStreetlightComparison,
       streetlightZoneMap: tripgenStreetlightZoneMap,
       streetlightPredictionIntervals: tripgenStreetlightPredictionIntervals,
+      streetlightAadt: tripgenStreetlightAadt,
     });
   } else if (proj.projectType === 'area') {
     // Study-wide rollup (decision: conservative pick over per-intersection drill-down —
@@ -6010,6 +6015,7 @@ function serializeCurrentProject() {
       streetlightComparison: JSON.parse(JSON.stringify(tripgenStreetlightComparison)),
       streetlightZoneMap: { ...tripgenStreetlightZoneMap },
       streetlightPredictionIntervals: JSON.parse(JSON.stringify(tripgenStreetlightPredictionIntervals)),
+      streetlightAadt: JSON.parse(JSON.stringify(tripgenStreetlightAadt)),
       // BUG-035: classifications (labels/keys/descriptions) are project-wide config, not
       // count data — must always be captured regardless of whether any count exists yet.
       classifications: tgGetClassifications(),
@@ -6710,6 +6716,11 @@ let tripgenStreetlightComparison = { zones: [], sourceFileName: null, importedAt
 // separate file the user may or may not have/import, and a real sample export only carries the
 // All-Days/All-Day bucket (coarser than the AM/Midday/PM breakdown the main comparison uses).
 let tripgenStreetlightPredictionIntervals = { zones: [], sourceFileName: null, importedAt: null };
+// Another separate, optional import — StreetLight's Estimated AADT export. A genuinely
+// different metric from the two above: AADT (Average Annual Daily Traffic) is a
+// seasonally-adjusted, full-year annualized daily volume, not an average over whatever months
+// the underlying Zone Activity data happened to cover.
+let tripgenStreetlightAadt = { zones: [], sourceFileName: null, importedAt: null };
 // entryId -> the StreetLight zone name that represents this Trip Gen location. Manual, one
 // time per location — StreetLight zone names are arbitrary user-typed strings at export time
 // (see zones.csv having no numeric Zone ID at all in a real sample), so there's no automatic
@@ -8846,6 +8857,14 @@ async function rerenderTripgenAnalysis() {
       const text = await file.text();
       const { zones } = parseStreetlightZonePredictionCsv(text);
       tripgenStreetlightPredictionIntervals = { zones, sourceFileName: file.name, importedAt: new Date().toISOString() };
+      window.scheduleAutosave?.();
+      rerenderTripgenAnalysis();
+    },
+    streetlightAadt: tripgenStreetlightAadt,
+    onImportStreetlightAadtCsv: async (file) => {
+      const text = await file.text();
+      const { zones } = parseStreetlightAadtCsv(text);
+      tripgenStreetlightAadt = { zones, sourceFileName: file.name, importedAt: new Date().toISOString() };
       window.scheduleAutosave?.();
       rerenderTripgenAnalysis();
     },

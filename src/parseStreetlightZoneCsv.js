@@ -143,6 +143,60 @@ export function parseStreetlightZonePredictionCsv(text) {
   };
 }
 
+// Parser for a StreetLight Insight "Estimated AADT" export (`*_estimated_aadt.csv`) — a
+// DIFFERENT metric from the Zone Activity / Prediction Interval files above: AADT (Average
+// Annual Daily Traffic) is a seasonally-adjusted, full-year annualized daily volume, not an
+// average over whatever months the underlying StreetLight data happened to cover. Real sample
+// export only carried the All-Days/All-Day bucket, same as the prediction-interval file.
+//
+// The AADT value's own column header embeds the analysis year ("Estimated 2025 AADT (initial
+// release)") — matched by substring ("aadt", excluding the lower/upper columns which also
+// mention prediction interval terms) rather than the exact string, since that year changes
+// with every new analysis.
+export function parseStreetlightAadtCsv(text) {
+  const lines = text.split(/\r?\n/).filter((l) => l.trim().length);
+  if (!lines.length) throw new Error('Empty file.');
+  const headers = parseCsvLine(lines[0]).map((h) => h.toLowerCase());
+  const col = (predicate) => headers.findIndex(predicate);
+  const nameCol = col((h) => h === 'zone name');
+  const dayTypeCol = col((h) => h === 'day type');
+  const dayPartCol = col((h) => h === 'day part');
+  const aadtCol = col((h) => h.includes('aadt') && !h.includes('lower') && !h.includes('upper'));
+  const lowerCol = col((h) => h.includes('lower'));
+  const upperCol = col((h) => h.includes('upper'));
+  const inferredCol = col((h) => h === 'inferred volume');
+  if (nameCol < 0 || dayTypeCol < 0 || dayPartCol < 0 || aadtCol < 0 || lowerCol < 0 || upperCol < 0) {
+    throw new Error('This doesn\'t look like a StreetLight Estimated AADT export — expected columns for Zone Name, Day Type, Day Part, an AADT volume, and Lower/Upper 95 Percent Prediction Interval.');
+  }
+
+  const zoneOrder = [];
+  const byZone = {};
+  for (let i = 1; i < lines.length; i++) {
+    const cells = parseCsvLine(lines[i]);
+    const name = cells[nameCol];
+    if (!name) continue;
+    const dayTypeIdx = leadingIndex(cells[dayTypeCol]);
+    const dayPartIdx = leadingIndex(cells[dayPartCol]);
+    if (dayTypeIdx == null || dayPartIdx == null) continue;
+    const vol = Number(cells[aadtCol]);
+    const lower = Number(cells[lowerCol]);
+    const upper = Number(cells[upperCol]);
+    if (!Number.isFinite(vol) || !Number.isFinite(lower) || !Number.isFinite(upper)) continue;
+    const inferred = inferredCol >= 0 ? /^true$/i.test(cells[inferredCol]) : false;
+    if (!byZone[name]) { byZone[name] = {}; zoneOrder.push(name); }
+    byZone[name][dayTypeIdx] = byZone[name][dayTypeIdx] || {};
+    byZone[name][dayTypeIdx][dayPartIdx] = { volume: vol, lower, upper, inferred };
+  }
+
+  if (!zoneOrder.length) {
+    throw new Error('No zone rows found in this file.');
+  }
+
+  return {
+    zones: zoneOrder.map((name) => ({ name, byDayType: byZone[name] })),
+  };
+}
+
 // Weekday = average of Monday(1)..Friday(5) rows that are actually present; Weekend =
 // average of Saturday(6)/Sunday(7). Returns null (not 0) when nothing matches, so callers can
 // show "no data" instead of a misleading zero.
