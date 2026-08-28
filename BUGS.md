@@ -8,6 +8,16 @@ Severity levels:
 
 ---
 
+## BUG-054 (082820261048)
+**Status:** Fixed (v3 · v1.1.4)
+**Severity:** Major (a shared-link visitor could reach the real app's home screen — breaks the "viewer mode never shows the home screen" guarantee `main.js` itself documents)
+**Found in:** `_currentScreen` module state (`main.js`) — defaulted to the string `'home-screen'` instead of `null`
+**Description:** User report: "theres a back button on the bottom of the page that redirects to the home page for the traffic app," seen on the shared viewer. `_currentScreen` defaulted to `'home-screen'` (matching what normal boot shows first) before any real `showScreen()` call. `showScreen()`'s "push the outgoing screen onto `_navHistory`" check only tests whether `_currentScreen` is truthy — not whether a screen was ever actually rendered. On the viewer/QA-input boot paths (`?share=<id>[&qa=1]`), home-screen is deliberately skipped entirely — but the very first real `showScreen('share-viewer-screen')` call still saw the phantom `'home-screen'` default as "the previous screen" and pushed it, making the "? Back" button appear (normally hidden until real nav history exists) and, if clicked, navigate a shared-link visitor into the real app's home screen.
+**Fix:** `_currentScreen` now defaults to `null`. `showScreen()`'s history-push check already treats a falsy `_currentScreen` as "nothing shown yet," so nothing gets pushed until a screen has genuinely been shown once — normal boot (which does call `showScreen('home-screen')` explicitly) is unaffected.
+**Verified live:** loaded a real shared viewer link fresh, confirmed `#app-back-btn`'s computed `display` is `none` (previously it showed and, per code, would have navigated to `home-screen` on click).
+
+---
+
 ## BUG-053 (082820261044)
 **Status:** Fixed (v3 · v1.1.3)
 **Severity:** Minor (misleading, not broken data — a control looked interactive but silently did nothing)

@@ -569,7 +569,17 @@ function renderSidebarParking() {
 
 // ── In-app navigation history ──
 const _navHistory = [];
-let _currentScreen = 'home-screen';
+// BUG-054: this used to default to 'home-screen', matching the screen normal boot shows
+// first — but showScreen()'s "push the previous screen onto history" check only looks at
+// whether _currentScreen is truthy, not whether it was ever actually rendered. On the
+// viewer/QA-input boot paths (?share=<id>[&qa=1]), home-screen is deliberately never shown
+// (see the boot-time routing below) — but the very first real showScreen() call still saw
+// this phantom 'home-screen' default as "the previous screen" and pushed it onto
+// _navHistory, making the "? Back" button appear and, if clicked, actually navigate a shared-
+// link visitor to the app's real home screen. null has no such meaning to showScreen() (its
+// `_currentScreen &&` check treats it as "nothing shown yet"), so nothing gets pushed until a
+// screen has genuinely been shown once.
+let _currentScreen = null;
 let _navLock = false;
 
 function switchTgTab(name, btn) {

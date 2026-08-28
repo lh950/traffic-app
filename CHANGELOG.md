@@ -1,5 +1,10 @@
 # Changelog
 
+## v3 · v1.1.4 — 2026-08-28
+
+### Fixed
+- BUG-054 (Major): a shared-link visitor could see a "? Back" button that navigated them into the real app's home screen — a phantom nav-history entry left over from `_currentScreen`'s default value, not anything they actually visited.
+
 ## v3 · v1.1.3 — 2026-08-28
 
 ### Fixed
