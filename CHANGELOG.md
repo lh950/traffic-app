@@ -1,5 +1,10 @@
 # Changelog
 
+## v3 · v1.0.1 — 2026-08-27
+
+### Changed
+- Reverted the trip-rate display headline back to the ITE-standard per-1000-GSF rate (v1.0.0 briefly switched it to the raw count for the actual facility square footage — switched back per user follow-up). Raw day/combined total stays as the secondary reference line.
+
 ## v3 · v1.0.0 — 2026-08-27
 
 **First stable release.** The app is now considered safe to share beyond solo use — see `DEVLOG.md` for what that milestone means and the pre-launch stress test that preceded it.
