@@ -1,5 +1,10 @@
 # Changelog
 
+## v3 · v1.2.1 — 2026-08-28
+
+### Added
+- StreetLight comparison: optional second import (Zone Prediction Interval CSV) adds a 95% confidence range to the all-day estimate — e.g. "92 (95% CI: 0–200)" — showing how uncertain StreetLight's own number actually is.
+
 ## v3 · v1.2.0 — 2026-08-28
 
 ### Added

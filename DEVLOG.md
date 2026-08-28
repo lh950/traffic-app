@@ -4,6 +4,16 @@ Key decisions, scope constraints, and architectural choices.
 
 ---
 
+## 2026-08-28 — v3 · v1.2.1 (StreetLight: 95% confidence range)
+
+Direct follow-up to v1.2.0, same session — user provided a second real StreetLight export type (`*_zone_prediction_interval.csv`, from a "Segment Analysis" — different analysis type, same site) alongside the Zone Activity file already supported. Traced and validated the same way (`parseStreetlightZonePredictionCsv` reproduced the real file's numbers exactly — 92 (95% CI: 0–200) for the Main Gate — before any UI was touched).
+
+This export carries a genuinely useful addition: a 95% prediction range (2.5th/97.5th percentile of StreetLight's own error distribution) around its volume estimate — a way to show how uncertain StreetLight's own number actually is, not just a bare figure. Kept as a separate, optional import (own button, own state `tripgenStreetlightPredictionIntervals`) rather than merged into the main comparison — it's a separate file the user may or may not have, and a real sample only carried the All-Days/All-Day bucket (coarser than the AM/Midday/PM breakdown the main comparison uses), so it's shown as one extra line per location card rather than woven into the per-window rows.
+
+**Also reviewed and declined**: the same StreetLight folder included `sa_all.csv` ("Segment Analysis" — speed, travel time, Free Flow Factor/congestion, VMT, VHD per road segment). Assessed against `CLAUDE.md`'s own scope section and declined to build anything against it — this is engineering-analysis territory (adjacent to LOS/capacity/delay, which the scope section explicitly flags to not reproduce here), and this app has no speed/congestion feature of any kind to attach it to. Told the user directly rather than building a speculative feature nobody asked for.
+
+---
+
 ## 2026-08-28 — v3 · v1.2.0 (StreetLight comparison — Trip Gen)
 
 **What it is.** The Trip Gen counterpart to the existing intersection TMC-comparison feature: a read-only, side-by-side reference against a StreetLight Insight "Zone Activity" export, imported and mapped per location. Same non-negotiable framing as the intersection version — StreetLight sells GPS-derived statistical PROJECTIONS, never real counts, never merged into or used to correct `entry.days[].parsed`. Direct user request: "not meant to be a replacement but allow for side by side comparison."

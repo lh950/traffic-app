@@ -1435,19 +1435,33 @@ async function slCompareLocationCardHtml(entry, zone, entries, peakWindows, ctx)
   };
   const weekdayHtml = await rowsFor('weekday');
   const weekendHtml = await rowsFor('weekend');
+
+  // Optional companion file (Zone Prediction Interval) — same zone-name matching as the main
+  // comparison, but its own separate import since it's a separate StreetLight export a user
+  // may or may not have. A real sample export only carried the All-Days/All-Day bucket, so
+  // this is shown once per card (not per dayType) rather than woven into the rows above.
+  const predictionZones = ctx.streetlightPredictionIntervals?.zones || [];
+  const predictionZone = predictionZones.find((z) => z.name === zone.name);
+  const predictionAllDay = predictionZone?.byDayType?.[0]?.[0];
+  const predictionHtml = predictionAllDay
+    ? `<div class="stat-detail" style="margin-top:8px">StreetLight's confidence range (all days, all day): ${fmt(Math.round(predictionAllDay.volume))} <span style="color:var(--text3)">(95% CI: ${fmt(Math.round(predictionAllDay.lower))}–${fmt(Math.round(predictionAllDay.upper))})</span></div>`
+    : '';
+
   return `
     <div class="card" style="margin-bottom:10px" data-sl-loc="${entry.id}">
       <h3 style="margin:0 0 4px">${escapeHtml(entry.locationLabel)} <span style="font-weight:400;color:var(--text3);font-size:12px">— StreetLight zone: ${escapeHtml(zone.name)}</span></h3>
       ${weekdayHtml || ''}
       ${weekendHtml || ''}
       ${!weekdayHtml && !weekendHtml ? '<div class="stat-detail">No counted day for this location matches a day type StreetLight has data for.</div>' : ''}
+      ${predictionHtml}
     </div>
   `;
 }
 
 async function streetlightCompareSectionHtml(entries, ctx) {
-  const { streetlightComparison, streetlightZoneMap, peakWindows, viewerMode } = ctx;
+  const { streetlightComparison, streetlightZoneMap, streetlightPredictionIntervals, peakWindows, viewerMode } = ctx;
   const zones = streetlightComparison?.zones || [];
+  const predictionZones = streetlightPredictionIntervals?.zones || [];
   if (!zones.length && viewerMode) return ''; // nothing imported — don't show an empty section to a viewer
   const canEdit = !viewerMode;
 
@@ -1488,6 +1502,13 @@ async function streetlightCompareSectionHtml(entries, ctx) {
         </div>
         <div class="stat-detail" style="margin-bottom:8px">${streetlightComparison?.sourceFileName ? `Imported <strong style="color:var(--text)">${escapeHtml(streetlightComparison.sourceFileName)}</strong> (${zones.length} zone${zones.length === 1 ? '' : 's'}) on ${new Date(streetlightComparison.importedAt).toLocaleString()}.` : 'No file imported yet — use the button above to load a StreetLight "Zone Activity" export (*_zone_odg_all.csv, found in the analysis\'s "Zone Activity" folder — not the O-D file at the project root).'}</div>
         <div data-sl-import-error style="color:var(--bad-text);font-size:12px;margin-bottom:8px"></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;padding-top:8px;border-top:.5px dashed var(--border2)">
+          <div class="stat-detail" style="margin-bottom:0">Optional — adds a 95% confidence range to the all-day figure above.</div>
+          <button type="button" data-sl-predict-import-btn style="font-size:12px">Import Prediction Interval CSV…</button>
+          <input type="file" accept=".csv" data-sl-predict-import-input style="display:none">
+        </div>
+        <div class="stat-detail" style="margin-bottom:8px">${streetlightPredictionIntervals?.sourceFileName ? `Imported <strong style="color:var(--text)">${escapeHtml(streetlightPredictionIntervals.sourceFileName)}</strong> (${predictionZones.length} zone${predictionZones.length === 1 ? '' : 's'}) on ${new Date(streetlightPredictionIntervals.importedAt).toLocaleString()}.` : 'No prediction-interval file imported yet.'}</div>
+        <div data-sl-predict-import-error style="color:var(--bad-text);font-size:12px;margin-bottom:8px"></div>
         ${zones.length ? `<div class="stat-detail" style="margin-bottom:6px">Match each location to its StreetLight zone:</div>${mappingRowsHtml}` : ''}
       </div>` : ''}
       ${cardsHtml || (zones.length ? '<div class="stat-detail">No locations mapped to a StreetLight zone yet.</div>' : '')}
@@ -1808,6 +1829,21 @@ export async function renderTripGenSection(container, entries, ctx) {
     sel.addEventListener('change', () => {
       ctx.onSetStreetlightZoneMap?.(Number(sel.dataset.slZoneMap), sel.value);
     });
+  });
+  container.querySelector('[data-sl-predict-import-btn]')?.addEventListener('click', () => {
+    container.querySelector('[data-sl-predict-import-input]')?.click();
+  });
+  container.querySelector('[data-sl-predict-import-input]')?.addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    const errEl = container.querySelector('[data-sl-predict-import-error]');
+    if (errEl) errEl.textContent = '';
+    try {
+      await ctx.onImportStreetlightPredictionCsv?.(file);
+    } catch (err) {
+      if (errEl) errEl.textContent = `Import failed: ${err.message}`;
+    }
   });
 
   // 'change' (commits on blur/Enter), not 'input' — these all trigger a full re-render via

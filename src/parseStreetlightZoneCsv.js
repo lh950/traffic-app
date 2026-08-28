@@ -93,6 +93,56 @@ export function parseStreetlightZoneCsv(text) {
   };
 }
 
+// Parser for a StreetLight Insight "Zone Prediction Interval" export
+// (`*_zone_prediction_interval.csv`) — same Zone Activity volume concept as
+// parseStreetlightZoneCsv() above, but adds a 95% prediction range (2.5th/97.5th percentile of
+// StreetLight's own error distribution) around each estimate. A real sample export only had
+// rows for "All Days" / "All Day" (no per-weekday or per-Day-Part breakdown) — this parser
+// doesn't assume that's always true (stores whatever (dayType, dayPart) rows actually exist,
+// same keying as the Zone Activity parser), but callers should expect the all-days/all-day
+// bucket to usually be the only one present.
+export function parseStreetlightZonePredictionCsv(text) {
+  const lines = text.split(/\r?\n/).filter((l) => l.trim().length);
+  if (!lines.length) throw new Error('Empty file.');
+  const headers = parseCsvLine(lines[0]).map((h) => h.toLowerCase());
+  const col = (predicate) => headers.findIndex(predicate);
+  const nameCol = col((h) => h === 'zone name');
+  const dayTypeCol = col((h) => h === 'day type');
+  const dayPartCol = col((h) => h === 'day part');
+  const volCol = col((h) => h.includes('zone traffic'));
+  const lowerCol = col((h) => h.includes('lower'));
+  const upperCol = col((h) => h.includes('upper'));
+  if (nameCol < 0 || dayTypeCol < 0 || dayPartCol < 0 || volCol < 0 || lowerCol < 0 || upperCol < 0) {
+    throw new Error('This doesn\'t look like a StreetLight Zone Prediction Interval export — expected columns for Zone Name, Day Type, Day Part, a Zone Traffic volume, and Lower/Upper 95 Prediction Range.');
+  }
+
+  const zoneOrder = [];
+  const byZone = {};
+  for (let i = 1; i < lines.length; i++) {
+    const cells = parseCsvLine(lines[i]);
+    const name = cells[nameCol];
+    if (!name) continue;
+    const dayTypeIdx = leadingIndex(cells[dayTypeCol]);
+    const dayPartIdx = leadingIndex(cells[dayPartCol]);
+    if (dayTypeIdx == null || dayPartIdx == null) continue;
+    const vol = Number(cells[volCol]);
+    const lower = Number(cells[lowerCol]);
+    const upper = Number(cells[upperCol]);
+    if (!Number.isFinite(vol) || !Number.isFinite(lower) || !Number.isFinite(upper)) continue;
+    if (!byZone[name]) { byZone[name] = {}; zoneOrder.push(name); }
+    byZone[name][dayTypeIdx] = byZone[name][dayTypeIdx] || {};
+    byZone[name][dayTypeIdx][dayPartIdx] = { volume: vol, lower, upper };
+  }
+
+  if (!zoneOrder.length) {
+    throw new Error('No zone rows found in this file.');
+  }
+
+  return {
+    zones: zoneOrder.map((name) => ({ name, byDayType: byZone[name] })),
+  };
+}
+
 // Weekday = average of Monday(1)..Friday(5) rows that are actually present; Weekend =
 // average of Saturday(6)/Sunday(7). Returns null (not 0) when nothing matches, so callers can
 // show "no data" instead of a misleading zero.
