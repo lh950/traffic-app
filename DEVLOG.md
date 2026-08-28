@@ -4,6 +4,16 @@ Key decisions, scope constraints, and architectural choices.
 
 ---
 
+## 2026-08-28 — v3 · v1.2.3 (StreetLight Trip Gen comparison — hidden, not removed)
+
+After building and live-testing the full three-file StreetLight comparison (v1.2.0–v1.2.2) against a real Trip Gen site, user asked directly: "is there actually anything useful in this?" Honest answer, from the actual imported numbers, not a hypothetical: no, not for typical Trip Gen sites. StreetLight's own 95% confidence intervals were too wide to be a meaningful cross-check at the volume of a single driveway/access point — e.g. Logan St Parking's AADT estimate was 8 with a 95% CI of 0–100, a range 12x the point estimate. `sample_size.csv` showed under 1,000 total sampled trips across the whole multi-month analysis, across 3 zones — thin by design, not a fluke. This isn't specific to this one FedEx site: StreetLight's GPS-probe methodology scales with roadway volume, so it's structurally weaker at low-volume individual site driveways than at the higher-volume intersections/corridors the original TMC comparison targets. Confirmed as a general pattern for Trip Gen sites, not a one-off, before deciding what to do about it.
+
+User's call: "then lets remove streetlight from trip gen" — then, mid-action (after the parser file had already been deleted), corrected to "or hide it rather, in case things change." Restored the deleted file and switched to a single-flag hide instead: `TG_STREETLIGHT_ENABLED = false` in `tripgenSection.js`, checked at the top of `streetlightCompareSectionHtml()` (the one function every render path — owner Analysis screen and the shared-viewer tab — funnels through). Every other piece (the three parsers, all persisted state, import handlers, zone-mapping) stays fully intact and functional; a project that already has StreetLight data imported keeps it, just not displayed, and flipping the flag back to `true` is the only change needed to bring the whole feature back if a higher-volume site or better StreetLight data density makes it worth revisiting.
+
+Verified live: loaded a fixture project with a pre-existing (pre-flag) `streetlightComparison` import already in its data, confirmed no StreetLight heading, card, or any mention of "StreetLight" anywhere inside `#analyze-root` — the hide is complete, not a partial one that still leaks a stray label somewhere.
+
+---
+
 ## 2026-08-28 — v3 · v1.2.2 (StreetLight: Estimated AADT)
 
 Third StreetLight export type added this session, same pattern each time: user provides a real export from a different StreetLight analysis type against the same site, traced and validated against the actual file before any UI work (`parseStreetlightAadtCsv` reproduced 402 (95% CI: 200–800) for the Main Gate exactly).

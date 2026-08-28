@@ -1,5 +1,10 @@
 # Changelog
 
+## v3 · v1.2.3 — 2026-08-28
+
+### Changed
+- StreetLight comparison hidden from Trip Gen (owner Analysis screen and shared viewer) — StreetLight's own confidence intervals turned out too wide to be a meaningful cross-check at typical Trip Gen site volumes (a single driveway/access point). Not removed: the import/parsing/persistence code is untouched and a single flag brings it back if that changes for a higher-volume site. See `DEVLOG.md`.
+
 ## v3 · v1.2.2 — 2026-08-28
 
 ### Added

@@ -1386,6 +1386,20 @@ function customWindowsSectionHtml(entries, customWindows, viewerMode = false) {
 // window's actual time range stays visible even if the position-based pairing is imprecise.
 const SL_DAY_PART_BY_INDEX = [SL_DAY_PART.PEAK_AM, SL_DAY_PART.MID_DAY, SL_DAY_PART.PEAK_PM];
 
+// Hidden, not removed (direct user decision, 2026-08-28): after building and live-testing this
+// against three real StreetLight export types for an actual Trip Gen site, the confidence
+// intervals StreetLight itself reports were too wide to be a meaningful cross-check at typical
+// Trip Gen site volumes (a single driveway/access point) — e.g. an AADT estimate of 8 with a
+// 95% CI of 0-100. StreetLight's GPS-probe methodology is built for higher-volume
+// roadways/corridors (where the original intersection TMC comparison already lives), not
+// individual low-volume site driveways. Full writeup in DEVLOG.md. Flip this back to true (and
+// nothing else) to bring the whole section back if StreetLight's data density improves, or for
+// a high-enough-volume site where the comparison might actually say something — every
+// import/parse/persist/render code path stays intact and functional, just not shown; a
+// project that already had data imported before this flag flipped keeps that data (it's just
+// not displayed until re-enabled), not silently discarded.
+const TG_STREETLIGHT_ENABLED = false;
+
 // Manual side: this location's own peak-hour volume for each of its dayType's peak windows,
 // averaged across every included day of that dayType (most locations have exactly one, but a
 // location counted on more than one day of the same type — see "+ add another day" — averages
@@ -1470,6 +1484,7 @@ async function slCompareLocationCardHtml(entry, zone, entries, peakWindows, ctx)
 }
 
 async function streetlightCompareSectionHtml(entries, ctx) {
+  if (!TG_STREETLIGHT_ENABLED) return '';
   const { streetlightComparison, streetlightZoneMap, streetlightPredictionIntervals, streetlightAadt, peakWindows, viewerMode } = ctx;
   const zones = streetlightComparison?.zones || [];
   const predictionZones = streetlightPredictionIntervals?.zones || [];
