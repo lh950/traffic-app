@@ -8,6 +8,16 @@ Severity levels:
 
 ---
 
+## BUG-051 (082820260957)
+**Status:** Fixed (v3 · v1.1.0, found live-testing the new QA-input shareable link feature)
+**Severity:** Major (a QA reviewer's browser gets permanently stuck with no way to retry or recover — the whole point of the QA-input link is a hands-off submit path a non-technical second counter can use unattended)
+**Found in:** the `data-qaqc-begin` finish callback's `isQaInputMode` branch (`src/main.js`)
+**Description:** The QA-input link's recount-finish path calls `await submitQaRecount(...)` to push the recount to Firestore, with the finish button's label switched to "submitting…" first. That `await` had no `try/catch` around it. Live-tested against a real (rules-rejecting) Firestore call, the promise rejected with `FirebaseError: permission-denied` — the button was left reading "submitting…" forever, with no error shown and no way to retry short of losing the recount and starting over. Any real-world submission failure (offline, a flaky connection, expired auth) would hit the same dead end, and a QA reviewer using this link has no console to see the underlying error.
+**Fix:** Wrapped the submit call in try/catch — on failure, the button resets to "✓ finish recount" and re-enables, a visible message ("Could not submit — check your connection and try again.") appears under it, and an alert names the underlying error, so the reviewer can just click finish again once reconnected. On success, a confirmation banner ("✓ Recount submitted — thank you.") is now shown directly on the QA/QC screen itself, not via `setSaveState()` (which targets the sidebar's save indicator — invisible for the whole QA-input session since the sidebar never renders there).
+**Verified live:** loaded a fixture Trip Gen project into QA-input mode (a temporary `window.__debugEnterQaInputMode` debug hook, removed before commit), began and finished a recount for real — confirmed the actual Firestore write attempt (network request, permission-denied rejection) and confirmed the button/sub-text correctly reset afterward rather than sticking on "submitting…".
+
+---
+
 ## BUG-050 (082720261645)
 **Status:** Fixed (v3 · v1.0.0, found by a dedicated pre-launch stress-test agent, per explicit instruction to stress-test the app before declaring it stable)
 **Severity:** Critical (same shape as BUG-047/048 — real count data silently double-counted with zero error, zero visible indicator, via a plausible field-interruption workflow)

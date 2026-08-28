@@ -4,6 +4,33 @@ Key decisions, scope constraints, and architectural choices.
 
 ---
 
+## 2026-08-28 — v3 · v1.1.0 (QA-input shareable link — Trip Gen only)
+
+**What it is.** A second link (`?share=<id>&qa=1`, same shared doc as the existing read-only viewer) that a second-counter reviewer can use to submit QA/QC recounts remotely without ever being able to touch a location's real count data — not just UI-hidden, structurally incapable of it. Follows directly from the user's question this session: "is there a way to share a link that only provides the QA input."
+
+**Structural isolation, not UI hiding.** Submissions go into a brand-new Firestore sub-collection, `sharedProjects/{shareId}/qaSubmissions/{submissionId}`, append-only (`allow update, delete: if false` in the security rules — see below). `submitQaRecount()`/`fetchQaSubmissions()` (`src/share.js`) never touch the parent `sharedProjects/{shareId}` document at all — there is no code path from the QA-input write function into `entry.days`. The owner's own full-project write (`pushSharedUpdate`) stays gated on the `ownerToken` secret as before; a QA reviewer's browser needs only anonymous auth, the same "possession of the link is the credential" trust model the read-only viewer already uses.
+
+**App-side flow:**
+- Boot-time `?share=X&qa=1` routes to `enterQaInputMode()` (parallel to the existing `enterViewerMode()`), which sets `isQaInputMode`/`qaInputShareId` before any other state changes and lands directly on a restricted `tripgen-qaqc-screen` — never the read-only viewer, never the normal workspace shell (no sidebar, `enterWorkspace()` is never called on this path — explicitly stripped as defense-in-depth too, in case `loadProject(..., {qaInputMode:true})` is ever reached from a tab that already had an owner session's sidebar showing).
+- The QA/QC screen itself sheds every owner-only control in this mode: no "× remove window," no "+ add time period," no per-recount delete, no combined-total/per-classification score badges or "explain this score" link (a QA reviewer only ever sees the windows the owner already set up, and only ever adds a count — never edits scoring or window structure), and the "back to setup"/"view analysis"/"check for QA submissions" buttons are hidden outright rather than trusted to the `isQaInputMode` write-guards alone to make wandering there harmless.
+- The recount-finish path branches on `isQaInputMode`: instead of pushing into the local `tripgenQaqc` state (which a QA reviewer's browser never even has a meaningful copy of — the shared doc doesn't carry other reviewers' pending submissions), it calls `submitQaRecount()` and shows a confirmation banner directly on the QA/QC screen (see BUG-051 — `setSaveState()` targets the sidebar, which never renders in this mode).
+- Owner side: `renderShareWidgets()` grows a second "Copy QA-input link" button (Trip Gen projects only, same enabled share) alongside the existing "Copy link." A new "check for QA submissions" button (owner-mode only) calls `fetchQaSubmissions()` and merges anything not already seen — dedup via a new persisted `tripgenMergedQaSubmissionIds` list (round-trips through `serializeCurrentProject()`/`loadProject()` like `tripgenQaqc` itself) — tagging each imported recount `source: 'remote-qa'` so it's visually distinguishable (shown as "(remote)" next to its entered timestamp) from one entered locally.
+
+**Security rules (published manually, not tracked in this repo — same as the original sharing rules).** Nest inside the existing `match /sharedProjects/{shareId}` block:
+```
+match /qaSubmissions/{submissionId} {
+  allow read: if true;
+  allow create: if request.auth != null;
+  allow update, delete: if false;
+}
+```
+
+**BUG-051, found live-testing this feature** — the submit path had no error handling; a failed write (tested against the real, still-unpublished rules — got a real `permission-denied`) left the reviewer stuck on "submitting…" forever with no way to retry. Fixed with a try/catch that resets the button and shows a retry message. Full writeup in `BUGS.md`.
+
+**Not yet done:** the security rules above are sketched here but not yet published to the Firebase Console — the QA-input link will not actually accept submissions (every write will `permission-denied`, as confirmed live) until the user pastes this into the console themselves, same manual step the original sharing feature needed.
+
+---
+
 ## 2026-08-27 — v3 · v1.0.0 (first stable declaration — pre-launch stress test, one more real data-integrity bug found and fixed, "+ add another day", trip-rate display change)
 
 **The milestone itself.** User: "let's finish up any cleaning up, launch this as a stable build, and then go into this QA work" — confirmed explicitly (asked directly, given the stakes) that this means the versioning scheme's own "safe to hand to other people" gate (see `feedback_versioning`/`project_data_stability_gate` memory) is now satisfied. MAJOR moves off `0` for the first time since the scheme was designed. This is the user's own call, not something declared unilaterally — see `CLAUDE.md`'s Versioning scheme section.

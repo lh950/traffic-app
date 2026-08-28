@@ -13,6 +13,15 @@ let projectUUID = null;
 // call them" — see the guards on window.scheduleAutosave, addToRecents, flushPendingAutosave,
 // persistAreaStudySnapshotsOnly, and clearAutosave below.
 let isViewerMode = false;
+// QA-input mode (separate from isViewerMode) — a second-counter reviewer's browser, reached
+// via a distinct `?share=<id>&qa=1` link. Read-only for everything except submitting QA/QC
+// recounts (see submitQaRecount() in share.js): structurally incapable of touching a
+// location's real count data, since the only Firestore path this mode's writes ever reach is
+// a separate append-only sub-collection, never the project document itself. Blocks local
+// persistence exactly like isViewerMode (see window.scheduleAutosave's guard) — a QA
+// reviewer's own browser must never write to its own localStorage either.
+let isQaInputMode = false;
+let qaInputShareId = null;
 // shareInfo describes THIS project's own shareable link, if sharing is enabled for it.
 // Round-trips through serializeCurrentProject()/loadProject() like any other project field.
 let shareInfo = { shareId: null, ownerToken: null, enabled: false };
@@ -104,6 +113,7 @@ import {
 import {
   enableSharing as fbEnableSharing, disableSharing as fbDisableSharing,
   fetchSharedProject, pushSharedUpdate, setViewerMode as setShareViewerMode,
+  submitQaRecount, fetchQaSubmissions,
 } from './share.js';
 import { pushBackupSnapshot, listBackups, getBackup } from './backup.js';
 
@@ -650,14 +660,23 @@ function renderShareWidgets() {
     if (!projectType || isViewerMode) { w.innerHTML = ''; return; }
     if (shareInfo.enabled && shareInfo.shareId) {
       const url = `${location.origin}${location.pathname}?share=${shareInfo.shareId}`;
+      const qaUrl = `${url}&qa=1`;
+      // QA-input link is Trip Gen-only (enterQaInputMode() itself also refuses any other
+      // projectType) — no separate "enable" step, it's the same shared doc, just a second URL
+      // that routes into the restricted submit-only screen instead of the read-only viewer.
       w.innerHTML = `
         <span style="font-size:11px;color:var(--text3)">Sharing is on —</span>
         <button class="share-copy-btn" style="font-size:12px" title="${url}">Copy link</button>
+        ${projectType === 'tripgen' ? `<button class="share-qa-copy-btn" style="font-size:12px" title="${qaUrl}">Copy QA-input link</button>` : ''}
         <button class="share-disable-btn" style="font-size:12px">Disable sharing</button>`;
       w.querySelector('.share-copy-btn').onclick = () => {
         navigator.clipboard?.writeText(url);
         setSaveState('Link copied', 1500);
       };
+      w.querySelector('.share-qa-copy-btn')?.addEventListener('click', () => {
+        navigator.clipboard?.writeText(qaUrl);
+        setSaveState('QA-input link copied', 1500);
+      });
       w.querySelector('.share-disable-btn').onclick = handleDisableSharing;
     } else {
       w.innerHTML = `<button class="share-enable-btn" style="font-size:12px">Enable sharing ↗</button>`;
@@ -1336,7 +1355,10 @@ document.getElementById('sidebar-back-btn')?.addEventListener('click', showHome)
 // Read-only shared link (?share=<id>) — intercept before normal boot. Viewer mode never
 // shows the home screen, sidebar, or any setup/counting screen; see enterViewerMode().
 const _shareId = new URLSearchParams(location.search).get('share');
-if (_shareId) {
+const _isQaLink = new URLSearchParams(location.search).get('qa') === '1';
+if (_shareId && _isQaLink) {
+  enterQaInputMode(_shareId);
+} else if (_shareId) {
   enterViewerMode(_shareId);
 } else {
   showScreen('home-screen');
@@ -2455,6 +2477,7 @@ document.getElementById('btn-new-tripgen')?.addEventListener('click', () => {
   for (const k in tripgenQaqcWindows) delete tripgenQaqcWindows[k];
   tripgenQaqcWindowNextId = 1;
   for (const k in tripgenQaqc) delete tripgenQaqc[k];
+  tripgenMergedQaSubmissionIds = [];
   // See home-btn-tripgen's handler above — classifications are project-wide config now and
   // must be cleared explicitly for a genuinely new project.
   tgResetClassifications();
@@ -5433,6 +5456,7 @@ function downloadJSON(obj, filename) {
 // 'area' branch comment).
 function loadProject(proj, opts = {}) {
   const viewerMode = !!opts.viewerMode;
+  const qaInputMode = !!opts.qaInputMode; // Trip Gen only — see enterQaInputMode()
   projectUUID = proj.uuid || crypto.randomUUID();
   // Reset-before-restore (BUG-027 pattern) — a project with no share of its own must never
   // inherit whatever shareInfo the previously loaded project left in memory.
@@ -5472,6 +5496,7 @@ function loadProject(proj, opts = {}) {
     // fix shape as intersectionQaqc's own reset-before-restore).
     for (const k in tripgenQaqc) delete tripgenQaqc[k];
     Object.assign(tripgenQaqc, proj.qaqc || {});
+    tripgenMergedQaSubmissionIds = [...(proj.qaqcMergedSubmissionIds || [])];
     tripgenEntries.length = 0;
     tripgenEntries.push(...(proj.entries || []));
     // BUG-042: without this resync, tripgenNextId stays at its module-init value of 1 on every
@@ -5521,6 +5546,32 @@ function loadProject(proj, opts = {}) {
     if (proj.qaqcReviewerName) { const el = document.getElementById('qaqc-reviewer-name'); if (el) el.value = proj.qaqcReviewerName; }
     if (proj.qaqcReviewDate) { const el = document.getElementById('qaqc-review-date'); if (el) el.value = proj.qaqcReviewDate; }
     projectType = 'tripgen';
+    // Checked BEFORE viewerMode — a QA-input link also sets viewerMode:true (blocks local
+    // persistence the same way a plain viewer does) but routes to the restricted QA/QC screen
+    // instead of the read-only viewer.
+    if (qaInputMode) {
+      // Defense in depth: the real boot-time entry point (enterQaInputMode, called before any
+      // owner project ever loads) never triggers enterWorkspace() in the first place, so this
+      // is normally a no-op. But nothing here structurally prevents loadProject from being
+      // called with qaInputMode:true in a tab that already has an owner session's sidebar
+      // showing, so strip it explicitly rather than rely on call-order alone.
+      document.body.classList.remove('workspace-mode');
+      document.getElementById('app-sidebar')?.classList.remove('visible');
+      // Neither button leads anywhere safe for a QA reviewer: "back to setup" reaches the
+      // real locations list (edit/delete/recount controls over primary count data) and
+      // "view analysis" reaches the full project's analysis tables — both far beyond what a
+      // QA-input link is supposed to expose. Hide them outright rather than trust the
+      // isQaInputMode write-guards alone to make wandering there harmless.
+      const toSetupBtn = document.getElementById('btn-qaqc-to-setup');
+      const toAnalyzeBtn = document.getElementById('btn-qaqc-to-analyze');
+      const checkSubmissionsBtn = document.getElementById('btn-qaqc-check-submissions');
+      if (toSetupBtn) toSetupBtn.style.display = 'none';
+      if (toAnalyzeBtn) toAnalyzeBtn.style.display = 'none';
+      if (checkSubmissionsBtn) checkSubmissionsBtn.style.display = 'none';
+      showScreen('tripgen-qaqc-screen');
+      renderQaqcScreen();
+      return;
+    }
     if (viewerMode) { renderViewerContent(proj); return; }
     enterWorkspace();
     setSidebarMeta(proj.projectInfo?.projectName || 'Trip generation', proj.siteInfo?.location || '');
@@ -5719,6 +5770,47 @@ async function enterViewerMode(shareId) {
   }
 }
 
+// ═══════════════════════════════════════════
+// QA-INPUT LINK (?share=<id>&qa=1) — Trip Gen only
+// ═══════════════════════════════════════════
+// A second-counter reviewer's entry point — distinct from enterViewerMode() above. Fetches
+// the same shared doc (no separate document type — a QA-input link and a read-only viewer
+// link both point at the SAME sharedProjects/{shareId}, just rendered differently) and
+// hydrates via loadProject's qaInputMode path, which routes straight into the restricted
+// QA/QC screen instead of the read-only viewer. isQaInputMode is set FIRST, before any state
+// changes, same reasoning as isViewerMode above. Also sets isViewerMode's own structural
+// no-local-write guard (setShareViewerMode(true) in share.js) — a QA reviewer's browser must
+// never push a full-project update or enable/disable sharing either, only ever
+// submitQaRecount(), which isn't gated on that flag at all (see share.js's own comment on it).
+async function enterQaInputMode(shareId) {
+  isQaInputMode = true;
+  qaInputShareId = shareId;
+  setShareViewerMode(true);
+  showScreen('share-viewer-screen');
+  const content = document.getElementById('share-viewer-content');
+  if (content) content.innerHTML = '<div class="stat-detail">Loading shared project…</div>';
+  let data = null;
+  try {
+    data = await fetchSharedProject(shareId);
+  } catch (_) {
+    if (content) content.innerHTML = '<div class="stat-detail">Could not load this shared link. Check your connection and try again.</div>';
+    return;
+  }
+  if (!data) {
+    if (content) content.innerHTML = '<div class="stat-detail">This shared link is no longer available. The owner may have disabled sharing.</div>';
+    return;
+  }
+  if (data.projectType !== 'tripgen') {
+    if (content) content.innerHTML = '<div class="stat-detail">QA-input links are only available for Trip Gen projects.</div>';
+    return;
+  }
+  try {
+    loadProject(data, { viewerMode: true, qaInputMode: true });
+  } catch (_) {
+    if (content) content.innerHTML = '<div class="stat-detail">Could not display this shared project.</div>';
+  }
+}
+
 // Renders the read-only analysis view for whichever project type was just hydrated into
 // live state by loadProject(proj, {viewerMode:true}) — reusing each type's own real
 // analysis-rendering entry point rather than a parallel bespoke summary layout (decision #3).
@@ -5851,6 +5943,7 @@ function serializeCurrentProject() {
       peakWindows: JSON.parse(JSON.stringify(tripgenPeakWindows)),
       customWindows: JSON.parse(JSON.stringify(tripgenCustomWindows)),
       qaqc: { ...tripgenQaqc },
+      qaqcMergedSubmissionIds: [...tripgenMergedQaSubmissionIds],
       qaqcWindows: JSON.parse(JSON.stringify(tripgenQaqcWindows)),
       qaqcReviewerName: document.getElementById('qaqc-reviewer-name')?.value || '',
       qaqcReviewDate: document.getElementById('qaqc-review-date')?.value || '',
@@ -6097,7 +6190,7 @@ document.getElementById('export-reminder-export')?.addEventListener('click', () 
 });
 
 window.scheduleAutosave = function () {
-  if (isViewerMode) return; // structural guard — a viewer's browser must never write locally
+  if (isViewerMode || isQaInputMode) return; // structural guard — neither a viewer's nor a QA reviewer's browser may write locally
   if (!projectType) return;
   setSaveState('Saving…');
   clearTimeout(_autosaveTimer);
@@ -6525,6 +6618,9 @@ const tripgenSiteInfo = { location: '', landUseType: '', gsf: '', lotSf: '', par
 const tripgenCategoryMap = {};
 const tripgenPeakWindows = { weekday: DEFAULT_PEAK_WINDOWS.weekday.map((w) => ({ ...w })), weekend: DEFAULT_PEAK_WINDOWS.weekend.map((w) => ({ ...w })) };
 const tripgenQaqc = {};
+// Ids of qaSubmissions docs (share.js) already pulled into tripgenQaqc via "check for QA
+// submissions" — persisted so re-checking later doesn't re-import the same recount twice.
+let tripgenMergedQaSubmissionIds = [];
 // QA/QC's own time periods to recount — fully user-defined (v3.47-alpha.4), decoupled from
 // tripgenPeakWindows above (which stays fixed AM/Midday/PM for the separate "Peak periods"
 // chart). Keyed by qaqcWindowsKey(entryId, sheetName) -> [{id, label, startMin, endMin}].
@@ -7266,6 +7362,39 @@ function inferIntervalMinutes(intervals) {
 }
 let tgQaqcNextId = 1;
 
+// Owner-side pull for the QA-input link (share.js's submitQaRecount/fetchQaSubmissions):
+// remote submissions land in Firestore only, never in this browser's tripgenQaqc, until the
+// owner explicitly asks to check. Dedups against tripgenMergedQaSubmissionIds so re-checking
+// never double-imports the same recount, and tags each imported recount with
+// `source: 'remote-qa'` so it's visually distinguishable from one entered locally.
+async function handleCheckQaSubmissions() {
+  if (!shareInfo.shareId) { alert('Enable sharing first to get a QA-input link.'); return; }
+  const btn = document.getElementById('btn-qaqc-check-submissions');
+  if (btn) { btn.disabled = true; btn.textContent = 'checking…'; }
+  try {
+    const submissions = await fetchQaSubmissions(shareInfo.shareId);
+    const fresh = submissions.filter((s) => !tripgenMergedQaSubmissionIds.includes(s.id));
+    for (const s of fresh) {
+      const key = qaqcPeakKey(s.entryId, s.sheetName, s.windowId);
+      tripgenQaqc[key] = tripgenQaqc[key] || { recounts: [] };
+      tripgenQaqc[key].recounts.push({
+        id: tgQaqcNextId++, classifications: s.classifications, cfg: s.cfg, parsed: s.parsed,
+        enteredAt: s.enteredAt, source: 'remote-qa',
+      });
+      tripgenMergedQaSubmissionIds.push(s.id);
+    }
+    if (fresh.length) {
+      window.scheduleAutosave?.();
+      renderQaqcScreen();
+    }
+    setSaveState(fresh.length ? `Imported ${fresh.length} QA submission${fresh.length === 1 ? '' : 's'}` : 'No new QA submissions', 2500);
+  } catch (e) {
+    alert('Could not check for QA submissions. Check your connection and try again.\n\n' + (e?.message || e));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'check for QA submissions'; }
+  }
+}
+document.getElementById('btn-qaqc-check-submissions')?.addEventListener('click', handleCheckQaSubmissions);
 document.getElementById('btn-qaqc-to-setup')?.addEventListener('click', () => showScreen('tripgen-setup-screen'));
 document.getElementById('btn-qaqc-to-analyze')?.addEventListener('click', () => goToTripgenAnalyze());
 document.getElementById('btn-analyze-to-qaqc')?.addEventListener('click', () => { showScreen('tripgen-qaqc-screen'); renderQaqcScreen(); });
@@ -7368,24 +7497,25 @@ async function renderQaqcScreen() {
         windowCards.push(`
           <div class="card" style="margin-bottom:14px" data-qaqc-card="${key}">
             <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px">
-              <h3 style="margin:0">${escapeHtmlMain(w.label)} <span style="font-weight:400;color:var(--text3);font-size:12px">(${minToTimeStr(w.startMin)}–${minToTimeStr(w.endMin)})</span> ${alignedRecounts.length ? perClassSummaryBadge(perClassResults) : ''}</h3>
-              <button type="button" class="no-print" data-qaqc-remove-window="${winKey}" data-qaqc-remove-window-id="${w.id}" style="font-size:11px;flex-shrink:0">× remove window</button>
+              <h3 style="margin:0">${escapeHtmlMain(w.label)} <span style="font-weight:400;color:var(--text3);font-size:12px">(${minToTimeStr(w.startMin)}–${minToTimeStr(w.endMin)})</span> ${!isQaInputMode && alignedRecounts.length ? perClassSummaryBadge(perClassResults) : ''}</h3>
+              ${isQaInputMode ? '' : `<button type="button" class="no-print" data-qaqc-remove-window="${winKey}" data-qaqc-remove-window-id="${w.id}" style="font-size:11px;flex-shrink:0">× remove window</button>`}
             </div>
             <div class="stat-detail" style="margin-bottom:8px">${hasHour ? `Hour found: ${peak.label} · volume ${peak.volume}` : 'This window doesn’t fit this day’s counted time range — you can still recount below, but it won’t score.'}</div>
-            ${avgNote}
+            ${isQaInputMode ? '' : avgNote}
+            ${isQaInputMode ? '' : `
             <table class="crosswalk-table" style="margin-bottom:10px">
               <thead><tr><th>#</th><th>Time range</th><th>Classifications</th><th>Total</th><th>Entered</th><th>In score?</th><th></th></tr></thead>
               <tbody>
                 ${recounts.length ? recounts.map((r, ri) => {
                   const total = r.parsed.intervals.reduce((s, iv) => s + iv.inbound.reduce((a, b) => a + b, 0) + iv.outbound.reduce((a, b) => a + b, 0), 0);
                   const range = `${r.parsed.intervals[0]?.start || ''} – ${r.parsed.intervals[r.parsed.intervals.length - 1]?.end || ''}`;
-                  const entered = r.enteredAt ? new Date(r.enteredAt).toLocaleString() : '—';
+                  const entered = (r.enteredAt ? new Date(r.enteredAt).toLocaleString() : '—') + (r.source === 'remote-qa' ? ' <span style="color:var(--text3)" title="Submitted via QA-input link">(remote)</span>' : '');
                   const inScore = alignedIds.has(r.id) ? '✓' : '<span style="color:var(--text3)" title="Time range/interval length doesn’t match this window">—</span>';
                   return `<tr><td>${ri + 1}</td><td>${escapeHtmlMain(range)}</td><td>${r.classifications.length}</td><td>${total}</td><td>${entered}</td><td>${inScore}</td><td><button data-qaqc-remove-key="${key}" data-qaqc-remove-id="${r.id}">×</button></td></tr>`;
                 }).join('') : '<tr><td colspan="7" style="color:var(--text3)">No recounts yet.</td></tr>'}
               </tbody>
-            </table>
-            ${hasHour && recounts.length ? `
+            </table>`}
+            ${!isQaInputMode && hasHour && recounts.length ? `
             <div style="border-top:.5px solid var(--border);padding-top:10px;margin-bottom:10px">
               <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px">
                 <div style="font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text2)">Score detail ${shapeCheckBadge(computed.shapeCheck)}</div>
@@ -7417,13 +7547,14 @@ async function renderQaqcScreen() {
       dayBlocks.push(`
         <div style="margin-bottom:10px">
           <div class="stat-detail" style="font-weight:600;color:var(--text);margin:10px 0 8px">${escapeHtmlMain(day.sheetName)}</div>
-          ${windowCards.join('') || '<div class="stat-detail" style="margin-bottom:10px">No time periods added yet — add one below.</div>'}
+          ${windowCards.join('') || `<div class="stat-detail" style="margin-bottom:10px">${isQaInputMode ? 'No time periods have been set up for this day yet — check back once the project owner adds one.' : 'No time periods added yet — add one below.'}</div>`}
+          ${isQaInputMode ? '' : `
           <div class="no-print" style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;padding:10px 0 4px;border-top:.5px dashed var(--border2)">
             <div class="setup-field"><label>name</label><input type="text" data-qaqc-window-name="${winKey}" placeholder="e.g. AM peak" style="width:140px"></div>
             <div class="setup-field"><label>start</label><input type="time" data-qaqc-window-start="${winKey}"></div>
             <div class="setup-field"><label>end</label><input type="time" data-qaqc-window-end="${winKey}"></div>
             <button type="button" class="btn-primary" data-qaqc-add-window="${winKey}" style="height:34px">+ add time period</button>
-          </div>
+          </div>`}
         </div>
       `);
     }
@@ -7490,7 +7621,7 @@ async function renderQaqcScreen() {
   root.querySelectorAll('[data-qaqc-begin]').forEach((el) => {
     el.addEventListener('click', () => {
       const key = el.dataset.qaqcBegin;
-      const [entryIdStr, sheetName] = key.split('__');
+      const [entryIdStr, sheetName, windowId] = key.split('__');
       const entry = tripgenEntries.find((e) => e.id === Number(entryIdStr));
       const day = entry?.days.find((d) => d.sheetName === sheetName);
       if (!day) return;
@@ -7545,7 +7676,46 @@ async function renderQaqcScreen() {
       tgCounterBackTarget = 'tripgen-qaqc-screen';
       document.getElementById('tg-btn-finish').textContent = '✓ finish recount';
       document.getElementById('tg-counter-sub').textContent = `— QA/QC recount: ${entry.locationLabel} / ${day.sheetName}`;
-      const started = tgBeginRecount(classificationList, recountCfg, (parsed) => {
+      const started = tgBeginRecount(classificationList, recountCfg, async (parsed) => {
+        if (isQaInputMode) {
+          const finishBtn = document.getElementById('tg-btn-finish');
+          finishBtn.textContent = 'submitting…';
+          finishBtn.disabled = true;
+          document.getElementById('tg-counter-sub').textContent = '';
+          try {
+            await submitQaRecount(qaInputShareId, {
+              entryId: entry.id,
+              sheetName: day.sheetName,
+              windowId,
+              classifications: classificationList,
+              cfg: recountCfg,
+              parsed,
+              enteredAt: new Date().toISOString(),
+            });
+          } catch (e) {
+            finishBtn.textContent = '✓ finish recount';
+            finishBtn.disabled = false;
+            document.getElementById('tg-counter-sub').textContent = 'Could not submit — check your connection and try again.';
+            alert('Could not submit this recount. Check your connection and try again.\n\n' + (e?.message || e));
+            return;
+          }
+          finishBtn.disabled = false;
+          showScreen('tripgen-qaqc-screen');
+          await renderQaqcScreen();
+          // setSaveState() targets the sidebar's save indicator, which is hidden for the
+          // whole rest of a QA-input session (no sidebar at all — see loadProject's
+          // qaInputMode branch) — a QA reviewer would never see it. Show the confirmation
+          // directly on the screen they're looking at instead.
+          const list = document.getElementById('tripgen-qaqc-list');
+          if (list) {
+            const banner = document.createElement('div');
+            banner.className = 'stat-detail';
+            banner.style.cssText = 'margin-bottom:14px;padding:10px;border:.5px solid var(--border);border-radius:6px;color:var(--text)';
+            banner.textContent = '✓ Recount submitted — thank you.';
+            list.prepend(banner);
+          }
+          return;
+        }
         tripgenQaqc[key] = tripgenQaqc[key] || { recounts: [] };
         tripgenQaqc[key].recounts.push({ id: tgQaqcNextId++, classifications: classificationList, cfg: recountCfg, parsed, enteredAt: new Date().toISOString() });
         document.getElementById('tg-btn-finish').textContent = '✓ save location and exit';

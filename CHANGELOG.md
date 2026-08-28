@@ -1,5 +1,14 @@
 # Changelog
 
+## v3 · v1.1.0 — 2026-08-28
+
+### Added
+- QA-input shareable link (Trip Gen only): a second link (`?share=<id>&qa=1`) that lets a second-counter reviewer submit QA/QC recounts remotely, structurally unable to touch a location's real count data (separate append-only Firestore sub-collection, not just a UI restriction). Owner side gets a "Copy QA-input link" button and a "check for QA submissions" button to pull in and merge remote submissions. See `DEVLOG.md` for the full design.
+- **Note:** the Firestore security rules this feature needs are not yet published — the QA-input link will not accept real submissions until that manual step is done (same as the original sharing feature).
+
+### Fixed
+- BUG-051: the QA-input recount-submit path had no error handling — a failed Firestore write left the reviewer stuck on "submitting…" forever. Now resets and shows a retry message on failure.
+
 ## v3 · v1.0.1 — 2026-08-27
 
 ### Changed

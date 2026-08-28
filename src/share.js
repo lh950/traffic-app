@@ -9,7 +9,7 @@
 // Firestore write.
 import { auth, db } from './firebaseConfig.js';
 import { signInAnonymously } from 'firebase/auth';
-import { doc, setDoc, deleteDoc, getDoc } from 'firebase/firestore';
+import { doc, setDoc, deleteDoc, getDoc, collection, getDocs } from 'firebase/firestore';
 
 let _viewerMode = false;
 export function setViewerMode(v) { _viewerMode = !!v; }
@@ -99,4 +99,37 @@ export async function pushSharedUpdate(shareId, ownerToken, serializedProject) {
 export async function fetchSharedProject(shareId) {
   const snap = await getDoc(doc(db, 'sharedProjects', shareId));
   return snap.exists() ? decodeFirestoreArrays(snap.data()) : null;
+}
+
+// ── QA-input link (separate from the read-only viewer above) ──────────────────────────────
+// A second-counter reviewer needs to submit QA/QC recount data WITHOUT ever being able to
+// touch a location's real count data (entry.days[].parsed/editSnapshot) — not just hidden in
+// the UI, structurally incapable of it. Rather than widen the main sharedProjects/{shareId}
+// document's write rules (one mistake there and a reviewer could touch anything), submissions
+// go into their own append-only sub-collection that has NO relationship to the parent
+// document's own fields at all — there is no code path from here into entry.days.
+//
+// Deliberately NOT gated on _viewerMode (unlike every write function above) — a QA reviewer's
+// browser IS allowed to make this one specific call; the safety boundary here is which
+// Firestore PATH this function touches (only ever sharedProjects/{shareId}/qaSubmissions/*),
+// not an app-wide mode flag. The owner's own full-project writes stay gated on ownerToken as
+// before; this needs only anonymous auth, matching the same "possession of the link is the
+// credential" trust model the read-only viewer already uses — anyone with a QA link can
+// submit ONE more append-only doc, they can never modify or delete an existing one (security
+// rules: allow update, delete: if false) or reach the parent project document at all.
+export async function submitQaRecount(shareId, submission) {
+  if (!shareId) return null;
+  await ensureAnonAuth();
+  const submissionId = crypto.randomUUID();
+  const payload = encodeFirestoreArrays({ ...submission, submittedAt: Date.now() });
+  await setDoc(doc(db, 'sharedProjects', shareId, 'qaSubmissions', submissionId), payload);
+  return submissionId;
+}
+
+// Public read (no auth needed, same posture as fetchSharedProject) — the project owner's own
+// client calls this to pull in new QA submissions and merge them into local tripgenQaqc.
+export async function fetchQaSubmissions(shareId) {
+  if (!shareId) return [];
+  const snap = await getDocs(collection(db, 'sharedProjects', shareId, 'qaSubmissions'));
+  return snap.docs.map((d) => decodeFirestoreArrays({ id: d.id, ...d.data() }));
 }
