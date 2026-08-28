@@ -7031,18 +7031,23 @@ document.getElementById('btn-tg-add-classification')?.addEventListener('click', 
 // setup... a link at the top of the summary section to take the user there to edit"). Reads
 // the live classification list (not "every type ever seen in an entry," which the old
 // Analysis-page form used — that reads before any location exists, and classifications are
-// project-wide config now anyway) and backfills a starting suggestion via the same
-// categoryFor() heuristic the Analysis screen's grouping already relied on, so a freshly
-// added classification isn't left ungrouped until someone visits Analysis first.
+// project-wide config now anyway).
+//
+// Does NOT auto-seed tripgenCategoryMap with a categoryFor() suggestion any more (direct user
+// follow-up: trip-rate/totals grouping should use ONLY what the user actually set here, and
+// fall back to showing each classification on its own otherwise — the previous auto-seed
+// silently wrote the source-workbook heuristic into every classification's entry the moment
+// this screen was opened, which is exactly what didn't match what the user thought they'd
+// configured). The heuristic still shows as a placeholder — a helpful starting suggestion —
+// but an empty field stays genuinely empty (ungrouped) until the user actually types
+// something and it commits on change.
 async function renderTgCategoryMapEditor() {
   const tbody = document.querySelector('#tg-category-map-table tbody');
   if (!tbody) return;
   const labels = tgGetClassifications().map((c) => c.label).filter(Boolean);
-  await Promise.all(labels.map(async (label) => {
-    if (!(label in tripgenCategoryMap)) tripgenCategoryMap[label] = await analysisData.categoryFor(label);
-  }));
-  tbody.innerHTML = labels.map((label) => `
-    <tr><td>${escapeHtmlMain(label)}</td><td><input type="text" data-tg-category-field="${escapeHtmlMain(label)}" value="${escapeHtmlMain(tripgenCategoryMap[label] || '')}" style="width:160px" /></td></tr>
+  const placeholders = await Promise.all(labels.map((label) => analysisData.categoryFor(label)));
+  tbody.innerHTML = labels.map((label, i) => `
+    <tr><td>${escapeHtmlMain(label)}</td><td><input type="text" data-tg-category-field="${escapeHtmlMain(label)}" value="${escapeHtmlMain(tripgenCategoryMap[label] || '')}" placeholder="${escapeHtmlMain(placeholders[i])}" style="width:160px" /></td></tr>
   `).join('') || '<tr><td colspan="2" style="color:var(--text3)">Add a classification above first.</td></tr>';
   tbody.querySelectorAll('[data-tg-category-field]').forEach((input) => {
     input.addEventListener('change', () => {

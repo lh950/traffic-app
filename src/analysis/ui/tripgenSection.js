@@ -101,10 +101,14 @@ async function balancedDayTotalsByType(parsed) {
   return totals;
 }
 
+// Falls back to the classification's OWN label, not a shared "Other" bucket — a classification
+// with no explicit category assignment (see renderTripGenSection's categoryMap handling below)
+// shows on its own rather than getting silently lumped in with every other unassigned
+// classification under one misleading combined total.
 function groupTotals(types, totalsArr, categoryMap) {
   const groups = {};
   types.forEach((t, i) => {
-    const g = categoryMap[t] || 'Other';
+    const g = categoryMap[t] || t;
     groups[g] = (groups[g] || 0) + totalsArr[i];
   });
   return groups;
@@ -651,7 +655,7 @@ async function renderDayBlock(entry, day, dayIdx, ctx) {
   const detailRows = groupNames.map((g) => {
     const subRows = parsed.types
       .map((t, i) => ({ t, i }))
-      .filter(({ t }) => (categoryMap[t] || 'Other') === g)
+      .filter(({ t }) => (categoryMap[t] || t) === g)
       .map(({ t, i }) => `<tr><td style="padding-left:1.5em;color:var(--text2)"${defs[i] ? ` title="${escapeHtml(defs[i])}"` : ''}>${escapeHtml(t)}${defs[i] ? ' <span style="color:var(--text3);font-size:10px" title="' + escapeHtml(defs[i]) + '">ⓘ</span>' : ''}</td><td>${fmt(dayTotalsArr[i])}</td></tr>`)
       .join('');
     return `<tr style="font-weight:500"><td>${escapeHtml(g)}</td><td>${fmt(dayGroups[g])}</td></tr>${subRows}`;
@@ -661,7 +665,7 @@ async function renderDayBlock(entry, day, dayIdx, ctx) {
   const groupSeries = {};
   groupNames.forEach((g) => { groupSeries[g] = labels.map(() => 0); });
   parsed.types.forEach((t, ti) => {
-    const g = categoryMap[t] || 'Other';
+    const g = categoryMap[t] || t;
     parsed.intervals.forEach((iv, ii) => { groupSeries[g][ii] += (iv.inbound[ti] || 0) + (iv.outbound[ti] || 0); });
   });
   const sortedGroups = groupNames.sort((a, b) => dayGroups[b] - dayGroups[a]);
@@ -1464,13 +1468,12 @@ function mountTgSiteWideComboChart(container, { entries, categoryMap }) {
 export async function renderTripGenSection(container, entries, ctx) {
   if (entries.length === 0) { container.innerHTML = ''; return; }
   const { siteInfo, categoryMap, dataView, viewerMode } = ctx;
-  const allTypes = tgIncludedDays(entries[0] || {})[0]?.parsed.types || [];
-  // categoryMap may be missing entries for newly-seen classifications (e.g. a second
-  // location file with slightly different columns) — fill defaults without clobbering
-  // anything the user already customized. Editing itself now lives on Setup's
-  // classifications tab (main.js's renderTgCategoryMapEditor) per direct user request — this
-  // screen only needs categoryMap to be complete enough to group by, not to edit it.
-  await Promise.all(allTypes.map(async (t) => { if (!(t in categoryMap)) categoryMap[t] = await data.categoryFor(t); }));
+  // categoryMap is now purely opt-in (direct user request — trip-rate/totals grouping was
+  // silently using the source-workbook heuristic categoryFor() for anything the user hadn't
+  // explicitly grouped, which didn't match what they'd actually set up on Setup's
+  // classifications tab). No auto-seeding here — groupTotals() and this file's other
+  // categoryMap[t] reads all fall back to the classification's own label `t` when unset, so
+  // an ungrouped classification shows on its own instead of getting silently bucketed.
 
   const crossGroups = {};
   entries.forEach((entry) => {

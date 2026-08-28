@@ -8,6 +8,16 @@ Severity levels:
 
 ---
 
+## BUG-055 (082820261101)
+**Status:** Fixed (v3 · v1.1.5)
+**Severity:** Minor (misleading numbers, not data loss — trip-rate totals were still mathematically correct, just grouped in a way the user hadn't chosen)
+**Found in:** `groupTotals()` and its two direct-read siblings in `renderDayBlock()` (`src/analysis/ui/tripgenSection.js`), plus `categoryMap` auto-seeding in `renderTripGenSection()` and `renderTgCategoryMapEditor()` (`src/main.js`)
+**Description:** User report: "the trip gen rate has groupings, but they dont match the groupings i made in classification." Every classification silently got a `categoryMap` entry auto-filled from `categoryFor()` — the source workbook's own fixed heuristic (Trucks/Pedestrian/Light Goods/Personal Vehicles+Peds+Pickup-Dropoff) — the first time the Analysis screen or the classifications editor rendered, regardless of whether the user had actually set anything. The trip-rate/totals-by-day-type cards and the classifications editor were reading the SAME `categoryMap`, so this wasn't two systems disagreeing — it was one auto-populated default silently overriding what the user thought was still unset. User's explicit follow-up: "use only the groups set in the app and if no groups set then by each classification."
+**Fix:** Removed both auto-seed sites. `groupTotals()` and the two other direct `categoryMap[t]` reads in `renderDayBlock()` now fall back to the classification's own label `t` (not a shared `'Other'` bucket) when no explicit entry exists, so an unset classification shows on its own. The classifications editor still shows the heuristic as an input `placeholder` (a helpful suggestion), but it no longer writes into `tripgenCategoryMap` until the user actually types something and it commits on `change`.
+**Verified live:** built a 3-classification fixture (`auto`/`truck`/`bike`) with only `truck` explicitly set to `"Truck Category"`; confirmed the trip-rate cards show `auto` and `bike` each on their own (not lumped into a shared bucket) while `truck` shows under the user's own label — and confirmed the editor's two unset fields render empty (with the placeholder suggestion visible) while the set one shows the real value.
+
+---
+
 ## BUG-054 (082820261048)
 **Status:** Fixed (v3 · v1.1.4)
 **Severity:** Major (a shared-link visitor could reach the real app's home screen — breaks the "viewer mode never shows the home screen" guarantee `main.js` itself documents)

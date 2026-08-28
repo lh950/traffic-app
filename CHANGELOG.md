@@ -1,5 +1,10 @@
 # Changelog
 
+## v3 · v1.1.5 — 2026-08-28
+
+### Fixed
+- BUG-055: trip-rate/totals-by-day-type groupings no longer silently default to the source-workbook's fixed heuristic categories — they now use only what you've actually set in the classifications editor, showing each unassigned classification on its own instead of lumping it into an unrequested bucket.
+
 ## v3 · v1.1.4 — 2026-08-28
 
 ### Fixed

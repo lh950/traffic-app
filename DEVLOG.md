@@ -4,6 +4,16 @@ Key decisions, scope constraints, and architectural choices.
 
 ---
 
+## 2026-08-28 — v3 · v1.1.5 (BUG-055: trip-rate grouping no longer auto-defaults — reverses an earlier deliberate design choice)
+
+`categoryMap` auto-seeding (every classification silently gets a `categoryFor()`-heuristic entry the moment it's first seen) was a DELIBERATE decision from an earlier session — see the removed comment on `renderTgCategoryMapEditor()`: "backfills a starting suggestion... so a freshly added classification isn't left ungrouped until someone visits Analysis first." User's report today directly reverses that: "the trip gen rate has groupings, but they dont match the groupings i made in classification," then explicitly: "use only the groups set in the app and if no groups set then by each classification."
+
+Asked first via AskUserQuestion whether to (a) make trip-rate use the same grouping as the classifications-tab groups, (b) keep the two separate and just make the editor easier to reach, or (c) just rename things for clarity — the premise behind that question turned out to be wrong (there aren't two separate grouping systems; it's one `categoryMap`, silently auto-populated). The user's own follow-up correction after seeing the question ("use only the groups set in the app...") was the real answer regardless — implemented that directly. Worth a note for future sessions: this reverses v0.x-era intent, so don't reintroduce auto-seeding as a "helpful default" without checking this entry first.
+
+Full root-cause and fix details in `BUGS.md` (BUG-055).
+
+---
+
 ## 2026-08-28 — v3 · v1.1.3 (BUG-053: Reports tab's picker was invisible, then inert)
 
 Direct follow-up to v1.1.2's new Reports tab, found immediately by the user actually using it: "reports tab is functional as in the page opens, but i dont see how i can actually do any of the things it says." Two stacked bugs, not one — the fixed-window picker's `.no-print` class doubled as "hide from viewer entirely" (not just print, see `analysis/style.css`), and separately `onFixedWindowChange` was a no-op stub for viewer mode. Fixed both: `.viewer-keep` (the existing opt-out built for exactly this case) restores visibility, and a real local handler makes the picker actually recompute the table — safe since it's a pure client-side computation that never persists. Full writeup in `BUGS.md` (BUG-053).
