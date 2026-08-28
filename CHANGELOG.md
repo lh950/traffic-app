@@ -1,5 +1,10 @@
 # Changelog
 
+## v3 · v1.2.4 — 2026-08-28
+
+### Changed
+- Relabeled "recount"/"recounts" to "QA count"/"QA counts" everywhere the second-counter QA/QC spot-check is shown (Trip Gen and intersection) — the separate, distinct "↻ recount" full-day redo feature keeps its own name unchanged, since it's a genuinely different action.
+
 ## v3 · v1.2.3 — 2026-08-28
 
 ### Changed

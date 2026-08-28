@@ -1028,7 +1028,7 @@ export function renderQaqcDetailCardHTML(computed) {
     </tr>
   `).join('');
   const skippedNote = allRecounts.length > alignedRecounts.length
-    ? `<div class="stat-detail" style="margin-top:6px;color:var(--bad-text)">${allRecounts.length - alignedRecounts.length} recount(s) used a different time range/interval length than this peak and were excluded from scoring.</div>`
+    ? `<div class="stat-detail" style="margin-top:6px;color:var(--bad-text)">${allRecounts.length - alignedRecounts.length} QA count(s) used a different time range/interval length than this peak and were excluded from scoring.</div>`
     : '';
   // Per-classification breakdown — THE primary, source-faithful signal (see passFailBadge's
   // own comment above: the reference workbook scores each category entirely independently,
@@ -1049,7 +1049,7 @@ export function renderQaqcDetailCardHTML(computed) {
   const classSection = classRows ? `
     <div class="stat-detail" style="margin-bottom:4px"><strong>By classification</strong> — matches the source workbook's own per-category scoring, and is what actually decides pass/fail:</div>
     <table class="crosswalk-table">
-      <thead><tr><th>Classification</th><th>Primary count</th><th>2nd-count recount</th><th>Result</th></tr></thead>
+      <thead><tr><th>Classification</th><th>Primary count</th><th>2nd-count QA count</th><th>Result</th></tr></thead>
       <tbody>${classRows}</tbody>
     </table>
     <div class="stat-detail" style="margin-top:6px;margin-bottom:12px">${perClassSummaryBadge(perClassResults)}</div>` : '';
@@ -1057,10 +1057,10 @@ export function renderQaqcDetailCardHTML(computed) {
     ${classSection}
     <div class="stat-detail" style="margin-bottom:4px">Combined total (informational — all classifications summed into one hour; the source workbook has no such combined rating, this is provided as an extra reference only):</div>
     <table class="crosswalk-table">
-      <thead><tr><th>${intervalMinutes}-min interval</th><th>Primary count</th><th>2nd-count recount${alignedRecounts.length > 1 ? ` (avg of ${alignedRecounts.length})` : ''}</th><th>Band</th></tr></thead>
+      <thead><tr><th>${intervalMinutes}-min interval</th><th>Primary count</th><th>2nd-count QA count${alignedRecounts.length > 1 ? ` (avg of ${alignedRecounts.length})` : ''}</th><th>Band</th></tr></thead>
       <tbody>${quarterRows}</tbody>
     </table>
-    <div class="stat-detail" style="margin-top:6px">Combined score: ${scoreResult.score != null ? `${scoreResult.score}/${quarterIntervals.length + 1} — ${passFailBadge(scoreResult.overallPass)}` : `incomplete — add a recount covering all ${quarterIntervals.length} interval${quarterIntervals.length === 1 ? '' : 's'} above`}</div>
+    <div class="stat-detail" style="margin-top:6px">Combined score: ${scoreResult.score != null ? `${scoreResult.score}/${quarterIntervals.length + 1} — ${passFailBadge(scoreResult.overallPass)}` : `incomplete — add a QA count covering all ${quarterIntervals.length} interval${quarterIntervals.length === 1 ? '' : 's'} above`}</div>
     ${skippedNote}
   `;
 }
@@ -1077,7 +1077,7 @@ export async function renderQaqcScoreDetailHTML(locationLabel, dayLabel, windowL
     return `<div class="card"><div class="stat-detail">No hour resolved yet for "${escapeHtml(windowLabel)}" — nothing to explain until this window fits the counted time range.</div></div>`;
   }
   if (scoreResult.score == null) {
-    return `<div class="card"><div class="stat-detail">This window's recount isn't complete yet — every one of its ${quarterIntervals.length} interval(s) needs a value entered before there's a score to explain.</div></div>`;
+    return `<div class="card"><div class="stat-detail">This window's QA count isn't complete yet — every one of its ${quarterIntervals.length} interval(s) needs a value entered before there's a score to explain.</div></div>`;
   }
   const primaryTotal = quarterTotals.reduce((a, b) => a + b, 0);
   const recountTotal = recountQuarters.map(Number).reduce((a, b) => a + b, 0);
@@ -1101,7 +1101,7 @@ export async function renderQaqcScoreDetailHTML(locationLabel, dayLabel, windowL
       <div class="stat-detail" style="margin-bottom:8px">Matches the source workbook's own methodology: each classification gets its own independent hour-total check (same formula as the combined check below, just run once per classification instead of on everything summed together).</div>
       <div class="tbl-scroll">
         <table class="crosswalk-table">
-          <thead><tr><th>Classification</th><th>Primary total</th><th>Recount total</th><th>% diff</th><th>Threshold</th><th>Result</th></tr></thead>
+          <thead><tr><th>Classification</th><th>Primary total</th><th>QA count total</th><th>% diff</th><th>Threshold</th><th>Result</th></tr></thead>
           <tbody>${perClassResults.map((c) => {
             const cPrimary = c.quarterTotals.reduce((a, b) => a + b, 0);
             const cRecount = c.recountQuarters.reduce((a, b) => a + (b || 0), 0);
@@ -1122,7 +1122,7 @@ export async function renderQaqcScoreDetailHTML(locationLabel, dayLabel, windowL
         <table class="crosswalk-table">
           <tbody>
             <tr><td>Primary total (this hour)</td><td>${fmt(primaryTotal)}</td></tr>
-            <tr><td>Recount total (this hour)</td><td>${fmt(recountTotal)}</td></tr>
+            <tr><td>QA count total (this hour)</td><td>${fmt(recountTotal)}</td></tr>
             <tr><td>Difference</td><td>|${fmt(recountTotal)} − ${fmt(primaryTotal)}| = ${fmt(Math.abs(recountTotal - primaryTotal))}</td></tr>
             <tr><td>% difference</td><td>${fmt(Math.abs(recountTotal - primaryTotal))} / ${fmt(primaryTotal)} = ${fmt(Math.round(overallDiffPct * 10) / 10)}%</td></tr>
             <tr><td>Threshold for this volume</td><td>${overallThreshold}% (${volumeTier})</td></tr>
@@ -1132,7 +1132,7 @@ export async function renderQaqcScoreDetailHTML(locationLabel, dayLabel, windowL
       </div>
       <div class="stat-detail" style="margin-top:8px;margin-bottom:4px">Per-quarter detail (feeds the combined score below):</div>
       <table class="crosswalk-table">
-        <thead><tr><th>Interval</th><th>Primary</th><th>Recount</th><th>% diff</th><th>Within band?</th></tr></thead>
+        <thead><tr><th>Interval</th><th>Primary</th><th>QA count</th><th>% diff</th><th>Within band?</th></tr></thead>
         <tbody>${quarterMathRows}</tbody>
       </table>
       <div class="stat-detail" style="margin-top:8px"><strong>Combined score:</strong> ${scoreResult.perQuarterPass.filter(Boolean).length} quarter(s) within band + ${scoreResult.overallPass ? '1' : '0'} for the overall check = <strong>${scoreResult.score}/${quarterIntervals.length + 1}</strong>.</div>
@@ -1145,11 +1145,11 @@ export async function renderQaqcScoreDetailHTML(locationLabel, dayLabel, windowL
     </div>` : `
     <div class="card" style="margin-bottom:14px">
       <h3>Shape check — informational only, does not affect Pass/Fail</h3>
-      <div class="stat-detail" style="margin-bottom:8px">The combined-total check above only compares TOTALS — two quarters over-counted and two under-counted can cancel out and still pass. This is a separate test (chi-square goodness-of-fit): does the recount's quarter-by-quarter PATTERN match the primary's, regardless of whether the totals agree?</div>
+      <div class="stat-detail" style="margin-bottom:8px">The combined-total check above only compares TOTALS — two quarters over-counted and two under-counted can cancel out and still pass. This is a separate test (chi-square goodness-of-fit): does the QA count's quarter-by-quarter PATTERN match the primary's, regardless of whether the totals agree?</div>
       ${!shapeCheck.reliable ? `<div class="stat-detail" style="color:var(--bad-text);margin-bottom:8px">⚠ Not reliable at this volume — chi-square needs an expected count of at least 5 in every quarter to trust the result (rule of thumb for the underlying approximation). Shown for reference only.</div>` : ''}
       <div class="tbl-scroll">
         <table class="crosswalk-table">
-          <thead><tr><th>Interval</th><th>Primary (p)</th><th>Expected recount (E = totalRecount × p/totalPrimary)</th><th>Actual recount (r)</th><th>(r−E)²/E</th></tr></thead>
+          <thead><tr><th>Interval</th><th>Primary (p)</th><th>Expected QA count (E = totalQAcount × p/totalPrimary)</th><th>Actual QA count (r)</th><th>(r−E)²/E</th></tr></thead>
           <tbody>${quarterIntervals.map((iv, qi) => {
             const e = shapeCheck.expected[qi];
             const r = Number(recountQuarters[qi]);
@@ -1220,7 +1220,7 @@ async function renderQaqcSection(entries, ctx) {
   return `
     <div class="card" style="margin-bottom:14px">
       <h3>QA/QC summary</h3>
-      <div class="stat-detail" style="margin-bottom:10px">Second-counter recounts — entered and compared in full on the dedicated QA/QC screen — condensed here per window. "By classification" is what actually decides pass/fail (each classification checked independently, matching the source workbook — traced 2026-08-27, it has no combined rating at all). "Combined" sums every classification into one hour total first — the source has nothing like it; kept here as an extra reference only. Bands are volume-dependent (≥75 trips → ≤5% diff, 50–75 → ≤7.5%, &lt;50 → ≤10%). "Shape" is a separate, informational-only check (see "explain this score →") — neither it nor "Combined" affects "By classification".</div>
+      <div class="stat-detail" style="margin-bottom:10px">Second-counter QA counts — entered and compared in full on the dedicated QA/QC screen — condensed here per window. "By classification" is what actually decides pass/fail (each classification checked independently, matching the source workbook — traced 2026-08-27, it has no combined rating at all). "Combined" sums every classification into one hour total first — the source has nothing like it; kept here as an extra reference only. Bands are volume-dependent (≥75 trips → ≤5% diff, 50–75 → ≤7.5%, &lt;50 → ≤10%). "Shape" is a separate, informational-only check (see "explain this score →") — neither it nor "Combined" affects "By classification".</div>
       <div class="tbl-scroll">
         <table class="crosswalk-table" data-tg-qaqc-summary>
           <thead><tr><th>Location</th><th>Day</th><th>Window</th><th>Hour</th><th>By classification</th><th>Combined (informational)</th><th>Shape</th><th></th></tr></thead>

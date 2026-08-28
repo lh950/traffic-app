@@ -4472,8 +4472,8 @@ async function renderAreaAggregateContent(containerEl = document.getElementById(
         <div class="stat-label">QA/QC coverage</div>
         <div class="stat-value">${fmt(reviewedRows.length)}<span class="unit">/ ${fmt(rowsWithSnap.length)}</span></div>
         <div class="stat-detail">${failingRows.length
-          ? `${fmt(failingRows.length)} intersection${failingRows.length !== 1 ? 's' : ''} with a failing recount`
-          : reviewedRows.length ? 'No failing recounts on file' : 'No QA/QC recounts on file yet'}</div>
+          ? `${fmt(failingRows.length)} intersection${failingRows.length !== 1 ? 's' : ''} with a failing QA count`
+          : reviewedRows.length ? 'No failing QA counts on file' : 'No QA/QC counts on file yet'}</div>
       </div>
     </div>`;
 
@@ -4545,7 +4545,7 @@ async function renderAreaAggregateContent(containerEl = document.getElementById(
   const completenessSection = `
     <div class="card">
       <div class="section-head" style="margin-bottom:10px"><h2 style="font-size:14px;font-weight:600;margin:0">Data quality by intersection</h2></div>
-      <div class="stat-detail" style="margin-bottom:10px">Which intersections have data, and their QA/QC recount status. "review →" opens that intersection's own Analyze screen; "QA/QC →" opens its recount screen — the same drill-down used everywhere else in the app.</div>
+      <div class="stat-detail" style="margin-bottom:10px">Which intersections have data, and their QA/QC count status. "review →" opens that intersection's own Analyze screen; "QA/QC →" opens its QA count screen — the same drill-down used everywhere else in the app.</div>
       ${opts.viewerMode
         ? `<details class="interval-detail"><summary class="interval-detail-summary">Show table for all ${fmt(rowsWithSnap.length)} intersections</summary>${completenessTable}</details>`
         : completenessTable}
@@ -6209,7 +6209,7 @@ function commitProjectSave(proj) {
       const ok = window.confirm(
         `Warning: "${shrink.label}" appears to have LOST data.\n\n` +
         `It had ${shrink.prevCount} ${measure} in the last save — this save only has ${shrink.newCount}.\n\n` +
-        `This is exactly what happens when a background action (like a QA/QC recount) accidentally overwrites a location's real count.\n\n` +
+        `This is exactly what happens when a background action (like a QA/QC count) accidentally overwrites a location's real count.\n\n` +
         `Click Cancel to keep the previous save and NOT overwrite this data (safest if you didn't mean to change this location). Click OK only if you intentionally cleared or are redoing this location's count.`
       );
       tgLogWrite({ outcome: ok ? 'shrink-warning-proceeded' : 'shrink-warning-cancelled', source: 'commitProjectSave', ...shrink });
@@ -7607,7 +7607,7 @@ async function renderQaqcScreen() {
         const defaultStart = hasHour ? peak.startIdx * intervalMinutes + toMinFromLabel(day.parsed.intervals[0].start) : w.startMin;
         const alignedIds = new Set(alignedRecounts.map((r) => r.id));
         const avgNote = recounts.length > 1
-          ? `<div class="stat-detail" style="margin-bottom:6px;color:var(--text2)">${recounts.length} recounts on file — ${alignedRecounts.length > 1 ? `the ${alignedRecounts.length} that line up with this window are averaged per interval for the score below` : alignedRecounts.length === 1 ? 'only 1 lines up with this window and is used as-is' : 'none of them line up with this window’s time range/interval length'}.</div>`
+          ? `<div class="stat-detail" style="margin-bottom:6px;color:var(--text2)">${recounts.length} QA counts on file — ${alignedRecounts.length > 1 ? `the ${alignedRecounts.length} that line up with this window are averaged per interval for the score below` : alignedRecounts.length === 1 ? 'only 1 lines up with this window and is used as-is' : 'none of them line up with this window’s time range/interval length'}.</div>`
           : '';
         windowCards.push(`
           <div class="card" style="margin-bottom:14px" data-qaqc-card="${key}">
@@ -7615,7 +7615,7 @@ async function renderQaqcScreen() {
               <h3 style="margin:0">${escapeHtmlMain(w.label)} <span style="font-weight:400;color:var(--text3);font-size:12px">(${minToTimeStr(w.startMin)}–${minToTimeStr(w.endMin)})</span> ${!isQaInputMode && alignedRecounts.length ? perClassSummaryBadge(perClassResults) : ''}</h3>
               ${isQaInputMode ? '' : `<button type="button" class="no-print" data-qaqc-remove-window="${winKey}" data-qaqc-remove-window-id="${w.id}" style="font-size:11px;flex-shrink:0">× remove window</button>`}
             </div>
-            <div class="stat-detail" style="margin-bottom:8px">${hasHour ? `Hour found: ${peak.label} · volume ${peak.volume}` : 'This window doesn’t fit this day’s counted time range — you can still recount below, but it won’t score.'}</div>
+            <div class="stat-detail" style="margin-bottom:8px">${hasHour ? `Hour found: ${peak.label} · volume ${peak.volume}` : 'This window doesn’t fit this day’s counted time range — you can still add a QA count below, but it won’t score.'}</div>
             ${isQaInputMode ? '' : avgNote}
             ${isQaInputMode ? '' : `
             <table class="crosswalk-table" style="margin-bottom:10px">
@@ -7627,7 +7627,7 @@ async function renderQaqcScreen() {
                   const entered = (r.enteredAt ? new Date(r.enteredAt).toLocaleString() : '—') + (r.source === 'remote-qa' ? ' <span style="color:var(--text3)" title="Submitted via QA-input link">(remote)</span>' : '');
                   const inScore = alignedIds.has(r.id) ? '✓' : '<span style="color:var(--text3)" title="Time range/interval length doesn’t match this window">—</span>';
                   return `<tr><td>${ri + 1}</td><td>${escapeHtmlMain(range)}</td><td>${r.classifications.length}</td><td>${total}</td><td>${entered}</td><td>${inScore}</td><td><button data-qaqc-remove-key="${key}" data-qaqc-remove-id="${r.id}">×</button></td></tr>`;
-                }).join('') : '<tr><td colspan="7" style="color:var(--text3)">No recounts yet.</td></tr>'}
+                }).join('') : '<tr><td colspan="7" style="color:var(--text3)">No QA counts yet.</td></tr>'}
               </tbody>
             </table>`}
             ${!isQaInputMode && hasHour && recounts.length ? `
@@ -7653,7 +7653,7 @@ async function renderQaqcScreen() {
                 </div>
                 <div class="setup-field"><label>duration (minutes)</label><input type="number" min="1" data-qaqc-duration="${key}" value="${Math.max(1, w.endMin - w.startMin)}"></div>
               </div>
-              <button class="btn-primary" data-qaqc-begin="${key}">begin recount →</button>
+              <button class="btn-primary" data-qaqc-begin="${key}">begin QA count →</button>
             </div>
             <button data-qaqc-toggle-form="${key}">+ add count</button>
           </div>
@@ -7789,8 +7789,8 @@ async function renderQaqcScreen() {
       }
       tgPendingLocation = null;
       tgCounterBackTarget = 'tripgen-qaqc-screen';
-      document.getElementById('tg-btn-finish').textContent = '✓ finish recount';
-      document.getElementById('tg-counter-sub').textContent = `— QA/QC recount: ${entry.locationLabel} / ${day.sheetName}`;
+      document.getElementById('tg-btn-finish').textContent = '✓ finish QA count';
+      document.getElementById('tg-counter-sub').textContent = `— QA count: ${entry.locationLabel} / ${day.sheetName}`;
       const started = tgBeginRecount(classificationList, recountCfg, async (parsed) => {
         if (isQaInputMode) {
           const finishBtn = document.getElementById('tg-btn-finish');
@@ -7808,10 +7808,10 @@ async function renderQaqcScreen() {
               enteredAt: new Date().toISOString(),
             });
           } catch (e) {
-            finishBtn.textContent = '✓ finish recount';
+            finishBtn.textContent = '✓ finish QA count';
             finishBtn.disabled = false;
             document.getElementById('tg-counter-sub').textContent = 'Could not submit — check your connection and try again.';
-            alert('Could not submit this recount. Check your connection and try again.\n\n' + (e?.message || e));
+            alert('Could not submit this QA count. Check your connection and try again.\n\n' + (e?.message || e));
             return;
           }
           finishBtn.disabled = false;
@@ -7826,7 +7826,7 @@ async function renderQaqcScreen() {
             const banner = document.createElement('div');
             banner.className = 'stat-detail';
             banner.style.cssText = 'margin-bottom:14px;padding:10px;border:.5px solid var(--border);border-radius:6px;color:var(--text)';
-            banner.textContent = '✓ Recount submitted — thank you.';
+            banner.textContent = '✓ QA count submitted — thank you.';
             list.prepend(banner);
           }
           return;
@@ -8140,7 +8140,7 @@ async function renderIntersectionQaqcScreen(snapshotCtx = null) {
           const diffPct = recountTotal != null && primaryTotal > 0 ? Math.abs(diff / primaryTotal) * 100 : (recountTotal === 0 && primaryTotal === 0 ? 0 : null);
           const thresh = ixQaqcThresholdPct(primaryTotal);
           const resultLabel = !latest
-            ? '<span class="tag" style="color:var(--text3)">no recount</span>'
+            ? '<span class="tag" style="color:var(--text3)">no QA count</span>'
             : passFailBadge(!inRange || scoreResult?.rating === 'Incomplete' ? null : scoreResult?.overallPass);
           rowHtml.push(`<tr>
             <td>${escapeHtmlMain(r.label)}</td>
@@ -8155,7 +8155,7 @@ async function renderIntersectionQaqcScreen(snapshotCtx = null) {
           <div style="margin-bottom:10px">
             <div style="font-size:12px;font-weight:600;margin-bottom:4px">${grp.modeLabel}${grp.modeKey === 'tmc' ? ' <span style="font-weight:400;color:var(--text3)">(per-approach total — see note below)</span>' : ''}</div>
             <table class="crosswalk-table" style="margin-bottom:6px">
-              <thead><tr><th>row</th><th>primary total</th><th>recount total</th><th>diff</th><th>threshold</th><th>result</th></tr></thead>
+              <thead><tr><th>row</th><th>primary total</th><th>QA count total</th><th>diff</th><th>threshold</th><th>result</th></tr></thead>
               <tbody>${rowHtml.join('')}</tbody>
             </table>
           </div>`);
@@ -8167,7 +8167,7 @@ async function renderIntersectionQaqcScreen(snapshotCtx = null) {
           <div class="stat-detail" style="margin-bottom:8px">${inRange ? `Hour: ${minToTimeStr(startMin)} – ${minToTimeStr(startMin + 60)}` : 'This window falls outside this period’s counted time range.'}</div>
           ${!w.autoSearch ? `<div class="setup-grid" style="margin-bottom:10px;grid-template-columns:1fr"><div class="setup-field"><label>additional-hour start time</label><input type="time" data-ixqaqc-manual-start="${cardId}" value="${minToTimeStr(startMin)}"></div></div>` : ''}
           ${sectionsHtml.join('')}
-          <button class="btn-primary" data-ixqaqc-begin="${cardId}" ${inRange ? '' : 'disabled'}>begin recount →</button>
+          <button class="btn-primary" data-ixqaqc-begin="${cardId}" ${inRange ? '' : 'disabled'}>begin QA count →</button>
         </div>
       `);
     }
@@ -8186,7 +8186,7 @@ async function renderIntersectionQaqcScreen(snapshotCtx = null) {
       cards.push(`
         <div class="card" style="margin-bottom:20px">
           <h3>${escapeHtmlMain(period.name)} — Three Peak Hour rating</h3>
-          <div class="stat-detail" style="margin-bottom:8px">Rolls up AM / Midday / PM scores (0-5 each) into a 0-15 rating per row. The Additional hour (if recounted) isn't part of this rollup.</div>
+          <div class="stat-detail" style="margin-bottom:8px">Rolls up AM / Midday / PM scores (0-5 each) into a 0-15 rating per row. The Additional hour (if QA counted) isn't part of this rollup.</div>
           <table class="crosswalk-table">
             <thead><tr><th>row</th><th>AM / MD / PM score</th><th>total (0-15)</th><th>rating</th></tr></thead>
             <tbody>${rollupRows.join('')}</tbody>
