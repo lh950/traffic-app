@@ -1,5 +1,10 @@
 # Changelog
 
+## v3 · v1.1.1 — 2026-08-28
+
+### Added
+- Explanatory header on the read-only shared viewer screen — what the page is, that it's read-only, and how to navigate it (scroll for the full study, ▸ marks a collapsed section, reload to see updates).
+
 ## v3 · v1.1.0 — 2026-08-28
 
 ### Added
