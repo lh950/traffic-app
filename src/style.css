@@ -1196,6 +1196,19 @@ body.workspace-mode .setup-header{display:none!important}
   .app-header,.help-overlay,#help-modal{display:none!important}
 
   #analyze-screen{display:block!important;padding:0;max-width:100%}
+  /* The rule above forces #analyze-screen visible unconditionally — correct for the normal
+     owner print flow (Analysis screen is always the active screen when that print button is
+     clicked), but wrong for a shared-viewer print: #analyze-screen is inactive (and empty —
+     its content is never rendered in viewer mode) while #share-viewer-screen is what's
+     actually on screen. body.shared-view-mode is set once, at the top of enterViewerMode()/
+     enterQaInputMode() (main.js), for exactly this. */
+  body.shared-view-mode #analyze-screen{display:none!important}
+  #share-viewer-screen{padding:0!important;max-width:100%}
+  /* Elements inside #share-viewer-screen that should print-hide but stay visible to a live
+     viewer — can't reuse .no-print here, since analysis/style.css's
+     `.viewer-mode .no-print:not(.viewer-keep)` rule hides .no-print unconditionally (not just
+     while printing), and #share-viewer-screen always carries .viewer-mode. */
+  .share-print-hide{display:none!important}
 
   /* Show print-only report header */
   .print-report-header{

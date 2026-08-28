@@ -8,6 +8,16 @@ Severity levels:
 
 ---
 
+## BUG-052 (082820261036)
+**Status:** Fixed (v3 · v1.1.2)
+**Severity:** Minor (a convenience shortcut silently does nothing — no data risk, but a real reported gap)
+**Found in:** `focus.js`'s `wireKeydown()` — the intersection vehicle/TMC counter's own group-switch key handling
+**Description:** User report: "in counting, the num pad + still does not properly shift groups." `Numpad +` was added as an extra group-next shortcut for Trip Gen's counter (`tripgenCount.js`'s `groupSwitchCodes()`) in an earlier session, but the intersection vehicle/TMC counter has its own, entirely separate group-switch implementation in `focus.js` — the earlier fix never touched it. Exactly the gap `CLAUDE.md`'s "Cross-count-type parity" rule exists to catch: a feature-dependent keybinding fix landed on one count type and was never checked against the others.
+**Fix:** `focus.js`'s `wireKeydown()` now also accepts `e.code === 'NumpadAdd'` as an extra "next group" shortcut for vehicle/TMC mode, additive alongside the existing preset-based `nextCode` (`NumpadSubtract` or `Equal`), mirroring `tripgenCount.js`'s own fix and comment.
+**Verified live:** started a real intersection count, dispatched a real `NumpadAdd` keydown event on `document`, confirmed `defaultPrevented` is now `true` (previously the code had no branch for it at all, so the event passed through unhandled).
+
+---
+
 ## BUG-051 (082820260957)
 **Status:** Fixed (v3 · v1.1.0, found live-testing the new QA-input shareable link feature)
 **Severity:** Major (a QA reviewer's browser gets permanently stuck with no way to retry or recover — the whole point of the QA-input link is a hands-off submit path a non-technical second counter can use unattended)

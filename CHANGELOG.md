@@ -1,5 +1,17 @@
 # Changelog
 
+## v3 · v1.1.2 — 2026-08-28
+
+### Added
+- Trip Gen shared viewer: top tab bar (Overview / QA/QC / Locations / Reports) instead of one long scroll, matching the Setup screen's tab look.
+- Trip Gen shared viewer: a "Print report" button with its own print-formatted header.
+- Trip Gen: "Site-wide summary" now leads the page (owner Analysis screen and shared viewer both); "Your own peak periods" (custom windows) moved to the end.
+- Shared viewer's explanatory header rewritten to actually orient a stranger clicking the link cold — what Traffic App is, that this is read-only, how to navigate, how to print.
+
+### Fixed
+- BUG-052: `Numpad +` didn't shift groups on the intersection vehicle/TMC counter (only fixed for Trip Gen previously — a cross-count-type parity gap).
+- Print CSS: printing while the shared viewer is open no longer also force-shows the empty owner Analysis screen.
+
 ## v3 · v1.1.1 — 2026-08-28
 
 ### Added

@@ -205,8 +205,12 @@ export function wireKeydown(){
       const isNumpad=keybindCfg.preset==='numpad';
       const prevCode=isNumpad?'NumpadDivide':'Minus';
       const nextCode=isNumpad?'NumpadSubtract':'Equal';
+      // NumpadAdd is also accepted as an extra "next" key, same reported gap and same fix as
+      // tripgenCount.js's groupSwitchCodes() (see its own comment) — additive, doesn't replace
+      // nextCode above, and always active regardless of preset (someone reaches for Numpad +
+      // expecting it to pair with Numpad - for prev/next even on the QWERTY preset).
       if(e.code===prevCode){e.preventDefault();(mode==='vehicle'?vGroupPrev:tmcGroupPrev)();return;}
-      if(e.code===nextCode){e.preventDefault();(mode==='vehicle'?vGroupNext:tmcGroupNext)();return;}
+      if(e.code===nextCode||e.code==='NumpadAdd'){e.preventDefault();(mode==='vehicle'?vGroupNext:tmcGroupNext)();return;}
     }
     const k=e.key===';'?';':e.key.toLowerCase();
     // preventDefault here to block browser defaults (scroll, undo, etc.)

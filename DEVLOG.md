@@ -4,6 +4,26 @@ Key decisions, scope constraints, and architectural choices.
 
 ---
 
+## 2026-08-28 — v3 · v1.1.2 (shared-viewer navigation overhaul + cross-type keybinding parity)
+
+**Trip Gen shared-viewer layout, reordered.** Per user request: "Site-wide summary" now leads the page (was buried after totals/fixed-window report); "Your own peak periods" (named custom windows — user-created reports) now sits last. Applied to both the owner's Analysis screen and the read-only viewer, since `renderTripGenSection()` is the one function both use — keeping them in sync rather than forking the order per mode.
+
+**Tabbed shared viewer (Trip Gen only, for now).** User: "its just a lot to scroll through on one page" — the single long scroll didn't hold up for a real multi-location, multi-day study. Viewer mode now gets a top tab bar (Overview / QA/QC / Locations / Reports), reusing the exact `.setup-tabs`/`.setup-tab` classes and look of the owner's own Setup screen tabs, per explicit request. Owner mode (Analysis screen) is untouched — the sidebar already gives the owner a different way to navigate, and this pass scoped the tab treatment to where the actual complaint was. **Not yet done for other project types** (intersection/area/parking viewers) — noted here per `CLAUDE.md`'s cross-count-type parity rule rather than silently left; those viewers may want the same treatment if they get the same complaint, but weren't in scope for this pass.
+
+Panels are toggled the same way Trip Gen's own location tabs already are — inline `style.display`, not a CSS class — and print CSS was extended with the same "force all panels visible" override `.tg-loc-block` already had (`[data-vtab-panel]{display:block!important}` in `@media print`).
+
+**Print, added to the shared viewer.** Previously the viewer had no print entry point at all. Reused `populatePrintHeader()` (already built for the owner's Analysis-screen print) by giving it an `idPrefix` parameter instead of duplicating its field logic — both the owner header (`#prh-*`) and a new viewer-only header (`#share-prh-*`) read from the exact same live globals, which `loadProject()` already populates identically in viewer mode.
+
+Found and fixed a real print-layout bug in the process: the print CSS unconditionally force-showed `#analyze-screen` (`display:block!important`) — correct when the owner's Analysis screen is what's on screen, wrong when the shared viewer is active instead (`#analyze-screen` is inert and empty in that case, but would still print, above the viewer's own content). Fixed with a `body.shared-view-mode` class (set once, at the very top of `enterViewerMode()`/`enterQaInputMode()`) that suppresses the forced show.
+
+Also found, while wiring the new tab bar and print card as `.no-print`: `.no-print` is already double-duty in this app — `analysis/style.css`'s `.viewer-mode .no-print:not(.viewer-keep)` rule hides it **unconditionally**, not just while printing, since it's meant for owner-only edit controls that shouldn't reach a viewer at all. Tagging the new (viewer-visible, print-only-hidden) elements `.no-print` made them invisible to viewers permanently, not just on print — caught live (bounding rects were all zero) before shipping. Introduced a second class, `.share-print-hide`, scoped only inside `@media print`, for exactly this "visible to viewer, hidden only when printing" case.
+
+**Shared-viewer header rewritten** (second pass — the first pass from earlier today was, per direct user feedback, not enough for someone with zero context clicking a link cold). Now explains: what Traffic App is, that this is one specific study someone sent them, that it's read-only with no account needed, how the tabs/▸-disclosure/print button work, and that reloading gets the latest data.
+
+**BUG-052, cross-count-type parity gap.** User report: `Numpad +` still didn't shift groups "in counting." An earlier session fixed this for Trip Gen's counter only (`tripgenCount.js`) — the intersection vehicle/TMC counter has its own separate group-switch implementation (`focus.js`) that was never touched. Exactly the failure mode `CLAUDE.md`'s cross-count-type parity rule exists to catch. Fixed the same way, verified via a real dispatched `NumpadAdd` keydown event. Full writeup in `BUGS.md`.
+
+---
+
 ## 2026-08-28 — v3 · v1.1.0 (QA-input shareable link — Trip Gen only)
 
 **What it is.** A second link (`?share=<id>&qa=1`, same shared doc as the existing read-only viewer) that a second-counter reviewer can use to submit QA/QC recounts remotely without ever being able to touch a location's real count data — not just UI-hidden, structurally incapable of it. Follows directly from the user's question this session: "is there a way to share a link that only provides the QA input."

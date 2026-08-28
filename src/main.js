@@ -1442,6 +1442,10 @@ document.getElementById('btn-analyze-print')?.addEventListener('click', () => {
   populatePrintHeader();
   window.print();
 });
+document.getElementById('btn-share-viewer-print')?.addEventListener('click', () => {
+  populatePrintHeader('share-prh');
+  window.print();
+});
 document.getElementById('btn-analyze-to-landing')?.addEventListener('click', () => {
   document.getElementById('btn-analyze-to-count').style.display = 'none';
   document.getElementById('btn-analyze-to-qaqc').style.display = 'none';
@@ -5748,6 +5752,7 @@ function loadProject(proj, opts = {}) {
 // guard is active for the rest of this tab's lifetime, no matter what fails below.
 async function enterViewerMode(shareId) {
   isViewerMode = true;
+  document.body.classList.add('shared-view-mode'); // see style.css's print block for why
   setShareViewerMode(true);
   showScreen('share-viewer-screen');
   const content = document.getElementById('share-viewer-content');
@@ -5785,6 +5790,7 @@ async function enterViewerMode(shareId) {
 async function enterQaInputMode(shareId) {
   isQaInputMode = true;
   qaInputShareId = shareId;
+  document.body.classList.add('shared-view-mode'); // see style.css's print block for why
   setShareViewerMode(true);
   showScreen('share-viewer-screen');
   const content = document.getElementById('share-viewer-content');
@@ -6517,7 +6523,12 @@ function renderLogoPreview() {
   });
 }
 
-function populatePrintHeader() {
+// idPrefix lets the same field-computation logic drive two separate print-header DOM
+// instances (the owner Analysis screen's #prh-* and the shared viewer's #share-prh-*) without
+// duplicating any of the actual field logic — both read from the same live globals
+// (projectInfo/tripgenSiteInfo/intersection/cfg), which loadProject() populates in viewer mode
+// exactly the same way it does for the owner.
+function populatePrintHeader(idPrefix = 'prh') {
   const isTripgen = projectType === 'tripgen';
   // Title: project name or intersection streets
   const title = projectInfo.projectName ||
@@ -6525,14 +6536,14 @@ function populatePrintHeader() {
       ((intersection.street1 && intersection.street2)
         ? `${intersection.street1} & ${intersection.street2}`
         : intersection.street1 || 'Intersection Count'));
-  document.getElementById('prh-title').textContent = title;
+  document.getElementById(`${idPrefix}-title`).textContent = title;
 
   // Sub-line: location, project number, study purpose
   const subParts = [];
   if (projectInfo.location) subParts.push(projectInfo.location);
   if (projectInfo.projectNumber) subParts.push(`Project #${projectInfo.projectNumber}`);
   if (projectInfo.studyPurpose) subParts.push(projectInfo.studyPurpose);
-  document.getElementById('prh-sub').textContent = subParts.join(' · ');
+  document.getElementById(`${idPrefix}-sub`).textContent = subParts.join(' · ');
 
   // Meta row: company, personnel, date
   const meta = [];
@@ -6559,10 +6570,10 @@ function populatePrintHeader() {
     meta.push(`<span>${slots} × ${cfg.intervalMin}-min intervals</span>`);
   }
   meta.push(`<span>Printed ${new Date().toLocaleDateString('en-US', {year:'numeric',month:'short',day:'numeric'})}</span>`);
-  document.getElementById('prh-meta').innerHTML = meta.join('');
+  document.getElementById(`${idPrefix}-meta`).innerHTML = meta.join('');
 
   // Logo
-  const logoEl = document.getElementById('prh-logo');
+  const logoEl = document.getElementById(`${idPrefix}-logo`);
   if (projectInfo.logoUrl) {
     logoEl.src = projectInfo.logoUrl;
     logoEl.style.display = '';

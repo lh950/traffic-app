@@ -222,6 +222,10 @@ tfoot td:first-child{text-align:left;color:var(--text2)}
   /* Trip Gen location tabs (tripgenSection.js) hide every location but the active one on
      screen — print must show all locations regardless of which tab was selected last. */
   .tg-loc-block{display:block!important}
+  /* Shared-viewer tab panels (tripgenSection.js's renderTripGenSection, viewerMode) — same
+     inline-style.display toggle as .tg-loc-block above, same fix: print must show every tab's
+     content regardless of which one was open, not just the one visible on screen. */
+  [data-vtab-panel]{display:block!important}
   /* Tighten heading sizes */
   h2{font-size:13px!important;margin-bottom:8px!important}
   h3{font-size:11px!important}

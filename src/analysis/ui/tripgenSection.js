@@ -1575,37 +1575,72 @@ export async function renderTripGenSection(container, entries, ctx) {
       </tbody>
     </table>`;
 
-  container.innerHTML = `
-    <div class="stat-detail" style="margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
-      <span>Combines every location counted so far into one set of totals, grouped by day type. Scroll down for per-location, per-day breakdowns and the peak-hour trip generation figures.</span>
-      ${(!viewerMode && ctx.onEditGroups) ? `<button type="button" class="no-print" data-tg-edit-groups style="font-size:12px;flex-shrink:0">Edit classification groups →</button>` : ''}
-    </div>
-    ${viewerMode ? '' : renderSiteInfoForm(siteInfo)}
-    <div class="card" style="margin-bottom:14px">
-      <h3>Totals by day type — all ${entries.length} location${entries.length > 1 ? 's' : ''} combined</h3>
-      ${wrapViewerDetail(totalsTable, 'Show totals table', viewerMode)}
-    </div>
-
-    ${fixedWindowHTML}
-    ${customWindowsHTML}
-
+  const overviewPanelHTML = `
     <div class="section" style="margin-bottom:1.5rem">
       <div class="section-head"><h2>Site-wide summary</h2><span class="sub">every location, one chart per day</span></div>
       ${siteWideTripRateHTML}
       <div class="tg-sw-root" data-tg-sitewide></div>
     </div>
-
+    <div class="card" style="margin-bottom:14px">
+      <h3>Totals by day type — all ${entries.length} location${entries.length > 1 ? 's' : ''} combined</h3>
+      ${wrapViewerDetail(totalsTable, 'Show totals table', viewerMode)}
+    </div>
+  `;
+  const qaqcPanelHTML = `
     <div class="section" style="margin-bottom:1.5rem">
       <div class="section-head"><h2>QA/QC</h2></div>
       ${qaqcSectionHTML}
     </div>
-
+  `;
+  const locationsPanelHTML = `
     <div class="section" style="margin-bottom:1.5rem">
       <div class="section-head"><h2>Per-location detail</h2></div>
     </div>
     ${locationTabsHTML}
     ${locationBlocks.join('')}
   `;
+  const reportsPanelHTML = `${fixedWindowHTML}${customWindowsHTML}`;
+
+  // Viewer mode gets a top tab bar (same .setup-tabs/.setup-tab classes and look as the
+  // owner's own Setup screen, per user request) instead of one long scroll — a real shared
+  // study (several locations, several days each) made the single-page layout unwieldy for
+  // someone stumbling onto the link. Owner mode keeps the original flat single-page layout
+  // unchanged (the sidebar already gives the owner a different, faster way to jump around).
+  // Print must show every panel regardless of which tab was last selected — panels are
+  // toggled the exact same way tg-loc-block/day-tab already are (inline style.display, not a
+  // CSS class), so the existing print rule pattern (see .tg-loc-block in analysis/style.css)
+  // extends the same way: [data-vtab-panel] is forced display:block!important in @media print,
+  // and the tab bar itself is marked .no-print, already globally hidden when printing.
+  const VIEWER_TABS = [
+    { key: 'overview', label: 'Overview', html: overviewPanelHTML },
+    { key: 'qaqc', label: 'QA/QC', html: qaqcPanelHTML },
+    { key: 'locations', label: 'Locations', html: locationsPanelHTML },
+    { key: 'reports', label: 'Reports', html: reportsPanelHTML },
+  ];
+  if (viewerMode && container._tgViewerTab == null) container._tgViewerTab = VIEWER_TABS[0].key;
+  const viewerTabsHTML = viewerMode ? `
+    <div class="setup-tabs share-print-hide" style="margin-bottom:1.5rem">
+      ${VIEWER_TABS.map((t) => `<button type="button" class="setup-tab${t.key === container._tgViewerTab ? ' active' : ''}" data-vtab="${t.key}">${escapeHtml(t.label)}</button>`).join('')}
+    </div>
+    ${VIEWER_TABS.map((t) => `<div data-vtab-panel="${t.key}" style="display:${t.key === container._tgViewerTab ? '' : 'none'}">${t.html}</div>`).join('')}
+  ` : `${overviewPanelHTML}${fixedWindowHTML}${qaqcPanelHTML}${locationsPanelHTML}${customWindowsHTML}`;
+
+  container.innerHTML = `
+    <div class="stat-detail" style="margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+      <span>Combines every location counted so far into one set of totals, grouped by day type.${viewerMode ? ' Use the tabs above to jump between sections.' : ' Scroll down for per-location, per-day breakdowns and the peak-hour trip generation figures.'}</span>
+      ${(!viewerMode && ctx.onEditGroups) ? `<button type="button" class="no-print" data-tg-edit-groups style="font-size:12px;flex-shrink:0">Edit classification groups →</button>` : ''}
+    </div>
+    ${viewerMode ? '' : renderSiteInfoForm(siteInfo)}
+    ${viewerTabsHTML}
+  `;
+
+  container.querySelectorAll('[data-vtab]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      container._tgViewerTab = btn.dataset.vtab;
+      container.querySelectorAll('[data-vtab]').forEach((b) => b.classList.toggle('active', b.dataset.vtab === container._tgViewerTab));
+      container.querySelectorAll('[data-vtab-panel]').forEach((p) => { p.style.display = p.dataset.vtabPanel === container._tgViewerTab ? '' : 'none'; });
+    });
+  });
 
   const siteWideEl = container.querySelector('[data-tg-sitewide]');
   if (siteWideEl) mountTgSiteWideComboChart(siteWideEl, { entries, categoryMap });

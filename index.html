@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Traffic App v3 · v1.1.1</title>
+<title>Traffic App v3 · v1.1.2</title>
 <link rel="manifest" href="./manifest.json">
 <meta name="theme-color" content="#131b23">
 <script>
@@ -124,7 +124,7 @@
   <div class="home-inner">
     <div class="home-wordmark">
       <h1>Traffic App</h1>
-      <div class="home-version">v3 · v1.1.1</div>
+      <div class="home-version">v3 · v1.1.2</div>
       <button id="home-btn-tour" title="Take the tour" style="margin-left:auto;font-size:12px;color:var(--text3);background:none;border:none;cursor:pointer;text-decoration:underline;flex-shrink:0">Take the tour</button>
       <button id="home-btn-help" title="Help / instructions" style="margin-left:12px;font-size:13px;font-weight:600;color:var(--text3);background:none;border:.5px solid var(--border);border-radius:50%;width:26px;height:26px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">?</button>
     </div>
@@ -193,7 +193,7 @@
     <!-- wordmark -->
     <div style="margin-bottom:2rem">
       <h1 style="font-size:22px;font-weight:500;letter-spacing:-.01em">Traffic App</h1>
-      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v3 · v1.1.1</span>
+      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v3 · v1.1.2</span>
     </div>
 
     <!-- autosave / resume banner -->
@@ -721,10 +721,32 @@
 <div id="share-viewer-screen" class="workspace-screen viewer-mode" style="display:none;min-height:100vh;padding:1.5rem 1.5rem 4rem">
   <div class="app-header">
     <h1>Shared view <span id="share-viewer-title" style="font-size:14px;font-weight:400;color:var(--text2);margin-left:8px"></span></h1>
+    <div class="actions">
+      <button id="btn-share-viewer-print">Print report</button>
+    </div>
   </div>
-  <div class="card" style="margin-bottom:14px;padding:12px 14px">
-    <div class="stat-detail" style="margin-bottom:4px"><strong style="color:var(--text)">Read-only —</strong> this is a live view of someone else's traffic study. Nothing on this page can be edited or saved, and no account is needed.</div>
-    <div class="stat-detail">Everything is on this one page — scroll down for the full study. Sections marked <strong>▸</strong> are collapsed by default; click one to expand its detail. If the owner updates their data, reload this page to see the latest version.</div>
+  <!-- populated by populateSharePrintHeader() before window.print() -->
+  <div class="print-report-header" id="share-print-report-header">
+    <div class="prh-left">
+      <div class="prh-title" id="share-prh-title"></div>
+      <div class="prh-sub" id="share-prh-sub"></div>
+      <div class="prh-meta" id="share-prh-meta"></div>
+    </div>
+    <img class="prh-logo" id="share-prh-logo" src="" alt="" style="display:none">
+  </div>
+  <!-- share-print-hide, NOT no-print: .no-print is doubly-scoped in this app — it also means
+       "hide from a viewer, not just from print" via analysis/style.css's
+       `.viewer-mode .no-print:not(.viewer-keep)` rule, which is unconditional (not inside
+       @media print). Every element here needs the OPPOSITE: visible to a viewer, hidden only
+       when actually printing (this whole screen already carries .viewer-mode). See the
+       @media print rule for .share-print-hide in style.css. -->
+  <div class="card share-print-hide" style="margin-bottom:14px;padding:14px 16px">
+    <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:8px">
+      <strong style="color:var(--text);font-size:14px">What you're looking at</strong>
+    </div>
+    <div class="stat-detail" style="margin-bottom:8px">This is a <strong style="color:var(--text)">Traffic App</strong> study — someone counted traffic (vehicles, pedestrians, or trip generation at a site) and sent you this link so you could see their results. You're seeing a live, <strong style="color:var(--text)">read-only</strong> copy of their data: nothing here can be edited, deleted, or saved by you, and no account or sign-in is needed.</div>
+    <div class="stat-detail" style="margin-bottom:8px"><strong style="color:var(--text)">How to get around:</strong> the tabs near the top of the page (where shown) switch between sections — overview, QA/QC, per-location detail, and reports. Inside a section, anything marked <strong>▸</strong> is collapsed by default; click it to expand the full detail underneath.</div>
+    <div class="stat-detail">Use <strong style="color:var(--text)">Print report</strong> above for a clean, print-formatted copy. This page reflects the owner's data as of when it loaded — reload the page to check for updates.</div>
   </div>
   <div id="share-viewer-content"></div>
 </div>
@@ -1005,7 +1027,7 @@
 
   <header class="counter-header">
     <button id="btn-back-to-project" style="font-size:12px;padding:4px 10px;margin-right:8px">? Project</button>
-    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v3 · v1.1.1</span></h1>
+    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v3 · v1.1.2</span></h1>
     <div class="hcontrols">
       <div class="mode-toggle" style="display:none">
         <button class="mode-btn active" id="btn-count-mode" onclick="goToCountMode()">count</button>
