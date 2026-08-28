@@ -7489,8 +7489,29 @@ async function handleCheckQaSubmissions() {
   try {
     const submissions = await fetchQaSubmissions(shareInfo.shareId);
     const fresh = submissions.filter((s) => !tripgenMergedQaSubmissionIds.includes(s.id));
+    let newWindowCount = 0;
     for (const s of fresh) {
-      const key = qaqcPeakKey(s.entryId, s.sheetName, s.windowId);
+      // Resolve the submission's window to one of THIS browser's own tripgenQaqcWindows —
+      // a reviewer's custom-added window (direct user request: "the QA checker should be able
+      // to add their own periods") only ever existed in their own tab, never persisted (same
+      // isQaInputMode-blocks-scheduleAutosave guard as viewer mode), so its windowId is
+      // meaningless here. Match by id first (the common case — an existing, owner-defined
+      // window the reviewer picked, so the id already agrees on both sides), then by
+      // label+time-range (covers a genuinely new window), creating one locally only if
+      // neither matches.
+      const winKey = qaqcWindowsKey(s.entryId, s.sheetName);
+      if (!tripgenQaqcWindows[winKey]) tripgenQaqcWindows[winKey] = [];
+      const windows = tripgenQaqcWindows[winKey];
+      let win = windows.find((w) => w.id === Number(s.windowId));
+      if (!win && s.windowLabel) {
+        win = windows.find((w) => w.label === s.windowLabel && w.startMin === s.windowStartMin && w.endMin === s.windowEndMin);
+        if (!win) {
+          win = { id: tripgenQaqcWindowNextId++, label: s.windowLabel, startMin: s.windowStartMin, endMin: s.windowEndMin };
+          windows.push(win);
+          newWindowCount++;
+        }
+      }
+      const key = win ? qaqcPeakKey(s.entryId, s.sheetName, win.id) : qaqcPeakKey(s.entryId, s.sheetName, s.windowId);
       tripgenQaqc[key] = tripgenQaqc[key] || { recounts: [] };
       tripgenQaqc[key].recounts.push({
         id: tgQaqcNextId++, classifications: s.classifications, cfg: s.cfg, parsed: s.parsed,
@@ -7502,7 +7523,9 @@ async function handleCheckQaSubmissions() {
       window.scheduleAutosave?.();
       renderQaqcScreen();
     }
-    setSaveState(fresh.length ? `Imported ${fresh.length} QA submission${fresh.length === 1 ? '' : 's'}` : 'No new QA submissions', 2500);
+    setSaveState(fresh.length
+      ? `Imported ${fresh.length} QA submission${fresh.length === 1 ? '' : 's'}${newWindowCount ? ` (${newWindowCount} new time period${newWindowCount === 1 ? '' : 's'} the reviewer added)` : ''}`
+      : 'No new QA submissions', 3000);
   } catch (e) {
     alert('Could not check for QA submissions. Check your connection and try again.\n\n' + (e?.message || e));
   } finally {
@@ -7559,6 +7582,36 @@ function scrollToQaqcCard(key, attemptsLeft = 20) {
 // classifications tab. Rather than sending the reviewer to go find it, show it right here.
 // Project-wide (tgGetClassifications(), not per-location/day) — matches how classifications
 // are stored (BUG-035: project-wide config, not per-count data).
+// Recommended time periods (user request, QA-input link only — an owner already knows their
+// own peak windows from Setup, so this is only useful for a reviewer landing on the restricted
+// link cold). Lists each included day's own AM/Midday/PM (or Weekend peak 1/2/3) windows —
+// the SAME tripgenPeakWindows used everywhere else for peak-hour detection, not a separate
+// concept — as a starting point for which clock-time ranges are worth spot-checking, before
+// the reviewer decides whether to also add their own via "+ add time period" below.
+function renderQaqcRecommendedPeriods() {
+  const root = document.getElementById('qaqc-recommended-periods');
+  if (!root) return;
+  if (!isQaInputMode) { root.innerHTML = ''; return; }
+  const rows = [];
+  for (const entry of tripgenEntries) {
+    for (const day of tgIncludedDays(entry)) {
+      const windows = tripgenPeakWindows[day.dayType] || [];
+      windows.forEach((w) => {
+        rows.push(`<tr><td>${escapeHtmlMain(entry.locationLabel)}</td><td>${escapeHtmlMain(day.sheetName)}</td><td>${escapeHtmlMain(w.label)}</td><td>${minToTimeStr(w.searchStartMin)}–${minToTimeStr(w.searchEndMin)}</td></tr>`);
+      });
+    }
+  }
+  root.innerHTML = `
+    <div style="font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text2);margin-bottom:8px">Recommended time periods for QA validation</div>
+    <div class="stat-detail" style="margin-bottom:8px">These are this study's own detected peak windows — the busiest hours are usually the most useful to spot-check. You can also add your own time period below if you'd rather check a different hour.</div>
+    ${rows.length ? `
+    <table class="crosswalk-table">
+      <thead><tr><th>Location</th><th>Day</th><th>Period</th><th>Search range</th></tr></thead>
+      <tbody>${rows.join('')}</tbody>
+    </table>` : '<div class="stat-detail" style="color:var(--text3)">No peak windows defined for this study yet.</div>'}
+  `;
+}
+
 function renderQaqcClassificationRef() {
   const root = document.getElementById('qaqc-classification-ref');
   if (!root) return;
@@ -7575,6 +7628,7 @@ function renderQaqcClassificationRef() {
 
 async function renderQaqcScreen() {
   const root = document.getElementById('tripgen-qaqc-list');
+  renderQaqcRecommendedPeriods();
   renderQaqcClassificationRef();
   if (!tripgenEntries.length) { root.innerHTML = '<div class="stat-detail">No locations counted yet — add one from setup first.</div>'; return; }
   // This function awaits a real per-window peak-score computation (computeQaqcPeakScore) for
@@ -7662,14 +7716,13 @@ async function renderQaqcScreen() {
       dayBlocks.push(`
         <div style="margin-bottom:10px">
           <div class="stat-detail" style="font-weight:600;color:var(--text);margin:10px 0 8px">${escapeHtmlMain(day.sheetName)}</div>
-          ${windowCards.join('') || `<div class="stat-detail" style="margin-bottom:10px">${isQaInputMode ? 'No time periods have been set up for this day yet — check back once the project owner adds one.' : 'No time periods added yet — add one below.'}</div>`}
-          ${isQaInputMode ? '' : `
+          ${windowCards.join('') || '<div class="stat-detail" style="margin-bottom:10px">No time periods added yet — add one below.</div>'}
           <div class="no-print" style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;padding:10px 0 4px;border-top:.5px dashed var(--border2)">
             <div class="setup-field"><label>name</label><input type="text" data-qaqc-window-name="${winKey}" placeholder="e.g. AM peak" style="width:140px"></div>
             <div class="setup-field"><label>start</label><input type="time" data-qaqc-window-start="${winKey}"></div>
             <div class="setup-field"><label>end</label><input type="time" data-qaqc-window-end="${winKey}"></div>
             <button type="button" class="btn-primary" data-qaqc-add-window="${winKey}" style="height:34px">+ add time period</button>
-          </div>`}
+          </div>
         </div>
       `);
     }
@@ -7805,10 +7858,22 @@ async function renderQaqcScreen() {
           finishBtn.disabled = true;
           document.getElementById('tg-counter-sub').textContent = '';
           try {
+            // The window's own definition (label/time range), not just its id — a reviewer
+            // can now add their own custom time period (direct user request), and that
+            // window only exists in THIS browser tab's local tripgenQaqcWindows, never
+            // persisted (isQaInputMode blocks scheduleAutosave same as viewer mode). Without
+            // the definition riding along, the owner's "check for QA submissions" would have
+            // no way to know what window this id even refers to — see handleCheckQaSubmissions
+            // below, which creates a matching local window on the owner's side if one doesn't
+            // already exist for this label/time range.
+            const winDef = tripgenQaqcWindows[qaqcWindowsKey(entry.id, day.sheetName)]?.find((win) => win.id === Number(windowId));
             await submitQaRecount(qaInputShareId, {
               entryId: entry.id,
               sheetName: day.sheetName,
               windowId,
+              windowLabel: winDef?.label || null,
+              windowStartMin: winDef?.startMin ?? null,
+              windowEndMin: winDef?.endMin ?? null,
               classifications: classificationList,
               cfg: recountCfg,
               parsed,

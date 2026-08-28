@@ -1,5 +1,12 @@
 # Changelog
 
+## v3 · v1.2.8 — 2026-08-28
+
+### Added
+- QA Page: the "Copy QA-input link" button now also lives right on the QA Page header, not just Setup/Analysis.
+- QA Input: a "Recommended time periods for QA validation" card at the top, listing the study's own detected peak windows.
+- QA Input: the reviewer can now add their own custom time periods, not just use windows the owner already set up. New windows a reviewer adds are local to their own link session; when the owner checks for QA submissions, a matching time period is created automatically on their side too, so the submission has somewhere to land.
+
 ## v3 · v1.2.7 — 2026-08-28
 
 ### Changed
