@@ -7714,10 +7714,10 @@ async function renderQaqcScreen() {
         `);
       }
       dayBlocks.push(`
-        <div style="margin-bottom:10px">
-          <div class="stat-detail" style="font-weight:600;color:var(--text);margin:10px 0 8px">${escapeHtmlMain(day.sheetName)}</div>
+        <div style="margin-bottom:16px;padding-bottom:4px;border-bottom:1px solid var(--border)">
+          <div style="font-size:15px;font-weight:600;color:var(--text);margin:14px 0 10px">${escapeHtmlMain(day.sheetName)}</div>
           ${windowCards.join('') || '<div class="stat-detail" style="margin-bottom:10px">No time periods added yet — add one below.</div>'}
-          <div class="no-print" style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;padding:10px 0 4px;border-top:.5px dashed var(--border2)">
+          <div class="no-print card" style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;margin:10px 0;background:var(--surface2)">
             <div class="setup-field"><label>name</label><input type="text" data-qaqc-window-name="${winKey}" placeholder="e.g. AM peak" style="width:140px"></div>
             <div class="setup-field"><label>start</label><input type="time" data-qaqc-window-start="${winKey}"></div>
             <div class="setup-field"><label>end</label><input type="time" data-qaqc-window-end="${winKey}"></div>

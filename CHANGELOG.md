@@ -1,5 +1,10 @@
 # Changelog
 
+## v3 · v1.2.9 — 2026-08-28
+
+### Changed
+- QA Page: the date header is bigger/bolder, and "+ add time period" now sits in its own bordered card instead of being crammed directly against the date and the counted-period cards above it.
+
 ## v3 · v1.2.8 — 2026-08-28
 
 ### Added
