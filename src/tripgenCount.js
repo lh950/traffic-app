@@ -617,7 +617,7 @@ function buildTable() {
     const noteBtn = note
       ? `<button type="button" class="tg-note-btn tg-note-set" data-slot="${i}" title="${escapeAttr(note)}">note*</button>`
       : `<button type="button" class="tg-note-btn" data-slot="${i}" title="add a note for this interval">+</button>`;
-    return `<tr${cur} id="tg-r-${i}"><td>${slotLabel(i)}</td>${cells}<td class="${rowTotal > 0 ? 'nonzero' : ''}">${rowTotal}</td><td class="tg-note-col">${noteBtn}</td></tr>`;
+    return `<tr${cur} id="tg-r-${i}"><td class="tg-time-cell" data-slot="${i}" title="Right-click to clear this row">${slotLabel(i)}</td>${cells}<td class="${rowTotal > 0 ? 'nonzero' : ''}">${rowTotal}</td><td class="tg-note-col">${noteBtn}</td></tr>`;
   }).join('');
   const totals = classifications.map((_, ci) => {
     const inT = tgData.in.reduce((s, r) => s + r[ci], 0);
@@ -670,6 +670,32 @@ function wireNoteModal() {
   document.getElementById('tg-note-modal-close')?.addEventListener('click', closeNoteModal);
   document.getElementById('tg-note-cancel')?.addEventListener('click', closeNoteModal);
   document.getElementById('tg-note-save')?.addEventListener('click', saveNoteModal);
+}
+
+// Right-click a time cell to clear that whole row — record.js's own #ctx-menu is per-direction
+// (vehicle/ped/tmc each have their own table), which doesn't fit Trip Gen's single table with
+// one row per interval spanning every classification, so this uses its own #tg-ctx-menu element
+// rather than teaching record.js about tgData. Delegated the same way startCellEdit/notes are
+// above — one listener, attached once, survives every buildTable() re-render.
+let tgCtxSlot = null;
+function wireTgContextMenu() {
+  const menu = document.getElementById('tg-ctx-menu');
+  const tbl = document.getElementById('tg-tbl-count');
+  if (!menu || !tbl) return;
+  tbl.addEventListener('contextmenu', (e) => {
+    const td = e.target.closest('.tg-time-cell');
+    if (!td) return;
+    e.preventDefault();
+    tgCtxSlot = Number(td.dataset.slot);
+    menu.style.left = `${e.clientX}px`;
+    menu.style.top = `${e.clientY}px`;
+    menu.classList.add('open');
+  });
+  document.getElementById('tg-ctx-reset-interval')?.addEventListener('click', () => {
+    if (tgCtxSlot != null) resetTgInterval(tgCtxSlot);
+    menu.classList.remove('open');
+  });
+  document.addEventListener('click', () => menu.classList.remove('open'));
 }
 
 // ── Direct cell editing (click a count to type an exact value) — the same mechanism the
@@ -731,6 +757,13 @@ function applyAction(a, reverse) {
     tgData[a.dir][a.slot][a.col] = reverse ? a.before : a.after;
     return;
   }
+  // 'reset' (clear this row — see resetTgInterval() below) — same absolute-value shape as
+  // 'cell', just covering every classification's in/out at once instead of a single cell.
+  if (a.type === 'reset') {
+    tgData.in[a.slot] = (reverse ? a.inBefore : a.inAfter).slice();
+    tgData.out[a.slot] = (reverse ? a.outBefore : a.outAfter).slice();
+    return;
+  }
   const delta = reverse ? -1 : 1;
   tgData[a.dir][a.slot][a.col] += delta;
   tgData[a.dir][a.slot][a.col] = Math.max(0, tgData[a.dir][a.slot][a.col]);
@@ -749,6 +782,20 @@ export function redo() {
   applyAction(a, false);
   undoStack.push(a);
   updateUndoUI(); render();
+  window.scheduleAutosave?.();
+}
+
+// Clear row (build brief: matches the intersection counter's own right-click "reset interval"
+// — record.js's wireContextMenu()/ctx-reset-interval — which Trip Gen never had). Clears every
+// classification's in AND out at this one interval back to 0, in a single undoable action, same
+// "clear it and recount that period live" workflow a QA finding calls for.
+function resetTgInterval(slotIdx) {
+  if (slotIdx < 0 || slotIdx >= tgData.in.length) return;
+  const inBefore = tgData.in[slotIdx].slice(), outBefore = tgData.out[slotIdx].slice();
+  tgData.in[slotIdx] = classifications.map(() => 0);
+  tgData.out[slotIdx] = classifications.map(() => 0);
+  pushUndo({ type: 'reset', slot: slotIdx, inBefore, outBefore, inAfter: tgData.in[slotIdx].slice(), outAfter: tgData.out[slotIdx].slice() });
+  render();
   window.scheduleAutosave?.();
 }
 
@@ -863,6 +910,7 @@ export function wireKeydown() {
   document.getElementById('tg-btn-focus')?.addEventListener('click', toggleFocusMode);
   document.getElementById('tg-btn-diag')?.addEventListener('click', toggleTgDiagram);
   wireNoteModal();
+  wireTgContextMenu();
   // Forward counting keys typed directly into the popup reference window back to this
   // window — same mechanism as focus.js's wireKeydown message handler (diagram.js's popup
   // keydown listener posts {type:'kbd-passthrough', key, code}).

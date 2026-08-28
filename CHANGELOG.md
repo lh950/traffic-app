@@ -1,5 +1,10 @@
 # Changelog
 
+## v3 · v1.2.5 — 2026-08-28
+
+### Added
+- Trip Gen live counter: right-click a time row to clear it (every classification's in/out back to 0 in one undoable action) — matches the intersection counter's existing "reset interval," which Trip Gen never had.
+
 ## v3 · v1.2.4 — 2026-08-28
 
 ### Changed
