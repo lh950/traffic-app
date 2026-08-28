@@ -4,6 +4,12 @@ Key decisions, scope constraints, and architectural choices.
 
 ---
 
+## 2026-08-28 — v3 · v1.2.11 (QA Input instructions popup)
+
+Reused the existing `.modal-backdrop`/`.modal` styling (`openHelp`/`closeHelp` in `help.js`) rather than inventing new modal CSS — same visual language as the main help modal and the first-run walkthrough. Auto-open uses `sessionStorage`, not `localStorage`: a QA-input reviewer is usually a one-time visitor for a single share link, and `localStorage` would suppress the popup on a *different* share link opened later in the same browser (same-origin storage is shared across all share IDs). `sessionStorage` resets per tab, so a fresh tab always gets the popup once, and reopening it after closing (same tab, same link) doesn't re-show it uninvited.
+
+---
+
 ## 2026-08-28 — v3 · v1.2.3 (StreetLight Trip Gen comparison — hidden, not removed)
 
 After building and live-testing the full three-file StreetLight comparison (v1.2.0–v1.2.2) against a real Trip Gen site, user asked directly: "is there actually anything useful in this?" Honest answer, from the actual imported numbers, not a hypothetical: no, not for typical Trip Gen sites. StreetLight's own 95% confidence intervals were too wide to be a meaningful cross-check at the volume of a single driveway/access point — e.g. Logan St Parking's AADT estimate was 8 with a 95% CI of 0–100, a range 12x the point estimate. `sample_size.csv` showed under 1,000 total sampled trips across the whole multi-month analysis, across 3 zones — thin by design, not a fluke. This isn't specific to this one FedEx site: StreetLight's GPS-probe methodology scales with roadway volume, so it's structurally weaker at low-volume individual site driveways than at the higher-volume intersections/corridors the original TMC comparison targets. Confirmed as a general pattern for Trip Gen sites, not a one-off, before deciding what to do about it.

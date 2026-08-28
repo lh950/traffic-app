@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Traffic App v3 · v1.2.10</title>
+<title>Traffic App v3 · v1.2.11</title>
 <link rel="manifest" href="./manifest.json">
 <meta name="theme-color" content="#131b23">
 <script>
@@ -130,7 +130,7 @@
   <div class="home-inner">
     <div class="home-wordmark">
       <h1>Traffic App</h1>
-      <div class="home-version">v3 · v1.2.10</div>
+      <div class="home-version">v3 · v1.2.11</div>
       <button id="home-btn-tour" title="Take the tour" style="margin-left:auto;font-size:12px;color:var(--text3);background:none;border:none;cursor:pointer;text-decoration:underline;flex-shrink:0">Take the tour</button>
       <button id="home-btn-help" title="Help / instructions" style="margin-left:12px;font-size:13px;font-weight:600;color:var(--text3);background:none;border:.5px solid var(--border);border-radius:50%;width:26px;height:26px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">?</button>
     </div>
@@ -199,7 +199,7 @@
     <!-- wordmark -->
     <div style="margin-bottom:2rem">
       <h1 style="font-size:22px;font-weight:500;letter-spacing:-.01em">Traffic App</h1>
-      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v3 · v1.2.10</span>
+      <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">v3 · v1.2.11</span>
     </div>
 
     <!-- autosave / resume banner -->
@@ -663,6 +663,7 @@
            the QA workflow actually happens, not only on Setup/Analysis. -->
       <div class="share-widget" style="display:flex;gap:8px;align-items:center"></div>
       <button id="btn-qaqc-check-submissions" style="font-size:12px">check for QA submissions</button>
+      <button id="btn-qaqc-input-help" style="font-size:12px;display:none">? how this works</button>
       <button id="btn-qaqc-to-setup" style="font-size:12px">? back to setup</button>
       <button id="btn-qaqc-to-analyze" style="font-size:12px">view analysis ?</button>
     </div>
@@ -683,6 +684,45 @@
   <div id="qaqc-classification-ref" class="card" style="margin-bottom:1.2rem"></div>
   <div class="stat-detail" style="margin-bottom:14px">Perform a QA count of the same peak hours using the same classifications as the original count — this keeps the comparison apples-to-apples and avoids transcription errors. The list below groups by location and day — each location can have multiple days, each with its own AM / Midday / PM peak. Add more than one QA count per peak if you want extra confidence in the comparison.</div>
   <div id="tripgen-qaqc-list"></div>
+</div>
+
+<!-- QA-INPUT INSTRUCTIONS MODAL — only ever shown to a QA-input reviewer (isQaInputMode),
+     never to the project owner. Explains this restricted screen since the reviewer has no
+     sidebar/setup context to figure it out from. Auto-opens once per browser tab on landing
+     here, reopenable via the "? how this works" header button. -->
+<div class="modal-backdrop" id="qa-input-help-modal" onclick="if(event.target===this)closeQaInputHelp()">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>doing a QA count</h2>
+      <button class="modal-close" onclick="closeQaInputHelp()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-section">
+        <p>You've been sent this link to independently re-count one or more peak hours from an existing traffic study, so the original counts can be checked for accuracy.</p>
+      </div>
+      <div class="modal-divider"></div>
+      <div class="modal-section">
+        <h3>how it works</h3>
+        <ul>
+          <li>Enter your name and today's date at the top — this is recorded with your QA count.</li>
+          <li>Below that, each location/day shows its recommended peak periods (the study's own busiest hours) — pick one to check, or add your own custom time period if you'd rather check a different hour.</li>
+          <li>Check the classification reference on this page so you count vehicles into the same categories as the original count.</li>
+          <li>Click <strong>begin QA count →</strong> on a period, then count that hour using the same keyboard-driven counter as the main app.</li>
+          <li>Click <strong>✓ finish QA count</strong> when done. Your count is submitted automatically — you don't need to save or export anything.</li>
+          <li>You can submit more than one QA count for the same period if you want extra confidence in the comparison.</li>
+        </ul>
+      </div>
+      <div class="modal-divider"></div>
+      <div class="modal-section">
+        <h3>important</h3>
+        <ul>
+          <li>This link only shows what's needed to perform a QA count — it doesn't give access to the full study.</li>
+          <li>Nothing you do here can overwrite or delete the original count data — your submission is compared against it, not merged into it.</li>
+          <li>Don't refresh or close the tab mid-count — an in-progress QA count is held in memory only until you click finish.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- = QA/QC SCORE DETAIL SCREEN — the arithmetic behind one window's score, spelled out, so
@@ -1038,7 +1078,7 @@
 
   <header class="counter-header">
     <button id="btn-back-to-project" style="font-size:12px;padding:4px 10px;margin-right:8px">? Project</button>
-    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v3 · v1.2.10</span></h1>
+    <h1>traffic counter <span id="study-sub"></span><span style="font-size:10px;font-weight:400;opacity:.45;font-family:var(--mono);margin-left:8px">v3 · v1.2.11</span></h1>
     <div class="hcontrols">
       <div class="mode-toggle" style="display:none">
         <button class="mode-btn active" id="btn-count-mode" onclick="goToCountMode()">count</button>

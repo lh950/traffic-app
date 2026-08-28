@@ -194,6 +194,7 @@ Object.assign(window, {
   exportTripgenXLSX: () => exportTripgenXLSX(tripgenEntries, tripgenSiteInfo, projectInfo),
   openHelp, closeHelp, switchHelpTab, openSettings, closeSettings,
   applyMidSettings, checkMsKeys,
+  openQaInputHelp, closeQaInputHelp,
   openContextHelp: () => openHelp(contextualHelpTab()),
   goSetup,
   renderParkingSetupZones, pkSetOcc, renderParkingOccBadge,
@@ -5617,11 +5618,14 @@ function loadProject(proj, opts = {}) {
       const toSetupBtn = document.getElementById('btn-qaqc-to-setup');
       const toAnalyzeBtn = document.getElementById('btn-qaqc-to-analyze');
       const checkSubmissionsBtn = document.getElementById('btn-qaqc-check-submissions');
+      const inputHelpBtn = document.getElementById('btn-qaqc-input-help');
       if (toSetupBtn) toSetupBtn.style.display = 'none';
       if (toAnalyzeBtn) toAnalyzeBtn.style.display = 'none';
       if (checkSubmissionsBtn) checkSubmissionsBtn.style.display = 'none';
+      if (inputHelpBtn) inputHelpBtn.style.display = '';
       showScreen('tripgen-qaqc-screen');
       renderQaqcScreen();
+      maybeAutoShowQaInputHelp();
       return;
     }
     if (viewerMode) { renderViewerContent(proj); return; }
@@ -7655,6 +7659,22 @@ function renderQaqcRecommendedPeriods() {
     </table>` : '<div class="stat-detail" style="color:var(--text3)">No peak windows defined for this study yet.</div>'}
   `;
 }
+
+// QA-input reviewer instructions popup (user request) — explains this restricted screen since
+// a reviewer landing on a share link cold has no sidebar/setup context to figure it out from.
+// Auto-opens once per browser tab (sessionStorage, not localStorage — a fresh share link a
+// week later should still greet a first-time reviewer) and is reopenable via the header button.
+const QA_INPUT_HELP_SEEN_KEY = 'tc_qa_input_help_seen';
+function openQaInputHelp() { document.getElementById('qa-input-help-modal')?.classList.add('open'); }
+function closeQaInputHelp() { document.getElementById('qa-input-help-modal')?.classList.remove('open'); }
+function maybeAutoShowQaInputHelp() {
+  try {
+    if (sessionStorage.getItem(QA_INPUT_HELP_SEEN_KEY)) return;
+    sessionStorage.setItem(QA_INPUT_HELP_SEEN_KEY, '1');
+  } catch (_) { /* private-browsing sessionStorage access can throw — just show it every time */ }
+  openQaInputHelp();
+}
+document.getElementById('btn-qaqc-input-help')?.addEventListener('click', () => openQaInputHelp());
 
 function renderQaqcClassificationRef() {
   const root = document.getElementById('qaqc-classification-ref');

@@ -1,5 +1,10 @@
 # Changelog
 
+## v3 · v1.2.11 — 2026-08-28
+
+### Added
+- QA Input: a "doing a QA count" instructions popup, explaining what the link is for, how to submit a QA count, and what's out of scope — opens automatically the first time a reviewer lands on the link in a browser tab, and is reopenable anytime via a "? how this works" button on the page.
+
 ## v3 · v1.2.10 — 2026-08-28
 
 ### Fixed
