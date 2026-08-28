@@ -1,5 +1,10 @@
 # Changelog
 
+## v3 · v1.2.6 — 2026-08-28
+
+### Changed
+- Trip Gen QA/QC screen: the "Score detail" interval-by-interval table (primary vs. QA count, per interval) is now collapsed behind a ▸ caret by default instead of always expanded — makes it easy to open exactly the table for a period that failed, without cluttering the screen for the rest.
+
 ## v3 · v1.2.5 — 2026-08-28
 
 ### Added

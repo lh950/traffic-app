@@ -7631,13 +7631,13 @@ async function renderQaqcScreen() {
               </tbody>
             </table>`}
             ${!isQaInputMode && hasHour && recounts.length ? `
-            <div style="border-top:.5px solid var(--border);padding-top:10px;margin-bottom:10px">
-              <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px">
-                <div style="font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text2)">Score detail ${shapeCheckBadge(computed.shapeCheck)}</div>
+            <details class="interval-detail" style="border-top:.5px solid var(--border);padding-top:10px;margin-bottom:10px">
+              <summary class="interval-detail-summary" style="display:flex;align-items:center;justify-content:space-between;gap:10px;list-style:none">
+                <span style="font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text2)">Score detail — the counted tables, interval by interval ${shapeCheckBadge(computed.shapeCheck)}</span>
                 ${computed.scoreResult.score != null ? `<button type="button" class="no-print" data-qaqc-detail-open="${key}" style="font-size:11px">explain this score →</button>` : ''}
-              </div>
-              ${renderQaqcDetailCardHTML(computed)}
-            </div>` : ''}
+              </summary>
+              <div style="margin-top:8px">${renderQaqcDetailCardHTML(computed)}</div>
+            </details>` : ''}
             <div data-qaqc-form-area="${key}" style="display:none;border-top:.5px solid var(--border);padding-top:10px;margin-bottom:10px">
               <div class="setup-grid" style="margin-bottom:10px">
                 <div class="setup-field"><label>start time</label><input type="time" data-qaqc-start="${key}" value="${minToTimeStr(defaultStart)}"></div>
@@ -7683,7 +7683,14 @@ async function renderQaqcScreen() {
   root.innerHTML = locGroups.join('');
 
   root.querySelectorAll('[data-qaqc-detail-open]').forEach((el) => {
-    el.addEventListener('click', () => showTgQaqcDetail(el.dataset.qaqcDetailOpen, 'tripgen-qaqc-screen'));
+    el.addEventListener('click', (e) => {
+      // Now nested inside a <summary> (the collapsed-by-default "Score detail" section) — a
+      // plain click would also toggle that <details> open/closed along with navigating, since
+      // click bubbles up to the summary's own native disclosure behavior.
+      e.preventDefault();
+      e.stopPropagation();
+      showTgQaqcDetail(el.dataset.qaqcDetailOpen, 'tripgen-qaqc-screen');
+    });
   });
   root.querySelectorAll('[data-qaqc-add-window]').forEach((el) => {
     el.addEventListener('click', () => {
