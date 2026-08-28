@@ -1,5 +1,10 @@
 # Changelog
 
+## v3 · v1.2.7 — 2026-08-28
+
+### Changed
+- Chart series colors switched to a ROYGBIV progression (Red/Orange/Yellow/Green/Blue/Violet) across every chart in the app — classifications and groups are now much easier to tell apart at a glance than the previous muted warm palette.
+
 ## v3 · v1.2.6 — 2026-08-28
 
 ### Changed

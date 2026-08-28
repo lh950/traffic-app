@@ -13,8 +13,13 @@
   --r:8px;--rl:12px;
   --font:system-ui,-apple-system,'Segoe UI',sans-serif;
   --mono:'SF Mono','Fira Mono','Consolas',monospace;
-  --chart-grid:#DDD8D0;--chart-bar:#D4820A;--chart-bar2:#d8c98f;--chart-line:#A05C10;
-  --chart-bar3:#9bcf8f;--chart-bar4:#d391c4;--chart-bar5:#e0a05c;--chart-bar6:#8f9bd8;
+  /* ROYGBIV series palette (user request — "help things stand out"), 6 slots mapped to
+     Red/Orange/Yellow/Green/Blue/Violet (Indigo folded into Blue/Violet — 6 chart slots, not
+     7). Chosen for contrast against this theme's own light cream background (--bg above), not
+     pure/garish primaries. --chart-line (the "total" trend-line overlay in combo charts) keeps
+     its own identity, distinct from every bar color. */
+  --chart-grid:#DDD8D0;--chart-bar:#D6483F;--chart-bar2:#E08A2D;--chart-line:#A05C10;
+  --chart-bar3:#D4B106;--chart-bar4:#4F9A3F;--chart-bar5:#3B7DD8;--chart-bar6:#8B4FC9;
 }
 @media(prefers-color-scheme:dark){:root{
   --bg:#1A1510;--surface:#241E18;--surface2:#2E2820;--surface3:#383028;
@@ -27,8 +32,10 @@
   --good-bg:#1A2E10;--good-text:#A8D870;--good-border:#3A6A18;
   --bad-bg:#2E1A12;--bad-text:#F09870;--bad-border:#9B3020;
   --accent:#ffb400;--accent2:#A8D870;--on-accent:#1A1510;
-  --chart-grid:#3A3228;--chart-bar:#D4820A;--chart-bar2:#7d6a2a;--chart-line:#E8A040;
-  --chart-bar3:#3f7d35;--chart-bar4:#7d3f6b;--chart-bar5:#8a5a1f;--chart-bar6:#3f4a7d;
+  /* Same ROYGBIV mapping as the light theme above, brightened for contrast against this
+     theme's dark background instead of darkened. */
+  --chart-grid:#3A3228;--chart-bar:#E87070;--chart-bar2:#F0A050;--chart-line:#E8A040;
+  --chart-bar3:#E8D060;--chart-bar4:#7FC96A;--chart-bar5:#6FA8F0;--chart-bar6:#B080E0;
 }}
 
 html{background:var(--bg)}
