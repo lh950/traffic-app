@@ -7690,6 +7690,53 @@ function renderQaqcClassificationRef() {
   `;
 }
 
+// "Apply as fix" (user request) — a QA count is non-destructive by default (it only ever
+// COMPARES against the primary count, never touches it), but a PM sometimes wants that comparison
+// promoted into a real correction once a miscount is confirmed. This is the opt-in overwrite:
+// takes one already-submitted, window-aligned QA count and writes its per-interval,
+// per-classification numbers directly onto the primary day's data for that window's time range —
+// everything outside the window is untouched. Deliberately NOT wired through
+// commitLocationCounts() (that path is gated on a live-counter session's pending/seq identity,
+// which doesn't exist here — this runs from the QA screen, not mid-count) but still goes through
+// the same window.scheduleAutosave() as every other write. Mirrors Trip Gen's clear-row
+// (resetTgInterval in tripgenCount.js) in spirit — a direct, explicit, owner-only data edit —
+// but this one is scoped to a whole QA window's classifications rather than a single row.
+async function applyQaqcRecountAsFix(key, recountId) {
+  const [entryIdStr, sheetName, windowIdStr] = key.split('__');
+  const entryId = Number(entryIdStr);
+  const windowId = Number(windowIdStr);
+  const entry = tripgenEntries.find((e) => e.id === entryId);
+  const day = entry?.days.find((d) => d.sheetName === sheetName);
+  const w = tripgenQaqcWindows[qaqcWindowsKey(entryId, sheetName)]?.find((win) => win.id === windowId);
+  if (!entry || !day || !w) return;
+  const computed = await computeQaqcPeakScore(entry, day, w, tripgenQaqc);
+  const { peak, alignedRecounts } = computed;
+  const r = alignedRecounts.find((rec) => rec.id === recountId);
+  if (peak.startIdx < 0 || !r) { alert('This QA count no longer lines up with the window — refresh and try again.'); return; }
+  const ok = window.confirm(
+    `Apply this QA count as the corrected data for "${entry.locationLabel}" — ${w.label} (${peak.label})?\n\n` +
+    `This overwrites the original count for this time range with the QA count's numbers, classification by classification. Everything outside this window is untouched. This can't be undone automatically — only by re-entering the original numbers yourself.`
+  );
+  if (!ok) return;
+  const startIdx = peak.startIdx;
+  day.parsed.types.forEach((label, ci) => {
+    const rCi = r.parsed.types.indexOf(label);
+    if (rCi < 0) return; // this QA count doesn't have a matching classification — leave that one as-is
+    r.parsed.intervals.forEach((rIv, qi) => {
+      const dayIv = day.parsed.intervals[startIdx + qi];
+      if (!dayIv) return;
+      dayIv.inbound[ci] = rIv.inbound[rCi] || 0;
+      dayIv.outbound[ci] = rIv.outbound[rCi] || 0;
+    });
+  });
+  r.appliedAsFix = { at: new Date().toISOString() };
+  await renderQaqcScreen();
+  renderTripgenLocationsList();
+  renderTripgenLocationsScreen();
+  window.scheduleAutosave?.();
+  setSaveState('Applied — original count updated', 3000);
+}
+
 async function renderQaqcScreen() {
   const root = document.getElementById('tripgen-qaqc-list');
   renderQaqcRecommendedPeriods();
@@ -7737,15 +7784,24 @@ async function renderQaqcScreen() {
             ${isQaInputMode ? '' : avgNote}
             ${isQaInputMode ? '' : `
             <table class="crosswalk-table" style="margin-bottom:10px">
-              <thead><tr><th>#</th><th>Time range</th><th>Classifications</th><th>Total</th><th>Entered</th><th>In score?</th><th></th></tr></thead>
+              <thead><tr><th>#</th><th>Time range</th><th>Classifications</th><th>Total</th><th>Entered</th><th>In score?</th><th></th><th></th></tr></thead>
               <tbody>
                 ${recounts.length ? recounts.map((r, ri) => {
                   const total = r.parsed.intervals.reduce((s, iv) => s + iv.inbound.reduce((a, b) => a + b, 0) + iv.outbound.reduce((a, b) => a + b, 0), 0);
                   const range = `${r.parsed.intervals[0]?.start || ''} – ${r.parsed.intervals[r.parsed.intervals.length - 1]?.end || ''}`;
                   const entered = (r.enteredAt ? new Date(r.enteredAt).toLocaleString() : '—') + (r.source === 'remote-qa' ? ' <span style="color:var(--text3)" title="Submitted via QA-input link">(remote)</span>' : '');
                   const inScore = alignedIds.has(r.id) ? '✓' : '<span style="color:var(--text3)" title="Time range/interval length doesn’t match this window">—</span>';
-                  return `<tr><td>${ri + 1}</td><td>${escapeHtmlMain(range)}</td><td>${r.classifications.length}</td><td>${total}</td><td>${entered}</td><td>${inScore}</td><td><button data-qaqc-remove-key="${key}" data-qaqc-remove-id="${r.id}">×</button></td></tr>`;
-                }).join('') : '<tr><td colspan="7" style="color:var(--text3)">No QA counts yet.</td></tr>'}
+                  // PM-discretion overwrite (user request) — only offered when this QA count actually
+                  // lines up with the window (same gate as the score itself); a misaligned time range
+                  // has nothing sensible to overwrite onto. Non-destructive by default stays the
+                  // baseline behavior — this is an explicit opt-in action, never automatic.
+                  const fixCell = alignedIds.has(r.id)
+                    ? (r.appliedAsFix
+                        ? `<span class="stat-detail" style="color:var(--text3)" title="${new Date(r.appliedAsFix.at).toLocaleString()}">✓ applied</span> <button data-qaqc-apply-fix-key="${key}" data-qaqc-apply-fix-id="${r.id}" style="font-size:11px">re-apply</button>`
+                        : `<button data-qaqc-apply-fix-key="${key}" data-qaqc-apply-fix-id="${r.id}" style="font-size:11px">apply as fix →</button>`)
+                    : '';
+                  return `<tr><td>${ri + 1}</td><td>${escapeHtmlMain(range)}</td><td>${r.classifications.length}</td><td>${total}</td><td>${entered}</td><td>${inScore}</td><td>${fixCell}</td><td><button data-qaqc-remove-key="${key}" data-qaqc-remove-id="${r.id}">×</button></td></tr>`;
+                }).join('') : '<tr><td colspan="8" style="color:var(--text3)">No QA counts yet.</td></tr>'}
               </tbody>
             </table>`}
             ${!isQaInputMode && hasHour && recounts.length ? `
@@ -7856,6 +7912,9 @@ async function renderQaqcScreen() {
         window.scheduleAutosave?.();
       }
     });
+  });
+  root.querySelectorAll('[data-qaqc-apply-fix-key]').forEach((el) => {
+    el.addEventListener('click', () => applyQaqcRecountAsFix(el.dataset.qaqcApplyFixKey, Number(el.dataset.qaqcApplyFixId)));
   });
   root.querySelectorAll('[data-qaqc-begin]').forEach((el) => {
     el.addEventListener('click', () => {

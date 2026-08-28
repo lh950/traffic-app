@@ -4,6 +4,20 @@ Key decisions, scope constraints, and architectural choices.
 
 ---
 
+## 2026-08-28 — v3 · v1.2.12 (QA count "apply as fix")
+
+User's explicit framing from earlier in this session: a QA count typically signals a PM to go back and ask the field counter for a recount, and how much gets redone is the PM's discretion — so alongside the existing non-destructive comparison (default, [[BUG-047/048]]-era data-loss lessons still apply), an explicit opt-in "fix" action should exist too, mirroring the already-shipped non-destructive full-day recount pattern (`startTripgenRecount`).
+
+**Scope of the overwrite:** exactly the QA window's time range, and only classifications the QA count actually has (matched by label, not array position — same rule this repo already applies everywhere else). A classification present in the primary count but missing from the QA count is left untouched, not zeroed — the QA count doesn't have an opinion on it, so overwriting would be destroying data based on an absence, not new information. In practice, both come from the same project-wide classification list, so this mismatch case is rare but still handled correctly (verified live: forgot to enter two classification columns on the QA count, and the apply correctly zeroed only those two, leaving the interval-level math otherwise exact — 209 to 179, an exact swap of the window's old 90 for the new 60).
+
+**Why not through `commitLocationCounts()`:** that path is gated on a live-counter session's pending/seq identity (the BUG-047/048 safety net), which doesn't exist here — applying a fix runs from the QA screen, not mid-count. Runs as a direct, explicit mutation instead (same shape as Trip Gen's clear-row / `resetTgInterval`), still through `window.scheduleAutosave()` like every other write.
+
+**Gated on alignment, not existence:** the "apply as fix" button only appears for a QA count that already lines up with the window (same `alignedRecounts` gate the score itself uses) — a misaligned time range/interval length has nothing coherent to overwrite onto.
+
+**Intersection parity — deliberately deferred, not forgotten:** the user's original request also asked for the same recount-a-period concept wired into intersection's QA flow. Intersection already has its own clear-row (pre-existing, confirmed this session). The "apply as fix" piece specifically is still open there — different data shape (per-direction tables, not one row per classification) means it isn't a drop-in reuse of this function.
+
+---
+
 ## 2026-08-28 — v3 · v1.2.11 (QA Input instructions popup)
 
 Reused the existing `.modal-backdrop`/`.modal` styling (`openHelp`/`closeHelp` in `help.js`) rather than inventing new modal CSS — same visual language as the main help modal and the first-run walkthrough. Auto-open uses `sessionStorage`, not `localStorage`: a QA-input reviewer is usually a one-time visitor for a single share link, and `localStorage` would suppress the popup on a *different* share link opened later in the same browser (same-origin storage is shared across all share IDs). `sessionStorage` resets per tab, so a fresh tab always gets the popup once, and reopening it after closing (same tab, same link) doesn't re-show it uninvited.

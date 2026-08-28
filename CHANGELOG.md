@@ -1,5 +1,10 @@
 # Changelog
 
+## v3 · v1.2.12 — 2026-08-28
+
+### Added
+- QA Page: a QA count that lines up with its window can now be applied as a fix — an explicit, PM-discretion action that overwrites the original count's numbers for that time range, classification by classification, with the QA count's own numbers. Off by default; the QA count stays a non-destructive comparison unless you click "apply as fix →". Everything outside the window is untouched, and applying is logged with a timestamp so it's clear a fix was made.
+
 ## v3 · v1.2.11 — 2026-08-28
 
 ### Added
