@@ -5846,7 +5846,21 @@ async function renderViewerContent(proj) {
       siteInfo: tripgenSiteInfo, categoryMap: tripgenCategoryMap, peakWindows: tripgenPeakWindows,
       qaqc: tripgenQaqc, qaqcWindows: tripgenQaqcWindows, dataView: tripgenDataView, customWindows: tripgenCustomWindows,
       onSiteInfoChange: () => {}, onPeakWindowChange: () => {},
-      onPeakManualToggle: () => {}, onDataViewChange: () => {}, onFixedWindowChange: () => {},
+      onPeakManualToggle: () => {}, onDataViewChange: () => {},
+      // The fixed-window picker is a pure client-side, non-persisted local computation (never
+      // reaches window.scheduleAutosave, which stays blocked by isViewerMode regardless) — a
+      // viewer picking their own window is harmless, unlike e.g. adding a saved custom window
+      // (which DOES persist and stays owner-only). Was a no-op here, which left the picker
+      // visibly rendered but silently inert — a real reported gap ("I don't see how I can
+      // actually do any of the things it says"). Mutating tripgenFixedWindowStartMin/EndMin
+      // directly is safe: this viewer tab already reuses the owner-shaped globals for its
+      // whole in-memory project (decision #3, this function's own header comment), and a
+      // viewer tab never later becomes a different real owner session without a full reload.
+      onFixedWindowChange: (startMin, endMin) => {
+        tripgenFixedWindowStartMin = startMin;
+        tripgenFixedWindowEndMin = endMin;
+        renderViewerContent(proj);
+      },
       fixedWindowStartMin: tripgenFixedWindowStartMin, fixedWindowEndMin: tripgenFixedWindowEndMin,
       viewerMode: true,
       // Deliberately omitting onGotoQaqc — that link goes to the owner-only QA/QC EDIT screen,

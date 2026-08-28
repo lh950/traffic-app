@@ -8,6 +8,16 @@ Severity levels:
 
 ---
 
+## BUG-053 (082820261044)
+**Status:** Fixed (v3 · v1.1.3)
+**Severity:** Minor (misleading, not broken data — a control looked interactive but silently did nothing)
+**Found in:** the new "Reports" viewer tab (v1.1.2's own tab bar) — the fixed-window report's start/end time picker
+**Description:** User report: "reports tab is functional as in the page opens, but i dont see how i can actually do any of the things it says." Two separate problems compounded: (1) the fixed-window picker's wrapper carried `.no-print`, which in this app also means "hidden from a viewer entirely" (`analysis/style.css`'s `.viewer-mode .no-print:not(.viewer-keep)` rule) — so a viewer couldn't even see the picker, only its description text; (2) even fixed, `renderViewerContent()`'s `onFixedWindowChange` was a no-op stub, so changing the (now-visible) picker still wouldn't do anything.
+**Fix:** Added `.viewer-keep` to the picker's wrapper (the existing, already-built opt-out for exactly this "show to viewer, still hide from print" case — no new CSS needed). Wired a real `onFixedWindowChange` for viewer mode that updates `tripgenFixedWindowStartMin`/`EndMin` and re-renders — safe because this picker is a pure client-side, non-persisted computation (never reaches `scheduleAutosave`, which stays blocked by `isViewerMode` regardless), and this viewer tab already reuses the owner-shaped globals for its whole in-memory project.
+**Verified live:** loaded a real shared link, opened the Reports tab, confirmed the picker inputs are now visible, changed the window (07:00–08:00 → 07:30–08:00), and confirmed the table's total actually recomputed (84 → 42) while staying on the Reports tab.
+
+---
+
 ## BUG-052 (082820261036)
 **Status:** Fixed (v3 · v1.1.2)
 **Severity:** Minor (a convenience shortcut silently does nothing — no data risk, but a real reported gap)

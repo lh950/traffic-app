@@ -4,6 +4,14 @@ Key decisions, scope constraints, and architectural choices.
 
 ---
 
+## 2026-08-28 — v3 · v1.1.3 (BUG-053: Reports tab's picker was invisible, then inert)
+
+Direct follow-up to v1.1.2's new Reports tab, found immediately by the user actually using it: "reports tab is functional as in the page opens, but i dont see how i can actually do any of the things it says." Two stacked bugs, not one — the fixed-window picker's `.no-print` class doubled as "hide from viewer entirely" (not just print, see `analysis/style.css`), and separately `onFixedWindowChange` was a no-op stub for viewer mode. Fixed both: `.viewer-keep` (the existing opt-out built for exactly this case) restores visibility, and a real local handler makes the picker actually recompute the table — safe since it's a pure client-side computation that never persists. Full writeup in `BUGS.md` (BUG-053).
+
+Worth flagging as a pattern to watch for in the rest of the viewer: any other `ctx.onX: () => {}` no-op stub in `renderViewerContent()` paired with a VISIBLE (not `.no-print`-only) control is the same bug shape — looks interactive, does nothing. Not audited exhaustively this pass; the "By classification / By group" chart toggle and "Raw / Balanced" data-view toggle were spot-checked and are fine (the former is pure local state with no ctx callback at all; the latter is correctly `.no-print`-only, i.e. actually hidden from viewers, not visible-but-broken).
+
+---
+
 ## 2026-08-28 — v3 · v1.1.2 (shared-viewer navigation overhaul + cross-type keybinding parity)
 
 **Trip Gen shared-viewer layout, reordered.** Per user request: "Site-wide summary" now leads the page (was buried after totals/fixed-window report); "Your own peak periods" (named custom windows — user-created reports) now sits last. Applied to both the owner's Analysis screen and the read-only viewer, since `renderTripGenSection()` is the one function both use — keeping them in sync rather than forking the order per mode.

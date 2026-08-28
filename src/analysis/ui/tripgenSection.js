@@ -1316,7 +1316,7 @@ function fixedWindowTripgenSectionHtml(entries, startMin, endMin, viewerMode = f
     <div class="card" style="margin-bottom:14px">
       <h3>Fixed-window report</h3>
       <div class="stat-detail" style="margin-bottom:10px">Pick one clock-time window and see every location's volume for exactly that window — not each location's own detected peak hour. Useful for a common cross-site window rather than each site's independently detected peak.</div>
-      <div class="card-grid no-print" style="margin-bottom:10px;grid-template-columns:repeat(2,minmax(120px,160px))">
+      <div class="card-grid no-print viewer-keep" style="margin-bottom:10px;grid-template-columns:repeat(2,minmax(120px,160px))">
         <div class="setup-field"><label>window start</label><input type="time" data-tg-fixedwin="start" value="${minToTimeInput(startMin)}"></div>
         <div class="setup-field"><label>window end</label><input type="time" data-tg-fixedwin="end" value="${minToTimeInput(endMin)}"></div>
       </div>

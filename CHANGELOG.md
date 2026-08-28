@@ -1,5 +1,10 @@
 # Changelog
 
+## v3 · v1.1.3 — 2026-08-28
+
+### Fixed
+- BUG-053: the shared viewer's new "Reports" tab showed the fixed-window picker's description but not the picker itself, and even once visible it wouldn't have done anything — now a viewer can actually pick a window and see the report recompute.
+
 ## v3 · v1.1.2 — 2026-08-28
 
 ### Added
