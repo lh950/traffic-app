@@ -1,5 +1,10 @@
 # Changelog
 
+## v3 · v1.1.6 — 2026-08-28
+
+### Fixed
+- BUG-056: existing projects saved before v1.1.5 still showed the old auto-assigned trip-rate groupings even after that fix — now those stale entries are migrated away on load, so only what you've actually set survives.
+
 ## v3 · v1.1.5 — 2026-08-28
 
 ### Fixed

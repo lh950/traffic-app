@@ -5502,7 +5502,30 @@ function loadProject(proj, opts = {}) {
   }
   if (proj.projectType === 'tripgen') {
     Object.assign(tripgenSiteInfo, proj.siteInfo || {});
+    // Reset first — same BUG-027-class leak the tripgenQaqc reset just below guards against:
+    // Object.assign alone only overwrites keys present in proj.categoryMap, so a classification
+    // grouped in a PREVIOUSLY loaded project stayed grouped when a different project with no
+    // (or a different) entry for that same label loaded next.
+    for (const k in tripgenCategoryMap) delete tripgenCategoryMap[k];
     Object.assign(tripgenCategoryMap, proj.categoryMap || {});
+    // BUG-055 migration: projects saved before v1.1.5 have categoryMap entries the OLD
+    // auto-seeding wrote in silently (every classification got a categoryFor()-heuristic
+    // value the first time Analysis rendered, whether the user asked for it or not — see
+    // DEVLOG.md). Those are indistinguishable after the fact from a value the user typed on
+    // purpose EXCEPT that they exactly match one of categoryFor()'s own fixed outputs — a
+    // real user grouping classifications by hand essentially never types the source
+    // workbook's own internal bucket name ("Personal Vehicles+Peds+Pickup-Dropoff") verbatim.
+    // Strip exactly those on load so an old project actually gets the "ungrouped unless you
+    // set it" behavior the fix promised, not just new projects going forward. Checked
+    // synchronously against this fixed list (mirrors analysis/data/parseTripGen.js's own
+    // categoryFor() outputs exactly) rather than awaiting the real async categoryFor() here —
+    // loadProject() is not async and many call sites don't await it, so this stays a plain
+    // synchronous pass with no risk of a stale-project race if another load starts before an
+    // async step would have resolved.
+    const TG_AUTO_CATEGORY_VALUES = ['Light Goods', 'Trucks', 'Pedestrian', 'Personal Vehicles+Peds+Pickup-Dropoff'];
+    for (const label of Object.keys(tripgenCategoryMap)) {
+      if (TG_AUTO_CATEGORY_VALUES.includes(tripgenCategoryMap[label])) delete tripgenCategoryMap[label];
+    }
     if (proj.peakWindows) Object.assign(tripgenPeakWindows, proj.peakWindows);
     // Reset first — Object.assign alone only overwrites keys present in proj.qaqc, so loading a
     // project with no/fewer recount keys than whatever was already loaded left stale entries

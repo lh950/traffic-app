@@ -8,6 +8,16 @@ Severity levels:
 
 ---
 
+## BUG-056 (082820261115)
+**Status:** Fixed (v3 · v1.1.6)
+**Severity:** Minor (follow-up gap in BUG-055's own fix, same symptom)
+**Found in:** `loadProject()`'s tripgen branch (`src/main.js`) — `categoryMap` restore had no reset-before-restore and no migration for already-saved stale entries
+**Description:** User report, immediately after BUG-055 shipped: "its still showing up with the workbook grouping." BUG-055 stopped NEW auto-seeding but didn't touch `categoryMap` entries a project had already saved from before the fix — those old heuristic values (written in by the now-removed auto-seed, back when the user's real project was open under the old code) were still sitting in the project file and got restored on every load exactly as before, indistinguishable at load time from a value the user genuinely set. Also found, same code path: no reset-before-restore on `tripgenCategoryMap` at all (the same BUG-027-class leak already guarded against for `tripgenQaqc` two lines below it) — a classification grouped in a previously loaded project stayed grouped when a different project with no entry for that same label loaded next.
+**Fix:** Added the missing reset-before-restore. Added a load-time migration: any `categoryMap` entry that exactly matches one of `categoryFor()`'s own fixed heuristic outputs (`'Light Goods'`, `'Trucks'`, `'Pedestrian'`, `'Personal Vehicles+Peds+Pickup-Dropoff'`) gets stripped on load — a real user grouping classifications by hand essentially never types the source workbook's own internal bucket name verbatim, so this is safe. Checked against a small hardcoded list, synchronously, rather than awaiting the real async `categoryFor()` — `loadProject()` is not `async` and several call sites don't await it; an initial attempt at this fix mistakenly added an `await` inside the non-async function (caught before it reached a build, but flagged here since the user was rightly cautious about breaking anything mid-count) — the synchronous, no-async-race version was the safer fix regardless.
+**Verified live:** built a fixture simulating a pre-v1.1.5 saved project (`auto`/`bike` both carrying the exact old heuristic string, `truck` carrying a genuine custom value) and confirmed on load: `auto`/`bike` show individually, `truck` keeps showing under its real custom label.
+
+---
+
 ## BUG-055 (082820261101)
 **Status:** Fixed (v3 · v1.1.5)
 **Severity:** Minor (misleading numbers, not data loss — trip-rate totals were still mathematically correct, just grouped in a way the user hadn't chosen)
