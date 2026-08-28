@@ -74,6 +74,7 @@ import { parseTmcCsv } from './parseTmcCsv.js';
 import { parseRawCountXlsx, buildIntersectionFromMeta } from './parseRawCountXlsx.js';
 import { parseDotTmcXlsx, buildTmcIntersectionFromMeta } from './parseDotTmcXlsx.js';
 import { parseStreetlightXlsx } from './parseStreetlightXlsx.js';
+import { parseStreetlightZoneCsv } from './parseStreetlightZoneCsv.js';
 import { parseCSV, detectColumnsLocally, mapColumnsWithClaude, buildSnapshotFromMapping, saveLearnedMappings, saveImportTemplate, loadImportTemplates, deleteImportTemplate, findMatchingTemplate, LS_API_KEY } from './importCsv.js';
 import * as analysisData from './analysis/ui/dataAdapter.js';
 import { renderSummary } from './analysis/ui/summary.js';
@@ -2492,6 +2493,8 @@ document.getElementById('btn-new-tripgen')?.addEventListener('click', () => {
   tripgenQaqcWindowNextId = 1;
   for (const k in tripgenQaqc) delete tripgenQaqc[k];
   tripgenMergedQaSubmissionIds = [];
+  tripgenStreetlightComparison = { zones: [], sourceFileName: null, importedAt: null };
+  tripgenStreetlightZoneMap = {};
   // See home-btn-tripgen's handler above — classifications are project-wide config now and
   // must be cleared explicitly for a genuinely new project.
   tgResetClassifications();
@@ -5526,6 +5529,10 @@ function loadProject(proj, opts = {}) {
     for (const label of Object.keys(tripgenCategoryMap)) {
       if (TG_AUTO_CATEGORY_VALUES.includes(tripgenCategoryMap[label])) delete tripgenCategoryMap[label];
     }
+    tripgenStreetlightComparison = proj.streetlightComparison
+      ? JSON.parse(JSON.stringify(proj.streetlightComparison))
+      : { zones: [], sourceFileName: null, importedAt: null };
+    tripgenStreetlightZoneMap = { ...(proj.streetlightZoneMap || {}) };
     if (proj.peakWindows) Object.assign(tripgenPeakWindows, proj.peakWindows);
     // Reset first — Object.assign alone only overwrites keys present in proj.qaqc, so loading a
     // project with no/fewer recount keys than whatever was already loaded left stale entries
@@ -5900,6 +5907,12 @@ async function renderViewerContent(proj) {
       // which a viewer has no business reaching. The score-detail view is pure read-only
       // (no edit controls at all), so it's safe and useful to expose here too.
       onGotoQaqcDetail: (key) => showTgQaqcDetail(key, 'share-viewer-screen'),
+      // StreetLight comparison is read-only display here too — no onImportStreetlightZoneCsv/
+      // onSetStreetlightZoneMap, matching how site info/peak-window edit controls are handled
+      // above (streetlightCompareSectionHtml's own canEdit = !viewerMode gates the import/
+      // mapping UI off entirely, so the omitted callbacks are never actually reachable).
+      streetlightComparison: tripgenStreetlightComparison,
+      streetlightZoneMap: tripgenStreetlightZoneMap,
     });
   } else if (proj.projectType === 'area') {
     // Study-wide rollup (decision: conservative pick over per-intersection drill-down —
@@ -5989,6 +6002,8 @@ function serializeCurrentProject() {
       version: 1, projectType: 'tripgen', savedAt: new Date().toISOString(), uuid: projectUUID,
       projectInfo: { ...projectInfo },
       siteInfo: { ...tripgenSiteInfo }, categoryMap: { ...tripgenCategoryMap },
+      streetlightComparison: JSON.parse(JSON.stringify(tripgenStreetlightComparison)),
+      streetlightZoneMap: { ...tripgenStreetlightZoneMap },
       // BUG-035: classifications (labels/keys/descriptions) are project-wide config, not
       // count data — must always be captured regardless of whether any count exists yet.
       classifications: tgGetClassifications(),
@@ -6674,6 +6689,20 @@ wireProjectInfoFields();
 // context rather than something tied to one count location.
 const tripgenSiteInfo = { location: '', landUseType: '', gsf: '', lotSf: '', parking: '', units: '', studyDates: '', notes: '', zolaScreenshotUrl: '' };
 const tripgenCategoryMap = {};
+// StreetLight "Zone Activity" comparison (parseStreetlightZoneCsv.js) — read-only,
+// informational side-by-side against the manual count, same non-negotiable framing as the
+// intersection TMC comparison (streetlightComparison, above): StreetLight sells GPS-derived
+// PROJECTIONS, never merged into or used to correct entry.days[].parsed. This export has no
+// classification breakdown at all (one combined "All Vehicles" volume per zone per time
+// bucket), so the comparison is total-volume-vs-total-volume only, never per-classification —
+// see renderStreetlightCompareSectionHtml's own header comment for why that's surfaced
+// explicitly rather than glossed over.
+let tripgenStreetlightComparison = { zones: [], sourceFileName: null, importedAt: null };
+// entryId -> the StreetLight zone name that represents this Trip Gen location. Manual, one
+// time per location — StreetLight zone names are arbitrary user-typed strings at export time
+// (see zones.csv having no numeric Zone ID at all in a real sample), so there's no automatic
+// match the way the TMC importer gets from compass-direction leg headers.
+let tripgenStreetlightZoneMap = {};
 const tripgenPeakWindows = { weekday: DEFAULT_PEAK_WINDOWS.weekday.map((w) => ({ ...w })), weekend: DEFAULT_PEAK_WINDOWS.weekend.map((w) => ({ ...w })) };
 const tripgenQaqc = {};
 // Ids of qaSubmissions docs (share.js) already pulled into tripgenQaqc via "check for QA
@@ -8783,6 +8812,21 @@ async function rerenderTripgenAnalysis() {
     onFixedWindowChange: (startMin, endMin) => {
       tripgenFixedWindowStartMin = startMin;
       tripgenFixedWindowEndMin = endMin;
+      rerenderTripgenAnalysis();
+    },
+    streetlightComparison: tripgenStreetlightComparison,
+    streetlightZoneMap: tripgenStreetlightZoneMap,
+    onImportStreetlightZoneCsv: async (file) => {
+      const text = await file.text();
+      const { zones } = parseStreetlightZoneCsv(text);
+      tripgenStreetlightComparison = { zones, sourceFileName: file.name, importedAt: new Date().toISOString() };
+      window.scheduleAutosave?.();
+      rerenderTripgenAnalysis();
+    },
+    onSetStreetlightZoneMap: (entryId, zoneName) => {
+      if (zoneName) tripgenStreetlightZoneMap[entryId] = zoneName;
+      else delete tripgenStreetlightZoneMap[entryId];
+      window.scheduleAutosave?.();
       rerenderTripgenAnalysis();
     },
   });

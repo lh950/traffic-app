@@ -1,5 +1,10 @@
 # Changelog
 
+## v3 · v1.2.0 — 2026-08-28
+
+### Added
+- StreetLight comparison for Trip Gen: import a StreetLight Insight "Zone Activity" export, map each location to its StreetLight zone, and see a read-only side-by-side against your count's own peak-hour figures. Same "cross-check only, never a substitute" framing as the existing intersection TMC comparison. New "StreetLight" tab in the shared-viewer layout when data's been imported. See `DEVLOG.md` for the constraints this export has (no classification breakdown, coarse 4-hour time buckets) and how they're surfaced in the UI.
+
 ## v3 · v1.1.6 — 2026-08-28
 
 ### Fixed

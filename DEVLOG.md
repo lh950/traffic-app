@@ -4,6 +4,31 @@ Key decisions, scope constraints, and architectural choices.
 
 ---
 
+## 2026-08-28 — v3 · v1.2.0 (StreetLight comparison — Trip Gen)
+
+**What it is.** The Trip Gen counterpart to the existing intersection TMC-comparison feature: a read-only, side-by-side reference against a StreetLight Insight "Zone Activity" export, imported and mapped per location. Same non-negotiable framing as the intersection version — StreetLight sells GPS-derived statistical PROJECTIONS, never real counts, never merged into or used to correct `entry.days[].parsed`. Direct user request: "not meant to be a replacement but allow for side by side comparison."
+
+**Traced from a real sample export**, not guessed — the user provided a real StreetLight analysis folder (`2074159_Flatlands_Ave_Fedex_Facility`), and the parser was validated against it directly (`slZoneAverageForDayType` reproduced a hand-calculated weekday AM average of 69.2 exactly before any UI was built).
+
+**Two constraints this export has that the intersection TMC export doesn't — both surfaced directly in the UI, not glossed over:**
+1. **No classification breakdown.** "Zone Activity" gives one combined "All Vehicles" volume per zone per time bucket — no truck/auto/ped split. The comparison is therefore total-volume-vs-total-volume only, never classification-by-classification.
+2. **Coarse Day Parts.** StreetLight's "Peak AM"/"Peak PM" are fixed 4-hour windows (6am–10am / 3pm–7pm), not a specific peak hour. Shown labeled "StreetLight (4-hr window, avg)" next to the count's own "Your count (1-hr peak)" column — never implied as equivalent.
+
+**Scoped out of this pass, on purpose:**
+- The O-D file (`*_odg_all.csv`) — that's trip *distribution* data (which surrounding geography trips come from/go to), a different concept mapping to Trip Gen's own Distribution tab, not to count comparison.
+- Shapefiles — no map feature exists in this app to render them against; would need a whole separate GIS feature.
+
+**Design decisions, both confirmed with the user before building:**
+- **Day-type matching**: StreetLight's file breaks out by individual weekday, but Trip Gen only tracks the day-TYPE (`weekday`/`weekend`). Chosen: average the matching weekday (Mon–Fri) or weekend (Sat/Sun) rows that are actually present — simple, always available, matches what Trip Gen actually tracks. Returns `null` (not `0`) when nothing matches, so the UI can say "—" instead of lying with a fake zero.
+- **Zone-to-location matching**: manual, one dropdown per location (owner-only) — StreetLight zone names are arbitrary strings typed at export time (a real sample export had no numeric Zone ID at all: `zones.csv`'s ID column was literally `N/A` for every zone), unlike the TMC importer's automatic compass-direction leg matching.
+- **UI placement**: a new section inside Trip Gen's own Analysis screen (and a new tab, "StreetLight," in the tabbed shared-viewer layout from v1.1.2 — only shown when something's actually been imported, so an untouched project doesn't grow an empty fifth tab).
+
+**A bug caught before shipping, not after**: the first implementation matched StreetLight's AM/Mid-Day/PM Day Parts to the manual count's peak windows BY LABEL ("am peak" → PEAK_AM, etc.) — worked for weekday windows (labeled "AM peak"/"Midday peak"/"PM peak"), but weekend windows are labeled "Weekend peak 1/2/3" (see `DEFAULT_PEAK_WINDOWS`), so the label lookup silently never matched any weekend row — every weekend comparison would have shown "—" even with real data on both sides. Caught during the live-verification pass (built a fixture with both a weekday and weekend day, StreetLight side came back blank for weekend) before this ever reached a build. Fixed by matching **by position** (index 0/1/2 → AM/Mid-Day/PM) instead of by label — both dayTypes' peak windows are always exactly 3 entries in that order by construction, so position is reliable where label text isn't.
+
+New file: `src/parseStreetlightZoneCsv.js` (parser + `slZoneAverageForDayType` helper). New persisted fields: `tripgenStreetlightComparison`, `tripgenStreetlightZoneMap` (round-trip through `serializeCurrentProject()`/`loadProject()` like every other Trip Gen module-level state).
+
+---
+
 ## 2026-08-28 — v3 · v1.1.5 (BUG-055: trip-rate grouping no longer auto-defaults — reverses an earlier deliberate design choice)
 
 `categoryMap` auto-seeding (every classification silently gets a `categoryFor()`-heuristic entry the moment it's first seen) was a DELIBERATE decision from an earlier session — see the removed comment on `renderTgCategoryMapEditor()`: "backfills a starting suggestion... so a freshly added classification isn't left ungrouped until someone visits Analysis first." User's report today directly reverses that: "the trip gen rate has groupings, but they dont match the groupings i made in classification," then explicitly: "use only the groups set in the app and if no groups set then by each classification."

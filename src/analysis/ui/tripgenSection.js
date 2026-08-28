@@ -3,6 +3,7 @@ import { renderBarChart, renderMultiSeriesBarChart, renderStackedBarChart, rende
 import { weekdayShort, dateLabelWithWeekday } from './dateUtils.js';
 import { intervalBar, pctOfPeakCell } from './intervalDetail.js';
 import { runVehicleQA, renderQASection } from '../../qa.js';
+import { SL_DAY_PART, slZoneAverageForDayType } from '../../parseStreetlightZoneCsv.js';
 
 // A day is included in analysis/QA-QC/reports by default — `includeInAnalysis === false` is
 // the ONLY way to exclude it, so older saved projects (which never had this field) keep
@@ -1359,6 +1360,141 @@ function customWindowsSectionHtml(entries, customWindows, viewerMode = false) {
     </div>`;
 }
 
+// ── StreetLight Zone Activity comparison ──────────────────────────────────────────────────
+// Read-only, informational side-by-side against a StreetLight Insight "Zone Activity" export
+// (parseStreetlightZoneCsv.js) — the Trip Gen counterpart to main.js's own intersection TMC
+// comparison, same non-negotiable framing: StreetLight sells GPS-derived PROJECTIONS, never
+// real counts, never merged into or used to correct entry.days[].parsed. Two constraints this
+// export has that the TMC one doesn't, both surfaced directly in the UI rather than glossed
+// over:
+//   1. No classification breakdown — one combined "All Vehicles" volume per zone per time
+//      bucket, so this can only ever compare TOTAL volume against TOTAL volume, never
+//      classification-by-classification.
+//   2. Coarse Day Parts (4-hour buckets: Peak AM 6-10am, Mid-Day 10am-3pm, Peak PM 3-7pm) —
+//      not a specific peak HOUR the way this app's own AM/Midday/PM peak windows are. Shown
+//      side by side with a clear "4-hr window" vs "1-hr peak" label rather than implied as
+//      equivalent.
+// Zone-to-location matching is manual (a dropdown per location, owner-only) — StreetLight
+// zone names are arbitrary strings the user typed at export time (a real sample export had no
+// numeric Zone ID at all), unlike the TMC importer's automatic compass-direction leg matching.
+// Matched by POSITION, not label — weekday windows are labeled "AM peak"/"Midday peak"/"PM
+// peak" but weekend windows are "Weekend peak 1/2/3" (see DEFAULT_PEAK_WINDOWS above), so a
+// label-based lookup would silently never match a weekend row. Both dayTypes' peakWindows are
+// always exactly 3 entries in AM/Midday/PM order by construction (weekday) or by the same
+//3-slot convention (weekend) — index 0/1/2 maps to StreetLight's own AM/Mid-Day/PM Day Parts
+// either way. The window's own label is still shown as the row header so a custom-edited
+// window's actual time range stays visible even if the position-based pairing is imprecise.
+const SL_DAY_PART_BY_INDEX = [SL_DAY_PART.PEAK_AM, SL_DAY_PART.MID_DAY, SL_DAY_PART.PEAK_PM];
+
+// Manual side: this location's own peak-hour volume for each of its dayType's peak windows,
+// averaged across every included day of that dayType (most locations have exactly one, but a
+// location counted on more than one day of the same type — see "+ add another day" — averages
+// cleanly here same as everywhere else on this screen). Returns null for a window with no
+// data on any matching day, not 0, so the comparison can say "no data" instead of lying.
+async function slManualPeaksForDayType(entry, dayType, peakWindows) {
+  const days = tgIncludedDays(entry).filter((d) => d.dayType === dayType);
+  const windows = peakWindows[dayType] || [];
+  const results = await Promise.all(windows.map(async (w) => {
+    const vols = [];
+    for (const day of days) {
+      const intervalMinutes = inferIntervalMinutes(day.parsed.intervals);
+      const peak = await resolvePeak(day.parsed, intervalMinutes, w);
+      if (peak.startIdx >= 0) vols.push(peak.volume);
+    }
+    return { label: w.label, volume: vols.length ? vols.reduce((a, b) => a + b, 0) / vols.length : null };
+  }));
+  return results;
+}
+
+async function slCompareLocationCardHtml(entry, zone, entries, peakWindows, ctx) {
+  const rowsFor = async (dayType) => {
+    const manual = await slManualPeaksForDayType(entry, dayType, peakWindows);
+    if (!manual.length) return '';
+    const rows = manual.map((m, i) => {
+      const dayPart = SL_DAY_PART_BY_INDEX[i];
+      const slVol = dayPart != null ? slZoneAverageForDayType(zone, dayType, dayPart) : null;
+      const delta = (m.volume != null && slVol != null) ? m.volume - slVol : null;
+      return `<tr>
+        <td>${escapeHtml(m.label)}</td>
+        <td style="text-align:right">${slVol != null ? fmt(Math.round(slVol)) : '—'}</td>
+        <td style="text-align:right;font-weight:600">${m.volume != null ? fmt(Math.round(m.volume)) : '—'}</td>
+        <td style="text-align:right;color:var(--text2)">${delta != null ? (delta >= 0 ? '+' : '') + fmt(Math.round(delta)) : '—'}</td>
+      </tr>`;
+    }).join('');
+    const allDay = slZoneAverageForDayType(zone, dayType, SL_DAY_PART.ALL_DAY);
+    return `
+      <div class="stat-detail" style="font-weight:600;color:var(--text);margin:10px 0 4px;text-transform:capitalize">${escapeHtml(dayType)}</div>
+      <div style="overflow-x:auto">
+        <table class="crosswalk-table" style="margin-bottom:4px">
+          <thead><tr><th></th><th style="text-align:right">StreetLight (4-hr window, avg)</th><th style="text-align:right">Your count (1-hr peak)</th><th style="text-align:right">Difference</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+      ${allDay != null ? `<div class="stat-detail">StreetLight all-day average (${escapeHtml(dayType)}): ${fmt(Math.round(allDay))}</div>` : ''}
+    `;
+  };
+  const weekdayHtml = await rowsFor('weekday');
+  const weekendHtml = await rowsFor('weekend');
+  return `
+    <div class="card" style="margin-bottom:10px" data-sl-loc="${entry.id}">
+      <h3 style="margin:0 0 4px">${escapeHtml(entry.locationLabel)} <span style="font-weight:400;color:var(--text3);font-size:12px">— StreetLight zone: ${escapeHtml(zone.name)}</span></h3>
+      ${weekdayHtml || ''}
+      ${weekendHtml || ''}
+      ${!weekdayHtml && !weekendHtml ? '<div class="stat-detail">No counted day for this location matches a day type StreetLight has data for.</div>' : ''}
+    </div>
+  `;
+}
+
+async function streetlightCompareSectionHtml(entries, ctx) {
+  const { streetlightComparison, streetlightZoneMap, peakWindows, viewerMode } = ctx;
+  const zones = streetlightComparison?.zones || [];
+  if (!zones.length && viewerMode) return ''; // nothing imported — don't show an empty section to a viewer
+  const canEdit = !viewerMode;
+
+  const zoneOptionsHtml = (selected) => `
+    <option value="">— not mapped —</option>
+    ${zones.map((z) => `<option value="${escapeHtml(z.name)}"${z.name === selected ? ' selected' : ''}>${escapeHtml(z.name)}</option>`).join('')}
+  `;
+
+  const mappingRowsHtml = canEdit ? entries.map((entry) => `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+      <div style="flex:1;font-size:13px">${escapeHtml(entry.locationLabel)}</div>
+      <select data-sl-zone-map="${entry.id}" style="width:220px">${zoneOptionsHtml(streetlightZoneMap?.[entry.id] || '')}</select>
+    </div>
+  `).join('') : '';
+
+  const cardsHtml = zones.length ? (await Promise.all(entries.map(async (entry) => {
+    const zoneName = streetlightZoneMap?.[entry.id];
+    if (!zoneName) return '';
+    const zone = zones.find((z) => z.name === zoneName);
+    if (!zone) return `<div class="card" style="margin-bottom:10px"><div class="stat-detail">${escapeHtml(entry.locationLabel)} was mapped to StreetLight zone "${escapeHtml(zoneName)}", which isn't in the currently imported file — re-check the mapping above.</div></div>`;
+    return slCompareLocationCardHtml(entry, zone, entries, peakWindows, ctx);
+  }))).join('') : '';
+
+  return `
+    <div class="section" style="margin-bottom:1.5rem">
+      <div class="section-head"><h2>StreetLight comparison</h2><span class="sub">informational — never affects your count</span></div>
+      <div class="card" style="margin-bottom:14px;border-color:var(--bad-border, var(--border))">
+        <div class="stat-detail" style="margin-bottom:6px"><strong style="color:var(--text)">StreetLight sells GPS-derived statistical projections, not real counts.</strong> This section is a side-by-side reference only — it never edits, merges into, or corrects your actual count data.</div>
+        <div class="stat-detail" style="margin-bottom:6px"><strong>Not classification-specific:</strong> StreetLight's Zone Activity export gives one combined "All Vehicles" volume per zone — this compares your count's TOTAL volume against it, never classification by classification.</div>
+        <div class="stat-detail">StreetLight's "Peak AM"/"Peak PM" are fixed 4-hour windows (6am–10am / 3pm–7pm), not a specific peak hour — shown next to your count's own 1-hour peak, not as an equivalent figure.</div>
+      </div>
+      ${canEdit ? `
+      <div class="card no-print" style="margin-bottom:14px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px">
+          <h3 style="margin:0">Import &amp; map</h3>
+          <button type="button" data-sl-import-btn style="font-size:12px">Import Zone Activity CSV…</button>
+          <input type="file" accept=".csv" data-sl-import-input style="display:none">
+        </div>
+        <div class="stat-detail" style="margin-bottom:8px">${streetlightComparison?.sourceFileName ? `Imported <strong style="color:var(--text)">${escapeHtml(streetlightComparison.sourceFileName)}</strong> (${zones.length} zone${zones.length === 1 ? '' : 's'}) on ${new Date(streetlightComparison.importedAt).toLocaleString()}.` : 'No file imported yet — use the button above to load a StreetLight "Zone Activity" export (*_zone_odg_all.csv, found in the analysis\'s "Zone Activity" folder — not the O-D file at the project root).'}</div>
+        <div data-sl-import-error style="color:var(--bad-text);font-size:12px;margin-bottom:8px"></div>
+        ${zones.length ? `<div class="stat-detail" style="margin-bottom:6px">Match each location to its StreetLight zone:</div>${mappingRowsHtml}` : ''}
+      </div>` : ''}
+      ${cardsHtml || (zones.length ? '<div class="stat-detail">No locations mapped to a StreetLight zone yet.</div>' : '')}
+    </div>
+  `;
+}
+
 const LINE_COLOR_VARS = ['--chart-line', '--out-text', '--in-text', '--blue-text'];
 
 // ── Site-wide summary — combo chart (build brief item 2c) ────────────────────────────────
@@ -1603,6 +1739,7 @@ export async function renderTripGenSection(container, entries, ctx) {
     ${locationBlocks.join('')}
   `;
   const reportsPanelHTML = `${fixedWindowHTML}${customWindowsHTML}`;
+  const streetlightPanelHTML = await streetlightCompareSectionHtml(entries, ctx);
 
   // Viewer mode gets a top tab bar (same .setup-tabs/.setup-tab classes and look as the
   // owner's own Setup screen, per user request) instead of one long scroll — a real shared
@@ -1619,6 +1756,10 @@ export async function renderTripGenSection(container, entries, ctx) {
     { key: 'qaqc', label: 'QA/QC', html: qaqcPanelHTML },
     { key: 'locations', label: 'Locations', html: locationsPanelHTML },
     { key: 'reports', label: 'Reports', html: reportsPanelHTML },
+    // Only a tab when there's actually something to show — streetlightCompareSectionHtml
+    // itself returns '' for viewerMode with nothing imported, so an untouched shared project
+    // doesn't grow a fifth, empty tab.
+    ...(streetlightPanelHTML ? [{ key: 'streetlight', label: 'StreetLight', html: streetlightPanelHTML }] : []),
   ];
   if (viewerMode && container._tgViewerTab == null) container._tgViewerTab = VIEWER_TABS[0].key;
   const viewerTabsHTML = viewerMode ? `
@@ -1626,7 +1767,7 @@ export async function renderTripGenSection(container, entries, ctx) {
       ${VIEWER_TABS.map((t) => `<button type="button" class="setup-tab${t.key === container._tgViewerTab ? ' active' : ''}" data-vtab="${t.key}">${escapeHtml(t.label)}</button>`).join('')}
     </div>
     ${VIEWER_TABS.map((t) => `<div data-vtab-panel="${t.key}" style="display:${t.key === container._tgViewerTab ? '' : 'none'}">${t.html}</div>`).join('')}
-  ` : `${overviewPanelHTML}${fixedWindowHTML}${qaqcPanelHTML}${locationsPanelHTML}${customWindowsHTML}`;
+  ` : `${overviewPanelHTML}${fixedWindowHTML}${qaqcPanelHTML}${locationsPanelHTML}${customWindowsHTML}${streetlightPanelHTML}`;
 
   container.innerHTML = `
     <div class="stat-detail" style="margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
@@ -1647,6 +1788,27 @@ export async function renderTripGenSection(container, entries, ctx) {
 
   const siteWideEl = container.querySelector('[data-tg-sitewide]');
   if (siteWideEl) mountTgSiteWideComboChart(siteWideEl, { entries, categoryMap });
+
+  container.querySelector('[data-sl-import-btn]')?.addEventListener('click', () => {
+    container.querySelector('[data-sl-import-input]')?.click();
+  });
+  container.querySelector('[data-sl-import-input]')?.addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    const errEl = container.querySelector('[data-sl-import-error]');
+    if (errEl) errEl.textContent = '';
+    try {
+      await ctx.onImportStreetlightZoneCsv?.(file);
+    } catch (err) {
+      if (errEl) errEl.textContent = `Import failed: ${err.message}`;
+    }
+  });
+  container.querySelectorAll('[data-sl-zone-map]').forEach((sel) => {
+    sel.addEventListener('change', () => {
+      ctx.onSetStreetlightZoneMap?.(Number(sel.dataset.slZoneMap), sel.value);
+    });
+  });
 
   // 'change' (commits on blur/Enter), not 'input' — these all trigger a full re-render via
   // the on*Change callbacks, and re-rendering on every keystroke would rebuild the input
