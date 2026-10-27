@@ -1483,6 +1483,7 @@ function openTgPrintModal() {
     ${box('data-tgp-charts', tgPrintPrefs.charts, 'In / out charts for each survey day')}
     ${box('data-tgp-intervals', tgPrintPrefs.intervals, '15-minute volume table')}
     <h3 style="margin-top:12px">page</h3>
+    <div class="stat-detail" style="margin-bottom:6px">In the browser's print window, turn off <strong>Headers and footers</strong> — the report adds its own footer with the project name and page numbers.</div>
     <div style="display:flex;gap:16px;font-size:13px;flex-wrap:wrap">
       <label><input type="radio" name="tgp-orient" value="landscape" ${tgPrintPrefs.orientation === 'landscape' ? 'checked' : ''} style="width:auto"> landscape (recommended — the tables are wide)</label>
       <label><input type="radio" name="tgp-orient" value="portrait" ${tgPrintPrefs.orientation === 'portrait' ? 'checked' : ''} style="width:auto"> portrait</label>
@@ -1499,12 +1500,13 @@ document.getElementById('btn-tg-print-go')?.addEventListener('click', async () =
   tgPrintPrefs.orientation = q('[name="tgp-orient"]:checked')?.value || 'landscape';
   closeTgPrintModal();
   const root = document.getElementById('tg-print-root');
+  const printBody = await buildTripGenPrintHtml(tripgenEntries, tgReportCtx(), { summary: tgPrintPrefs.summary, groupIds: tgPrintPrefs.groupIds, charts: tgPrintPrefs.charts, intervals: tgPrintPrefs.intervals });
   root.innerHTML = `
     <div class="print-report-header" id="tgp-header">
       <div class="prh-left"><div class="prh-title" id="tgp-title"></div><div class="prh-sub" id="tgp-sub"></div><div class="prh-meta" id="tgp-meta"></div></div>
       <img class="prh-logo" id="tgp-logo" src="" alt="" style="display:none">
     </div>
-    ${await buildTripGenPrintHtml(tripgenEntries, tgReportCtx(), { summary: tgPrintPrefs.summary, groupIds: tgPrintPrefs.groupIds, charts: tgPrintPrefs.charts, intervals: tgPrintPrefs.intervals })}`;
+    ${printBody.html}`;
   populatePrintHeader('tgp');
   const title = (projectInfo.projectName || tripgenSiteInfo.location || 'Trip generation study').replace(/[\\"\n]/g, ' ');
   const style = document.createElement('style');

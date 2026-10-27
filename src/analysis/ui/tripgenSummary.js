@@ -250,7 +250,7 @@ function peakVolumeTableHtml(cols, cells, kind, rowLabels, title) {
       const p = cells[i]?.peaks[r];
       if (!p || !p.found) return `<td class="tgs-first">${NA}</td><td>${NA}</td><td>${NA}</td><td>${NA}</td><td>${NA}</td>`;
       const t = p.inbound + p.outbound;
-      return `<td class="tgs-first tgs-hour">${esc(p.hour)}</td><td>${fmt(p.inbound)}</td><td>${fmt(p.outbound)}</td><td>${t ? pct(p.inbound / t) : '—'}</td><td>${t ? pct(p.outbound / t) : '—'}</td>`;
+      return `<td class="tgs-first tgs-hour">${esc(String(p.hour).replace(/\s*[–-]\s*/, "–"))}</td><td>${fmt(p.inbound)}</td><td>${fmt(p.outbound)}</td><td>${t ? pct(p.inbound / t) : '—'}</td><td>${t ? pct(p.outbound / t) : '—'}</td>`;
     }).join('');
     return `<tr><th class="tgs-rowhead">${esc(label)}</th>${tds}</tr>`;
   }).join('');
@@ -355,7 +355,7 @@ export function summaryTabHtml(model, entries, ctx) {
     <div class="tgs-cat">
       <div class="tgs-cat-title">${esc(g.name)}</div>
       ${groupTablesHtml(model, gi)}
-      <div style="height:12px"></div>
+      <div style="height:10px"></div>
     </div>`);
   return `
     <div class="tgs">
@@ -386,9 +386,10 @@ export function groupTabHtml(model, gi, opts = {}) {
         <div class="tgs-cat-title">${esc(g.name)}</div>
         <div class="stat-detail" style="padding:10px 16px 0">Classifications in this report: ${g.labels.length ? g.labels.map((l) => `<span class="tgs-chip">${esc(l)}</span>`).join(' ') : '<em>none selected</em>'}</div>
         ${groupTablesHtml(model, gi)}
-        ${withIntervals ? intervalAppendixHtml(g.name, model.cols, cells, true) : ''}
+        <div style="height:10px"></div>
       </div>
-      <div>${charts}</div>
+      <div class="tgs-charts">${charts}</div>
+      ${withIntervals ? `<div class="tgs-cat">${intervalAppendixHtml(g.name, model.cols, cells, true)}</div>` : ''}
       <div class="tgs-note">${NOTE}</div>
     </div>`;
 }

@@ -1327,3 +1327,41 @@ body.workspace-mode .analyze-period-bar{top:0}
   .tgp-page{break-after:page}
   .tgp-page:last-child{break-after:auto}
 }
+
+/* Print fixes found in a real PDF (v1.2.18): the 15-minute table was clipped by the on-screen
+   scrollbox height, charts were tiny with no legend colors, and the ZOLA image pushed the first
+   category onto page 3. Scoped to the print report only. */
+@media print{
+  #tg-print-root, #tg-print-root *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  #tg-print-root .interval-detail-wrap{max-height:none!important;overflow:visible!important;border:none!important}
+  #tg-print-root .chart-wrap{max-width:none!important;margin:4px 0 0!important;overflow:visible}
+  #tg-print-root .chart-svg{height:175px!important}
+  #tg-print-root .tgs-charts .card{break-inside:avoid;margin-bottom:8px!important}
+  #tg-print-root .tgs-zola img{max-height:230px!important;width:auto}
+  #tg-print-root .tgs-table th,#tg-print-root .tgs-table td{padding:1px 4px}
+  #tg-print-root .tgs-compact th,#tg-print-root .tgs-compact td{padding:0 5px}
+  #tg-print-root .tgs-compact{font-size:8px}
+  #tg-print-root .tgs-cat-title{padding:5px 14px}
+  #tg-print-root .tgs-scroll{padding:8px 12px 0}
+  #tg-print-root .tgs-site{padding:10px 14px}
+  #tg-print-root .tgs-site-title{margin-bottom:8px}
+}
+@media print{
+  #tg-print-root .tgs-cat{break-inside:auto}
+  #tg-print-root .tgs-cat-title{break-after:avoid}
+  #tg-print-root .tgs-scroll{break-inside:avoid}
+  #tg-print-root .tgs-table .tgs-sub{white-space:nowrap}
+}
+@media print{
+  #tg-print-root .chart-svg{height:120px!important}
+  /* Fixed layout: the columns share the page width and cell text wraps, so the same tables fit
+     landscape or portrait without scaling. The row-label column keeps a fixed share. */
+  #tg-print-root .tgs-table:not(.tgs-compact){table-layout:fixed;width:100%}
+  #tg-print-root .tgs-table:not(.tgs-compact) .tgs-rowhead{width:11%;white-space:normal}
+  #tg-print-root .tgs-table:not(.tgs-compact) th,#tg-print-root .tgs-table:not(.tgs-compact) td{white-space:normal;overflow-wrap:anywhere}
+  #tg-print-root .tgs-table .tgs-hour{white-space:nowrap!important}
+  #tg-print-root .tgs-site-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+}
+@media print{
+  #tg-print-root .tgs-table small{font-size:8px}
+}

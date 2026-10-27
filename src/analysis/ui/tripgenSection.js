@@ -2050,6 +2050,13 @@ export async function renderTripGenSection(container, entries, ctx) {
 // opts: { summary: bool, groupIds: number[], charts: bool, intervals: bool }
 export async function buildTripGenPrintHtml(entries, ctx, opts) {
   const model = await buildReportModel(entries, ctx);
+  // Print leaves out survey days that have no data (an all-N/A Weekday 2 or Sunday column adds
+  // width and nothing else) — that is what lets the wide tables fit a portrait page.
+  const keep = model.cols.map((c) => !!c.survey);
+  if (keep.some(Boolean)) {
+    model.cols = model.cols.filter((_, i) => keep[i]);
+    model.cellsByGroup = model.cellsByGroup.map((row) => row.filter((_, i) => keep[i]));
+  }
   const pages = [];
   if (opts.summary) {
     pages.push(`<section class="tgp-page"><div class="tgp-note"><strong>Peak periods used</strong> — weekday: ${peakLine(ctx.peakWindows, 'weekday')}; weekend: ${peakLine(ctx.peakWindows, 'weekend')}</div>${summaryTabHtml(model, entries, ctx)}</section>`);
@@ -2058,6 +2065,6 @@ export async function buildTripGenPrintHtml(entries, ctx, opts) {
     if (!opts.groupIds.includes(g.id)) return;
     pages.push(`<section class="tgp-page">${groupTabHtml(model, gi, { charts: opts.charts, intervals: opts.intervals })}</section>`);
   });
-  return pages.join('') || '<div class="stat-detail">Nothing selected to print.</div>';
+  return { html: pages.join('') || '<div class="stat-detail">Nothing selected to print.</div>', dayColumns: model.cols.length };
 }
 export { resolveReportGroups };

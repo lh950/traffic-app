@@ -4,6 +4,12 @@ Key decisions, scope constraints, and architectural choices.
 
 ---
 
+## 2026-10-27 — v3 · v1.2.19 (print report: fixes from the user's real PDF)
+
+Rendered the user's actual PDF (pdf.js in headless Chrome) instead of guessing: found `.interval-detail-wrap{max-height:420px;overflow:auto}` clipping the 96-row table in print, no `print-color-adjust` so legend swatches vanished, and the ZOLA image overflowing page 1. Portrait first tried CSS `zoom` scaled by column count — it did not rescale the rate table (cell text is nowrap), so it was dropped for `table-layout:fixed` + wrapping, which fits any width. Empty survey-day columns are omitted from print only (they stay on screen to match the workbook). Test tooling: CDP (`Page.printToPDF`) + pdf.js from cdnjs to rasterize; the app's service worker must be bypassed (`Network.setBypassServiceWorker`) or dynamic imports fail in a fresh profile.
+
+---
+
 ## 2026-10-27 — v3 · v1.2.18 (All vehicles report group)
 
 ITE Trip Generation reports total vehicle trips per land use, not a per-class breakdown, and excludes pedestrians; the summary only had category groups. Added an `auto: 'allVehicles'` report group whose labels are computed per render (all classifications not matching /pedestrian|micro-mobility/), so it never goes stale as classifications change; in explicit-group projects it is added by a builder button, in derived mode it is appended. Judgment call: a combined "Vehicles + Peds" source column (the firm workbook's third category, used for imported weekend data) is included rather than excluded — excluding it would drop nearly all personal-vehicle trips on those days, while including it overstates by the (small) pedestrian share — and the report flags the affected day and locations. Verified on the project with real weekday per-class data and workbook weekend data: Wed 837 = (805−148)+(142−8)+(54−8), Sat 803.

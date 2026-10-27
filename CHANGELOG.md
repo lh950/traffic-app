@@ -1,5 +1,15 @@
 # Changelog
 
+## v3 · v1.2.19 — 2026-10-27
+
+### Fixed
+- Trip Gen print report, from a real PDF: the 15-minute table was cut off after the first rows (an on-screen scrollbox height was applied to print); charts printed tiny with no legend colors; the ZOLA image pushed the first category onto page 3.
+- **Portrait now fits.** The tables use the page width and wrap instead of running off the right edge, and survey days with no data (an all-N/A Weekday 2 or Sunday) are left out of the printed report.
+- Charts print larger (three per page); backgrounds and colors print; peak hours show as "09:30–10:30".
+
+### Changed
+- The print dialog reminds you to turn off the browser's own "Headers and footers" so the report's footer (project name, page numbers) shows.
+
 ## v3 · v1.2.18 — 2026-10-27
 
 ### Added
