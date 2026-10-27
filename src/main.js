@@ -88,7 +88,7 @@ import { exportShareablePage, buildShareableHTML } from './shareReport.js';
 import JSZip from 'jszip';
 import { printSummaryReport, printIntersectionReport } from './printPedReport.js';
 import { buildVolumeProfileSVG, buildCrosswalkBarSVG, buildChartLegend, dirSplitBar, CW_COLORS } from './chartUtils.js';
-import { renderTripGenSection, DEFAULT_PEAK_WINDOWS, computePeakVolumes, computeQaqcPeakScore, renderQaqcDetailCardHTML, renderQaqcScoreDetailHTML, passFailBadge, shapeCheckBadge, perClassSummaryBadge, migrateQaqcWindows, qaqcWindowsKey, qaqcPeakKey, tgIncludedDays } from './analysis/ui/tripgenSection.js';
+import { renderTripGenSection, buildTripGenPrintHtml, resolveReportGroups, DEFAULT_PEAK_WINDOWS, computePeakVolumes, computeQaqcPeakScore, renderQaqcDetailCardHTML, renderQaqcScoreDetailHTML, passFailBadge, shapeCheckBadge, perClassSummaryBadge, migrateQaqcWindows, qaqcWindowsKey, qaqcPeakKey, tgIncludedDays } from './analysis/ui/tripgenSection.js';
 import { weekdayShort, dateLabelWithWeekday } from './analysis/ui/dateUtils.js';
 import { intervalBar, pctOfPeakCell } from './analysis/ui/intervalDetail.js';
 
@@ -1451,11 +1451,70 @@ window.commitCustomPlannedPeriod = function () {
 
 document.getElementById('btn-analyze-to-count')?.addEventListener('click', () => window.goToCountMode());
 document.getElementById('btn-analyze-print')?.addEventListener('click', () => {
+  if (projectType === 'tripgen') { openTgPrintModal(); return; }
   populatePrintHeader();
   window.print();
 });
 document.getElementById('btn-share-viewer-print')?.addEventListener('click', () => {
+  if (projectType === 'tripgen') { openTgPrintModal(); return; }
   populatePrintHeader('share-prh');
+  window.print();
+});
+
+// ── Trip Gen print / export dialog ──
+// Printing used to print the whole interactive Analysis screen (every tab, forms and all). Trip
+// Gen now prints a dedicated report built into #tg-print-root: header, summary, then one page
+// per chosen report group. The user picks the sections and the page orientation first.
+const tgPrintPrefs = { summary: true, groupIds: null, charts: true, intervals: true, orientation: 'landscape' };
+function tgReportCtx() {
+  return { siteInfo: tripgenSiteInfo, categoryMap: tripgenCategoryMap, peakWindows: tripgenPeakWindows, reportGroups: tripgenReportGroups };
+}
+function closeTgPrintModal() { document.getElementById('tg-print-modal')?.classList.remove('open'); }
+window.closeTgPrintModal = closeTgPrintModal;
+function openTgPrintModal() {
+  const { groups } = resolveReportGroups(tripgenEntries, tgReportCtx());
+  const sel = tgPrintPrefs.groupIds || groups.map((g) => g.id);
+  const box = (attrs, checked, label) => `<label style="display:flex;align-items:center;gap:8px;font-size:13px;margin:5px 0;cursor:pointer"><input type="checkbox" ${attrs}${checked ? ' checked' : ''} style="width:auto"> ${label}</label>`;
+  document.getElementById('tg-print-options').innerHTML = `
+    <h3>include</h3>
+    ${box('data-tgp-summary', tgPrintPrefs.summary, "Summary — site information and every group's trip rates and peak hours")}
+    ${groups.map((g) => box(`data-tgp-group="${g.id}"`, sel.includes(g.id), `${escapeHtmlMain(g.name)} — its own page`)).join('')}
+    <h3 style="margin-top:12px">on each group page</h3>
+    ${box('data-tgp-charts', tgPrintPrefs.charts, 'In / out charts for each survey day')}
+    ${box('data-tgp-intervals', tgPrintPrefs.intervals, '15-minute volume table')}
+    <h3 style="margin-top:12px">page</h3>
+    <div style="display:flex;gap:16px;font-size:13px;flex-wrap:wrap">
+      <label><input type="radio" name="tgp-orient" value="landscape" ${tgPrintPrefs.orientation === 'landscape' ? 'checked' : ''} style="width:auto"> landscape (recommended — the tables are wide)</label>
+      <label><input type="radio" name="tgp-orient" value="portrait" ${tgPrintPrefs.orientation === 'portrait' ? 'checked' : ''} style="width:auto"> portrait</label>
+    </div>`;
+  document.getElementById('tg-print-modal')?.classList.add('open');
+}
+document.getElementById('btn-tg-print-xlsx')?.addEventListener('click', () => window.exportTripgenXLSX?.());
+document.getElementById('btn-tg-print-go')?.addEventListener('click', async () => {
+  const q = (s) => document.querySelector(`#tg-print-options ${s}`);
+  tgPrintPrefs.summary = !!q('[data-tgp-summary]')?.checked;
+  tgPrintPrefs.groupIds = [...document.querySelectorAll('#tg-print-options [data-tgp-group]')].filter((e) => e.checked).map((e) => Number(e.dataset.tgpGroup));
+  tgPrintPrefs.charts = !!q('[data-tgp-charts]')?.checked;
+  tgPrintPrefs.intervals = !!q('[data-tgp-intervals]')?.checked;
+  tgPrintPrefs.orientation = q('[name="tgp-orient"]:checked')?.value || 'landscape';
+  closeTgPrintModal();
+  const root = document.getElementById('tg-print-root');
+  root.innerHTML = `
+    <div class="print-report-header" id="tgp-header">
+      <div class="prh-left"><div class="prh-title" id="tgp-title"></div><div class="prh-sub" id="tgp-sub"></div><div class="prh-meta" id="tgp-meta"></div></div>
+      <img class="prh-logo" id="tgp-logo" src="" alt="" style="display:none">
+    </div>
+    ${await buildTripGenPrintHtml(tripgenEntries, tgReportCtx(), { summary: tgPrintPrefs.summary, groupIds: tgPrintPrefs.groupIds, charts: tgPrintPrefs.charts, intervals: tgPrintPrefs.intervals })}`;
+  populatePrintHeader('tgp');
+  const title = (projectInfo.projectName || tripgenSiteInfo.location || 'Trip generation study').replace(/[\\"\n]/g, ' ');
+  const style = document.createElement('style');
+  style.id = 'tg-print-page-style';
+  style.textContent = `@page{size:letter ${tgPrintPrefs.orientation};margin:12mm 12mm 15mm;@bottom-left{content:"${title}";font-size:9px;color:#555}@bottom-right{content:"Page " counter(page) " of " counter(pages);font-size:9px;color:#555}}`;
+  document.head.appendChild(style);
+  document.body.classList.add('tg-printing');
+  const cleanup = () => { document.body.classList.remove('tg-printing'); root.innerHTML = ''; style.remove(); };
+  window.addEventListener('afterprint', cleanup, { once: true });
+  await new Promise((r) => setTimeout(r, 150)); // let the logo / ZOLA image finish laying out
   window.print();
 });
 document.getElementById('btn-analyze-to-landing')?.addEventListener('click', () => {
@@ -7352,7 +7411,7 @@ function renderTripgenLocationsScreen() {
         <div class="stat-card"${canEdit ? ` data-tg-loc-edit-entry="${entry.id}" data-tg-loc-edit-day="${i}" style="cursor:pointer"` : ''} title="${canEdit ? 'Click to open this day for editing' : 'No live-count snapshot to edit (uploaded/pasted data)'}">
           <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
             <span style="font-size:13px;font-weight:500">${dateLabel}</span>
-            ${d.inProgress ? `<span class="in-progress-badge">&#9679; in progress</span>` : ''}
+            ${d.complete ? `<span class="in-progress-badge" style="background:var(--good-bg);color:var(--good-text);border-color:var(--good-border)">&#10003; complete</span>` : d.inProgress ? `<span class="in-progress-badge">&#9679; in progress</span>` : ''}
             ${d.includeInAnalysis === false ? `<span class="in-progress-badge" title="Superseded by a recount — not included in QA/QC or Analysis">excluded</span>` : ''}
           </div>
           ${dayTypeLabel}
@@ -7368,7 +7427,10 @@ function renderTripgenLocationsScreen() {
           </div>
           ${canEdit ? `<div style="font-size:11px;color:var(--blue-text);margin-top:6px">${d.inProgress ? 'resume count →' : 'edit counts →'}</div>` : ''}
           ${d.parsed && !d.inProgress ? `<button data-tg-loc-recount-entry="${entry.id}" data-tg-loc-recount-day="${i}" title="Start a new count for this location, added as its own day — for when QA/QC finds the original count needs a full redo" style="font-size:11px;margin-top:4px">↻ recount</button>` : ''}
-          <div style="margin-top:6px;display:flex;align-items:center;gap:6px" data-no-card-click>
+          <label style="margin-top:8px;display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer" data-no-card-click title="Mark this day's count as finished — a reminder for you, it doesn't change the data">
+        <input type="checkbox" data-tg-loc-complete="${entry.id}" data-tg-loc-complete-day="${i}"${d.complete ? ' checked' : ''} style="width:auto"> mark count complete
+      </label>
+      <div style="margin-top:6px;display:flex;align-items:center;gap:6px" data-no-card-click>
             ${d.cameraImageUrl
               ? `<img src="${d.cameraImageUrl}" style="height:40px;width:64px;object-fit:cover;border-radius:3px;border:.5px solid var(--border)" title="Camera view">
                  <button type="button" data-tg-loc-cam-clear="${entry.id}" data-tg-loc-cam-day="${i}" style="font-size:11px">× remove</button>`
@@ -7413,6 +7475,17 @@ function renderTripgenLocationsScreen() {
   // 13) tells users to ignore in favor of THIS screen, so the upload never had anywhere real
   // to be seen despite being fully wired underneath. Ported here rather than duplicating a new
   // field — same data, same upload/clear behavior, now in the container users actually use.
+  root.querySelectorAll('[data-tg-loc-complete]').forEach((box) => {
+    box.addEventListener('click', (e) => e.stopPropagation());
+    box.addEventListener('change', () => {
+      const entry = tripgenEntries.find((en) => en.id === Number(box.dataset.tgLocComplete));
+      const day = entry?.days[Number(box.dataset.tgLocCompleteDay)];
+      if (!day) return;
+      day.complete = box.checked;
+      renderTripgenLocationsScreen();
+      window.scheduleAutosave?.();
+    });
+  });
   root.querySelectorAll('[data-tg-loc-cam-upload]').forEach((input) => {
     input.addEventListener('click', (e) => e.stopPropagation()); // nested in the card's own click-to-edit handler
     input.addEventListener('change', (e) => {

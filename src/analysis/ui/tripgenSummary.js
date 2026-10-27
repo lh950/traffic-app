@@ -108,7 +108,7 @@ function peakWindowsFor(kind) {
 // 'AM peak' / 'Midday peak' / 'PM peak' → AM / MD / PM, as on the workbook; any other
 // (user-renamed) window keeps its own label minus a trailing "peak".
 function shortWindowLabel(w) {
-  return w.label.replace(/\s*peak$/i, '').replace(/^Midday$/i, 'MD');
+  return w.label.replace(/\s*peak$/i, '').replace(/^Midday$/i, 'MD').replace(/^Weekend peak (\d+)$/i, 'Peak $1');
 }
 
 async function categoryCell(group, col, ctx, gsf) {
@@ -339,10 +339,11 @@ export function summaryTabHtml(model, entries, ctx) {
 
 // One group's own tab: the same tables, the full 15-minute table (always open), and an in/out
 // chart per survey day.
-export function groupTabHtml(model, gi) {
+export function groupTabHtml(model, gi, opts = {}) {
+  const { charts: withCharts = true, intervals: withIntervals = true } = opts;
   const g = model.groups[gi];
   const cells = model.cellsByGroup[gi];
-  const charts = model.cols.map((c, i) => {
+  const charts = !withCharts ? '' : model.cols.map((c, i) => {
     const cell = cells[i];
     if (!cell) return '';
     return `
@@ -357,7 +358,7 @@ export function groupTabHtml(model, gi) {
         <div class="tgs-cat-title">${esc(g.name)}</div>
         <div class="stat-detail" style="padding:10px 16px 0">Classifications in this report: ${g.labels.length ? g.labels.map((l) => `<span class="tgs-chip">${esc(l)}</span>`).join(' ') : '<em>none selected</em>'}</div>
         ${groupTablesHtml(model, gi)}
-        ${intervalAppendixHtml(g.name, model.cols, cells, true)}
+        ${withIntervals ? intervalAppendixHtml(g.name, model.cols, cells, true) : ''}
       </div>
       <div>${charts}</div>
       <div class="tgs-note">${NOTE}</div>

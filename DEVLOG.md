@@ -4,6 +4,14 @@ Key decisions, scope constraints, and architectural choices.
 
 ---
 
+## 2026-10-27 — v3 · v1.2.17 (Trip Gen print report, "count complete" checkbox)
+
+Printing used to print the whole Analysis screen (tabs, forms and all), so "print" gave a screen dump. Trip Gen now builds a dedicated document into `#tg-print-root` from the same `buildReportModel` / tab builders the screen uses (print and screen cannot disagree) and prints only that (`body.tg-printing` hides every other top-level element). Orientation is injected as an `@page` rule at print time and removed after; page numbers use `@page` margin boxes (Chrome 131+). The root re-declares the light color tokens so a dark OS theme cannot print light text. Intersection printing is unchanged. `Day.complete` is a plain user flag on the day (saved with entries); it is separate from `inProgress` (set by the live counter) and `includeInAnalysis` (set by recounts), and does not gate anything. Cross-count-type parity: only Trip Gen has a Location Counts screen, so nothing to mirror.
+
+Test pitfall: the app's service worker made dynamic `import()` of the data layer fail in a fresh headless Chrome profile ("peakHourInWindow requires the data layer"); bypassing the service worker (CDP `Network.setBypassServiceWorker`) fixed the test. Worth checking that a first-ever page load on a slow connection cannot hit the same failure in real use.
+
+---
+
 ## 2026-10-27 — v3 · v1.2.16 (Suggested, editable peak periods in the summary)
 
 User: leave the workbook as-is (it is not the template; users should set their own peak periods) — in the app, make sure there is a suggested peak time and the user can change it. The app already had suggested windows (DEFAULT_PEAK_WINDOWS) and per-day controls buried in the Locations tab, so this surfaces the same `tripgenPeakWindows` state on the Summary tab (one source for summary, group tabs and per-day tables) with a "suggested" hint, an "edited" marker and a reset. The summary's weekend peak switched from best-hour-of-the-day (copied from the workbook) to the editable weekend windows so it follows the same rule as weekdays. Found while testing: the existing peak edit handlers never called scheduleAutosave, so edits only persisted when something else triggered a save — fixed. Verified headless: narrowing AM end to 09:00 moved Weekday 1 AM from 09:30–10:30 to 08:45–09:45, saved 540, reset saved 660.

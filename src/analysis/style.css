@@ -276,7 +276,8 @@ tfoot td:first-child{text-align:left;color:var(--text2)}
 @media print{
   .tgs-cat{break-inside:avoid-page;border-color:#999}
   .tgs-cat-title{background:#ddd!important;color:#000!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-  .tgs-table{font-size:10px}
+  .tgs-table{font-size:10px;table-layout:auto}
+  .tgs-table thead th{white-space:normal}
   .tgs-table th,.tgs-table td{padding:2px 4px}
   .tgs-table .tgs-rowhead{position:static}
   .tgs-scroll{overflow:visible;padding:8px 10px 0}

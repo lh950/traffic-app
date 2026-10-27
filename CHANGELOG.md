@@ -1,5 +1,11 @@
 # Changelog
 
+## v3 · v1.2.17 — 2026-10-27
+
+### Added
+- Trip Gen: **Print / export report** dialog. The print button no longer prints the whole interactive Analysis screen; it opens a dialog to choose what goes in (Summary, each report group, in/out charts, 15-minute tables) and the page orientation (landscape recommended), then prints a dedicated report: titled header with company / PM / counter, the peak periods used, the summary, and one section per group, with page numbers and the project name in the footer. The same dialog has a "Download Excel" button and is used by the shared viewer's print button.
+- Location Counts: a **mark count complete** checkbox on each day card, with a "✓ complete" badge. It is a status marker you set — it does not change or lock the data.
+
 ## v3 · v1.2.16 — 2026-10-27
 
 ### Added

@@ -4,7 +4,7 @@ import { weekdayShort, dateLabelWithWeekday } from './dateUtils.js';
 import { intervalBar, pctOfPeakCell } from './intervalDetail.js';
 import { runVehicleQA, renderQASection } from '../../qa.js';
 import { SL_DAY_PART, slZoneAverageForDayType } from '../../parseStreetlightZoneCsv.js';
-import { buildReportModel, summaryTabHtml, groupTabHtml, builderTabHtml, wireBuilder } from './tripgenSummary.js';
+import { buildReportModel, summaryTabHtml, groupTabHtml, builderTabHtml, wireBuilder, resolveReportGroups } from './tripgenSummary.js';
 
 // A day is included in analysis/QA-QC/reports by default — `includeInAnalysis === false` is
 // the ONLY way to exclude it, so older saved projects (which never had this field) keep
@@ -643,8 +643,11 @@ function renderPeakWindowRangeControls(dayType, peakWindows, showSuggested = fal
 // owner can change any search range, pin an exact hour, or reset to the suggestion. The summary,
 // every group tab and the per-day peak tables all read these same windows. Viewers get a
 // read-only list; print gets a one-line version of what was used.
+function peakLine(peakWindows, dayType) {
+  return peakWindows[dayType].map((w) => `${escapeHtml(w.label)} ${w.manualStartMin != null ? `${minToTimeInput(w.manualStartMin)} (pinned)` : `${minToTimeInput(w.searchStartMin)}–${minToTimeInput(w.searchEndMin)}`}`).join(' · ');
+}
 function renderPeakPeriodsPanel(peakWindows, viewerMode) {
-  const line = (dayType, title) => peakWindows[dayType].map((w) => `${escapeHtml(w.label)} ${w.manualStartMin != null ? `${minToTimeInput(w.manualStartMin)} (pinned)` : `${minToTimeInput(w.searchStartMin)}–${minToTimeInput(w.searchEndMin)}`}`).join(' · ');
+  const line = (dayType) => peakLine(peakWindows, dayType);
   const printLine = `<div class="print-only stat-detail" style="margin-bottom:10px"><strong>Peak periods used</strong> — weekday: ${line('weekday')}; weekend: ${line('weekend')}</div>`;
   if (viewerMode) {
     return `<div class="card" style="margin-bottom:14px"><h3>Peak periods</h3><div class="stat-detail">Each period reports the busiest hour inside its search range. Weekday: ${line('weekday')}. Weekend: ${line('weekend')}.</div></div>`;
@@ -2041,3 +2044,20 @@ export async function renderTripGenSection(container, entries, ctx) {
     });
   }
 }
+
+// Dedicated print document for a Trip Gen report (print options dialog in main.js). Built from
+// the same model and tab builders as the Analysis screen, so print and screen cannot disagree.
+// opts: { summary: bool, groupIds: number[], charts: bool, intervals: bool }
+export async function buildTripGenPrintHtml(entries, ctx, opts) {
+  const model = await buildReportModel(entries, ctx);
+  const pages = [];
+  if (opts.summary) {
+    pages.push(`<section class="tgp-page"><div class="tgp-note"><strong>Peak periods used</strong> — weekday: ${peakLine(ctx.peakWindows, 'weekday')}; weekend: ${peakLine(ctx.peakWindows, 'weekend')}</div>${summaryTabHtml(model, entries, ctx)}</section>`);
+  }
+  model.groups.forEach((g, gi) => {
+    if (!opts.groupIds.includes(g.id)) return;
+    pages.push(`<section class="tgp-page">${groupTabHtml(model, gi, { charts: opts.charts, intervals: opts.intervals })}</section>`);
+  });
+  return pages.join('') || '<div class="stat-detail">Nothing selected to print.</div>';
+}
+export { resolveReportGroups };
