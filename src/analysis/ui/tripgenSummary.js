@@ -86,16 +86,34 @@ function allLabels(entries) {
 // The report groups: what the user built in the Report builder, or — until they build any —
 // one group per classification-group name (Setup → classifications), so nothing changes for a
 // project that never opens the builder. `explicit` tells the builder which case it is in.
+// "All vehicles" (ITE-style total vehicle trips): every classification EXCEPT pedestrians. It is
+// an automatic group — its classifications are worked out each render, so a classification added
+// later is included without anyone editing the group.
+export const ALL_VEHICLES = 'allVehicles';
+const PED_LABEL = /pedestrian|micro-?mobility/i;
+// A source column that counted vehicles and pedestrians together (e.g. "Vehicles + Peds
+// (combined)"). It cannot be split, so it is counted in All vehicles and flagged on the report.
+const COMBINED_WITH_PEDS = /\+\s*peds?\b/i;
+export const isPedLabel = (l) => PED_LABEL.test(l);
+export const isCombinedWithPeds = (l) => COMBINED_WITH_PEDS.test(l);
+
+function fillAuto(groups, entries) {
+  const labels = allLabels(entries).filter((l) => !isPedLabel(l));
+  return groups.map((g) => (g.auto === ALL_VEHICLES ? { ...g, labels } : g));
+}
+
 export function resolveReportGroups(entries, ctx) {
   const saved = ctx.reportGroups || [];
-  if (saved.length) return { groups: saved, explicit: true };
+  if (saved.length) return { groups: fillAuto(saved, entries), explicit: true };
   const byName = new Map();
   allLabels(entries).forEach((t) => {
     const name = ctx.categoryMap[t] || t;
     if (!byName.has(name)) byName.set(name, []);
     byName.get(name).push(t);
   });
-  return { groups: [...byName.entries()].map(([name, labels], i) => ({ id: i + 1, name, labels })), explicit: false };
+  const groups = [...byName.entries()].map(([name, labels], i) => ({ id: i + 1, name, labels }));
+  if (groups.length) groups.push({ id: groups.length + 1, name: 'All vehicles', labels: [], auto: ALL_VEHICLES });
+  return { groups: fillAuto(groups, entries), explicit: false };
 }
 
 // ── One category × one survey day ──────────────────────────────────────────────────────
@@ -116,10 +134,12 @@ async function categoryCell(group, col, ctx, gsf) {
   if (!survey) return null;
   const wanted = new Set(group.labels);
   const bucket = new Map();
-  survey.parts.forEach(({ day }) => {
+  const mixedLocs = [];
+  survey.parts.forEach(({ entry, day }) => {
     const { parsed } = day;
     const idxs = parsed.types.map((t, i) => (wanted.has(t) ? i : -1)).filter((i) => i >= 0);
     if (!idxs.length) return;
+    if (group.auto === ALL_VEHICLES && idxs.some((i) => isCombinedWithPeds(parsed.types[i]))) mixedLocs.push(entry.locationLabel);
     parsed.intervals.forEach((iv) => {
       let b = bucket.get(iv.start);
       if (!b) { b = { start: iv.start, end: iv.end, label: iv.label, inbound: [0], outbound: [0] }; bucket.set(iv.start, b); }
@@ -146,7 +166,7 @@ async function categoryCell(group, col, ctx, gsf) {
       shareOfDay: total > 0 ? p.volume / total : 0,
     };
   }));
-  return { total, inbound, outbound, rate, peaks, intervals };
+  return { total, inbound, outbound, rate, peaks, intervals, mixedLocs };
 }
 
 // ── Markup ───────────────────────────────────────────────────────────────────────────────
@@ -313,7 +333,15 @@ export async function buildReportModel(entries, ctx) {
 function groupTablesHtml(model, gi) {
   const { cols, cellsByGroup, weekdayRows, weekendRows, gsf } = model;
   const cells = cellsByGroup[gi];
+  const g = model.groups[gi];
+  const mixed = g.auto === ALL_VEHICLES
+    ? cols.map((c, i) => (cells[i]?.mixedLocs?.length ? `${esc(c.label)}${c.sub ? ` (${esc(c.sub)})` : ''}: ${cells[i].mixedLocs.map(esc).join(', ')}` : '')).filter(Boolean)
+    : [];
+  const mixedNote = mixed.length
+    ? `<div class="tgs-note" style="padding:0 16px"><strong>Includes some pedestrians:</strong> the source counts for ${mixed.join('; ')} combine vehicles and pedestrians in one column, so pedestrians can't be taken out there.</div>`
+    : '';
   return `
+    ${mixedNote}
     <div class="tgs-scroll">${rateTableHtml(cols, cells, gsf)}</div>
     <div class="tgs-scroll">${peakVolumeTableHtml(cols, cells, 'weekday', weekdayRows, 'Peak-hour volumes')}</div>
     <div class="tgs-scroll">${peakVolumeTableHtml(cols, cells, 'weekend', weekendRows, 'Weekend peak hours')}</div>`;
@@ -370,7 +398,7 @@ export function groupTabHtml(model, gi, opts = {}) {
 // more than one group, or in none (then it is simply not reported).
 export function builderTabHtml(model) {
   const used = new Map();
-  model.groups.forEach((g) => g.labels.forEach((l) => used.set(l, (used.get(l) || 0) + 1)));
+  model.groups.filter((g) => !g.auto).forEach((g) => g.labels.forEach((l) => used.set(l, (used.get(l) || 0) + 1)));
   const unassigned = model.labels.filter((l) => !used.has(l));
   const overlap = model.labels.filter((l) => (used.get(l) || 0) > 1);
   return `
@@ -382,12 +410,15 @@ export function builderTabHtml(model) {
             <input type="text" data-rg-name="${gi}" value="${esc(g.name)}" placeholder="Group name">
             <button type="button" data-rg-remove="${gi}" style="font-size:12px">&times; remove group</button>
           </div>
-          <div class="tgs-builder-chips">
+          ${g.auto
+    ? `<div class="stat-detail">Every classification except pedestrians, kept up to date automatically — the ITE-style total of vehicle trips: ${g.labels.map((l) => `<span class="tgs-chip">${esc(l)}</span>`).join(' ') || '<em>none</em>'}</div>`
+    : `<div class="tgs-builder-chips">
             ${model.labels.map((l) => `<label class="tgs-pick"><input type="checkbox" data-rg-toggle="${gi}" data-rg-label="${esc(l)}"${g.labels.includes(l) ? ' checked' : ''}> ${esc(l)}</label>`).join('')}
-          </div>
+          </div>`}
         </div>`).join('')}
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button type="button" data-rg-add>+ add report group</button>
+        ${model.groups.some((g) => g.auto === ALL_VEHICLES) ? '' : '<button type="button" data-rg-add-allveh>+ add All vehicles (no pedestrians)</button>'}
         ${model.explicit ? '<button type="button" data-rg-reset style="font-size:12px">reset to classification groups</button>' : ''}
       </div>
       ${unassigned.length ? `<div class="tgs-note"><strong>Not in any report:</strong> ${unassigned.map(esc).join(', ')}</div>` : ''}
@@ -397,7 +428,7 @@ export function builderTabHtml(model) {
 
 // Wires the builder's controls. Every edit goes out through onChange(groups) as a full new list.
 export function wireBuilder(container, model, onChange) {
-  const copy = () => model.groups.map((g) => ({ id: g.id, name: g.name, labels: [...g.labels] }));
+  const copy = () => model.groups.map((g) => (g.auto ? { id: g.id, name: g.name, labels: [], auto: g.auto } : { id: g.id, name: g.name, labels: [...g.labels] }));
   const nextId = () => Math.max(0, ...model.groups.map((g) => g.id)) + 1;
   container.querySelectorAll('[data-rg-name]').forEach((el) => el.addEventListener('change', () => {
     const gs = copy(); gs[Number(el.dataset.rgName)].name = el.value.trim() || 'Untitled group'; onChange(gs);
@@ -413,6 +444,9 @@ export function wireBuilder(container, model, onChange) {
   }));
   container.querySelector('[data-rg-add]')?.addEventListener('click', () => {
     const gs = copy(); gs.push({ id: nextId(), name: `Group ${gs.length + 1}`, labels: [] }); onChange(gs);
+  });
+  container.querySelector('[data-rg-add-allveh]')?.addEventListener('click', () => {
+    const gs = copy(); gs.push({ id: nextId(), name: 'All vehicles', labels: [], auto: ALL_VEHICLES }); onChange(gs);
   });
   container.querySelector('[data-rg-reset]')?.addEventListener('click', () => onChange([]));
 }

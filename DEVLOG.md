@@ -4,6 +4,12 @@ Key decisions, scope constraints, and architectural choices.
 
 ---
 
+## 2026-10-27 — v3 · v1.2.18 (All vehicles report group)
+
+ITE Trip Generation reports total vehicle trips per land use, not a per-class breakdown, and excludes pedestrians; the summary only had category groups. Added an `auto: 'allVehicles'` report group whose labels are computed per render (all classifications not matching /pedestrian|micro-mobility/), so it never goes stale as classifications change; in explicit-group projects it is added by a builder button, in derived mode it is appended. Judgment call: a combined "Vehicles + Peds" source column (the firm workbook's third category, used for imported weekend data) is included rather than excluded — excluding it would drop nearly all personal-vehicle trips on those days, while including it overstates by the (small) pedestrian share — and the report flags the affected day and locations. Verified on the project with real weekday per-class data and workbook weekend data: Wed 837 = (805−148)+(142−8)+(54−8), Sat 803.
+
+---
+
 ## 2026-10-27 — v3 · v1.2.17 (Trip Gen print report, "count complete" checkbox)
 
 Printing used to print the whole Analysis screen (tabs, forms and all), so "print" gave a screen dump. Trip Gen now builds a dedicated document into `#tg-print-root` from the same `buildReportModel` / tab builders the screen uses (print and screen cannot disagree) and prints only that (`body.tg-printing` hides every other top-level element). Orientation is injected as an `@page` rule at print time and removed after; page numbers use `@page` margin boxes (Chrome 131+). The root re-declares the light color tokens so a dark OS theme cannot print light text. Intersection printing is unchanged. `Day.complete` is a plain user flag on the day (saved with entries); it is separate from `inProgress` (set by the live counter) and `includeInAnalysis` (set by recounts), and does not gate anything. Cross-count-type parity: only Trip Gen has a Location Counts screen, so nothing to mirror.

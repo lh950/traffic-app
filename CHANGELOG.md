@@ -1,5 +1,11 @@
 # Changelog
 
+## v3 · v1.2.18 — 2026-10-27
+
+### Added
+- Trip Gen: an **All vehicles** report group — every classification except pedestrians, the ITE-style total of vehicle trips. It gets its own tab and a block on the Summary and the printed report, with the same daily and peak-hour trip rates. It is automatic: classifications added later are included without editing the group. It appears by default for projects that haven't built their own groups; otherwise add it from the Report builder ("+ add All vehicles").
+- If a source column counted vehicles and pedestrians together (e.g. "Vehicles + Peds (combined)"), pedestrians can't be removed from it; All vehicles includes that column and says so on the report, naming the day and locations.
+
 ## v3 · v1.2.17 — 2026-10-27
 
 ### Added
