@@ -4,6 +4,14 @@ Key decisions, scope constraints, and architectural choices.
 
 ---
 
+## 2026-10-27 — v3 · v1.2.14 (Trip generation summary, modeled on Summary_Lindenwood_Fedex.xlsx)
+
+User shared a firm Summary workbook and asked for the Analysis display and printed report to follow its format, keeping the app's own style. Traced its formulas before copying anything: daily rate = day total / (GSF/1000); the AM/MD/PM "trip rate" cells are peak-hour total / **day total** (a share, e.g. 0.27), not a per-1000-SF rate; the weekend peak is the best hour of the whole day; categories are summed across every location ("Total (3 locs)"). New `analysis/ui/tripgenSummary.js` reproduces the layout but shows the real peak-hour rate with the share of day beneath it, so neither reading is lost. Survey days are one column per calendar date across all locations (weekday dates sorted into Weekday 1/2/…, Saturday, Sunday; undated imports fall back to dayType). Categories come from the user's own classification grouping, not a fixed list. Print: `<details data-print-open>` blocks are opened by a beforeprint hook (closed content does not print) so the interval appendix and ZOLA image print.
+
+Verified live with a synthetic 3-location, 3-day project: hand-checked 779 / 162.261 = 4.80, 213 / 162.261 = 1.31 (27.3% of day), merged group total 411 + 274 = 685. Test pitfall worth remembering: reloading a page that already has a project loaded flushes that stale in-memory state over any localStorage seed — seed from a fresh tab. Not done: charts from the workbook's Analysis tabs (existing combo charts remain below); intersection print report not touched (different data shape).
+
+---
+
 ## 2026-08-28 — v3 · v1.2.13 (Intersection QA count "apply as fix" — parity with Trip Gen)
 
 Closes out the cross-count-type parity item from earlier this session: [[applyQaqcRecountAsFix]] shipped for Trip Gen (v1.2.12); this wires the same concept into intersection's QA flow.

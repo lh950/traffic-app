@@ -1,5 +1,14 @@
 # Changelog
 
+## v3 · v1.2.14 — 2026-10-27
+
+### Added
+- Trip Gen: a one-page **Trip generation summary** now leads the Analysis screen (and the shared viewer's Overview tab, and the printed report), laid out like the firm's own Summary workbook: a site-facts header (land use, ITE land use, size, available GSF, occupancy, borough, transit zone, locations counted, ZOLA image), then one band per vehicle category with a trip-rate table (daily + AM / MD / PM, per survey day) and peak-hour volume tables (hour, in, out, % in, % out). Survey days sit side by side as Weekday 1, Weekday 2, Saturday, Sunday, with every location counted that day combined. A per-category "volumes by interval" table (with an average-weekday column) sits behind a caret on screen and prints as an appendix.
+- Site information gained ITE land use, available square footage, occupancy rate, borough and transit zone fields.
+
+### Changed
+- The old "Site-wide trip rate" card and the print-only site-info table are replaced by the summary. The summary shows peak-hour trip rate per 1,000 SF with its share of the day underneath; the source workbook's AM/MD/PM cells are that share of the day only, labelled as a rate.
+
 ## v3 · v1.2.13 — 2026-08-28
 
 ### Added

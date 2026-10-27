@@ -4,6 +4,7 @@ import { weekdayShort, dateLabelWithWeekday } from './dateUtils.js';
 import { intervalBar, pctOfPeakCell } from './intervalDetail.js';
 import { runVehicleQA, renderQASection } from '../../qa.js';
 import { SL_DAY_PART, slZoneAverageForDayType } from '../../parseStreetlightZoneCsv.js';
+import { tripGenSummaryHtml } from './tripgenSummary.js';
 
 // A day is included in analysis/QA-QC/reports by default — `includeInAnalysis === false` is
 // the ONLY way to exclude it, so older saved projects (which never had this field) keep
@@ -149,7 +150,12 @@ function renderSiteInfoForm(siteInfo) {
   const fields = [
     ['location', 'Location / address'],
     ['landUseType', 'Land use type'],
+    ['iteLandUse', 'ITE land use'],
     ['gsf', 'Facility square footage'],
+    ['availableGsf', 'Available square footage'],
+    ['occupancy', 'Occupancy rate'],
+    ['borough', 'Borough'],
+    ['transitZone', 'Transit zone (Yes / No)'],
     ['lotSf', 'Lot gross square footage'],
     ['parking', 'Parking spaces'],
     ['units', 'Units / employees'],
@@ -183,16 +189,6 @@ function renderSiteInfoForm(siteInfo) {
                upload screenshot&hellip; <input type="file" accept="image/*" data-site-zola-upload style="display:none">
              </label>`}
       </div>
-    </div>
-    <div class="card print-only" id="site-info-print" style="margin-bottom:14px">
-      <h3>Site information</h3>
-      <table class="crosswalk-table">
-        <tbody>
-          ${fields.filter(([key]) => siteInfo[key]).map(([key, label]) => `<tr><td>${label}</td><td>${escapeHtml(String(siteInfo[key]))}</td></tr>`).join('') || '<tr><td colspan="2" style="color:var(--text3)">No site information entered yet</td></tr>'}
-          ${far !== null ? `<tr><td>FAR</td><td>${far.toFixed(2)}</td></tr>` : ''}
-          ${siteInfo.notes ? `<tr><td>Notes</td><td>${escapeHtml(siteInfo.notes)}</td></tr>` : ''}
-        </tbody>
-      </table>
     </div>
   `;
 }
@@ -1678,31 +1674,9 @@ export async function renderTripGenSection(container, entries, ctx) {
   });
   const allGroupNames = [...new Set([...Object.values(crossGroups).flatMap((g) => Object.keys(g))])];
 
-  // Site-wide trip rate (user request) — same tripRate() formula the per-location day blocks
-  // already use (rawGroups off the as-counted total, matching the source; "balanced" view
-  // doesn't change the rate), just fed crossGroups' combined-across-every-location totals
-  // instead of one location's own. One row per day type, matching totalsTable's own grouping.
-  const siteWideRateSections = await Promise.all(Object.keys(crossGroups).map(async (bucket) => {
-    const cards = await Promise.all(allGroupNames.map(async (g) => {
-      const vol = crossGroups[bucket][g] || 0;
-      const rate = await data.tripRate(vol, siteInfo.gsf);
-      return `
-        <div class="stat-card">
-          <div class="stat-label">${escapeHtml(g)}</div>
-          <div class="stat-value">${rate != null ? rate : '—'}<span class="unit">${rate != null ? '/ 1000 GSF' : ''}</span></div>
-          <div class="stat-detail">${fmt(vol)} combined total</div>
-        </div>`;
-    }));
-    return `<div style="margin-bottom:10px"><div class="stat-detail" style="font-weight:600;color:var(--text);margin-bottom:6px;text-transform:capitalize">${escapeHtml(bucket)}</div><div class="card-grid">${cards.join('')}</div></div>`;
-  }));
-  const siteWideTripRateHTML = `
-    <div class="card" style="margin-bottom:14px">
-      <h3>Site-wide trip rate</h3>
-      <div class="stat-detail" style="margin-bottom:8px">Every location combined, by day type — not a single location's own rate (see that location's own card below for per-site figures).</div>
-      ${!siteInfo.gsf ? '<div class="stat-detail" style="margin-bottom:8px">Enter site square footage above to compute rates.</div>' : ''}
-      ${siteWideRateSections.join('')}
-    </div>
-  `;
+  // Site-wide trip rate now lives in the Trip generation summary below (tripgenSummary.js),
+  // which shows it per category and per survey day instead of one combined row per day type.
+  const summaryHTML = await tripGenSummaryHtml(entries, ctx);
 
   const qaqcSectionHTML = await renderQaqcSection(entries, ctx);
 
@@ -1771,8 +1745,11 @@ export async function renderTripGenSection(container, entries, ctx) {
 
   const overviewPanelHTML = `
     <div class="section" style="margin-bottom:1.5rem">
-      <div class="section-head"><h2>Site-wide summary</h2><span class="sub">every location, one chart per day</span></div>
-      ${siteWideTripRateHTML}
+      <div class="section-head"><h2>Trip generation summary</h2><span class="sub">all ${entries.length} location${entries.length > 1 ? 's' : ''} combined</span></div>
+      ${summaryHTML}
+    </div>
+    <div class="section" style="margin-bottom:1.5rem">
+      <div class="section-head"><h2>Site-wide charts</h2><span class="sub">every location, one chart per day</span></div>
       <div class="tg-sw-root" data-tg-sitewide></div>
     </div>
     <div class="card" style="margin-bottom:14px">

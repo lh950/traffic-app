@@ -6703,7 +6703,7 @@ wireProjectInfoFields();
 // unrelated) and entry.days[i].cameraImageUrl (per-day camera view). Shown near the top of
 // the Analysis screen's summary, not buried per-day/per-location, since it's shared project
 // context rather than something tied to one count location.
-const tripgenSiteInfo = { location: '', landUseType: '', gsf: '', lotSf: '', parking: '', units: '', studyDates: '', notes: '', zolaScreenshotUrl: '' };
+const tripgenSiteInfo = { location: '', landUseType: '', iteLandUse: '', gsf: '', availableGsf: '', occupancy: '', borough: '', transitZone: '', lotSf: '', parking: '', units: '', studyDates: '', notes: '', zolaScreenshotUrl: '' };
 const tripgenCategoryMap = {};
 // StreetLight "Zone Activity" comparison (parseStreetlightZoneCsv.js) — read-only,
 // informational side-by-side against the manual count, same non-negotiable framing as the
