@@ -284,3 +284,9 @@ tfoot td:first-child{text-align:left;color:var(--text2)}
   .tgs-appendix summary{font-weight:600}
   .tgs-compact{font-size:9px}
 }
+/* Report builder (tripgenSummary.js builderTabHtml) */
+.tgs-builder-group{margin-bottom:0!important}
+.tgs-builder-head{display:flex;gap:10px;align-items:center;margin-bottom:10px}
+.tgs-builder-head input{flex:1;font-weight:600}
+.tgs-builder-chips{display:flex;flex-wrap:wrap;gap:6px 14px}
+.tgs-pick{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--text);cursor:pointer}

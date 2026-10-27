@@ -4,7 +4,7 @@ import { weekdayShort, dateLabelWithWeekday } from './dateUtils.js';
 import { intervalBar, pctOfPeakCell } from './intervalDetail.js';
 import { runVehicleQA, renderQASection } from '../../qa.js';
 import { SL_DAY_PART, slZoneAverageForDayType } from '../../parseStreetlightZoneCsv.js';
-import { tripGenSummaryHtml } from './tripgenSummary.js';
+import { buildReportModel, summaryTabHtml, groupTabHtml, builderTabHtml, wireBuilder } from './tripgenSummary.js';
 
 // A day is included in analysis/QA-QC/reports by default — `includeInAnalysis === false` is
 // the ONLY way to exclude it, so older saved projects (which never had this field) keep
@@ -1676,7 +1676,7 @@ export async function renderTripGenSection(container, entries, ctx) {
 
   // Site-wide trip rate now lives in the Trip generation summary below (tripgenSummary.js),
   // which shows it per category and per survey day instead of one combined row per day type.
-  const summaryHTML = await tripGenSummaryHtml(entries, ctx);
+  const reportModel = await buildReportModel(entries, ctx);
 
   const qaqcSectionHTML = await renderQaqcSection(entries, ctx);
 
@@ -1743,11 +1743,13 @@ export async function renderTripGenSection(container, entries, ctx) {
       </tbody>
     </table>`;
 
-  const overviewPanelHTML = `
+  const summaryPanelHTML = `
     <div class="section" style="margin-bottom:1.5rem">
       <div class="section-head"><h2>Trip generation summary</h2><span class="sub">all ${entries.length} location${entries.length > 1 ? 's' : ''} combined</span></div>
-      ${summaryHTML}
+      ${summaryTabHtml(reportModel, entries, ctx)}
     </div>
+  `;
+  const overviewPanelHTML = `
     <div class="section" style="margin-bottom:1.5rem">
       <div class="section-head"><h2>Site-wide charts</h2><span class="sub">every location, one chart per day</span></div>
       <div class="tg-sw-root" data-tg-sitewide></div>
@@ -1783,7 +1785,15 @@ export async function renderTripGenSection(container, entries, ctx) {
   // CSS class), so the existing print rule pattern (see .tg-loc-block in analysis/style.css)
   // extends the same way: [data-vtab-panel] is forced display:block!important in @media print,
   // and the tab bar itself is marked .no-print, already globally hidden when printing.
+  // Owner mode uses the same tab bar now (user request: report groups each get their own tab,
+  // plus a Summary tab, plus an owner-only Report builder). Summary and the group tabs come
+  // first; the Report builder is owner-only and never prints (.no-print on its panel).
   const VIEWER_TABS = [
+    { key: 'summary', label: 'Summary', html: summaryPanelHTML },
+    ...reportModel.groups.map((g, gi) => ({
+      key: `group${g.id}`, label: g.name,
+      html: `<div class="section" style="margin-bottom:1.5rem"><div class="section-head"><h2>${escapeHtml(g.name)}</h2><span class="sub">all ${entries.length} location${entries.length > 1 ? 's' : ''} combined</span></div>${groupTabHtml(reportModel, gi)}</div>`,
+    })),
     { key: 'overview', label: 'Overview', html: overviewPanelHTML },
     { key: 'qaqc', label: 'QA/QC', html: qaqcPanelHTML },
     { key: 'locations', label: 'Locations', html: locationsPanelHTML },
@@ -1792,18 +1802,19 @@ export async function renderTripGenSection(container, entries, ctx) {
     // itself returns '' for viewerMode with nothing imported, so an untouched shared project
     // doesn't grow a fifth, empty tab.
     ...(streetlightPanelHTML ? [{ key: 'streetlight', label: 'StreetLight', html: streetlightPanelHTML }] : []),
+    ...(viewerMode ? [] : [{ key: 'builder', label: 'Report builder', noPrint: true, html: `<div class="section" style="margin-bottom:1.5rem"><div class="section-head"><h2>Report builder</h2></div>${builderTabHtml(reportModel)}</div>` }]),
   ];
-  if (viewerMode && container._tgViewerTab == null) container._tgViewerTab = VIEWER_TABS[0].key;
-  const viewerTabsHTML = viewerMode ? `
-    <div class="setup-tabs share-print-hide" style="margin-bottom:1.5rem">
-      ${VIEWER_TABS.map((t) => `<button type="button" class="setup-tab${t.key === container._tgViewerTab ? ' active' : ''}" data-vtab="${t.key}">${escapeHtml(t.label)}</button>`).join('')}
+  if (!VIEWER_TABS.some((t) => t.key === container._tgViewerTab)) container._tgViewerTab = VIEWER_TABS[0].key;
+  const viewerTabsHTML = `
+    <div class="setup-tabs share-print-hide no-print" style="margin-bottom:1.5rem;overflow-x:auto">
+      ${VIEWER_TABS.map((t) => `<button type="button" class="setup-tab${t.key === container._tgViewerTab ? ' active' : ''}" data-vtab="${t.key}" style="white-space:nowrap">${escapeHtml(t.label)}</button>`).join('')}
     </div>
-    ${VIEWER_TABS.map((t) => `<div data-vtab-panel="${t.key}" style="display:${t.key === container._tgViewerTab ? '' : 'none'}">${t.html}</div>`).join('')}
-  ` : `${overviewPanelHTML}${fixedWindowHTML}${qaqcPanelHTML}${locationsPanelHTML}${customWindowsHTML}${streetlightPanelHTML}`;
+    ${VIEWER_TABS.map((t) => `<div data-vtab-panel="${t.key}"${t.noPrint ? ' class="no-print"' : ''} style="display:${t.key === container._tgViewerTab ? '' : 'none'}">${t.html}</div>`).join('')}
+  `;
 
   container.innerHTML = `
     <div class="stat-detail" style="margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
-      <span>Combines every location counted so far into one set of totals, grouped by day type.${viewerMode ? ' Use the tabs above to jump between sections.' : ' Scroll down for per-location, per-day breakdowns and the peak-hour trip generation figures.'}</span>
+      <span>Combines every location counted so far into one set of totals, grouped by day type.${viewerMode ? ' Use the tabs above to jump between sections.' : ' Use the tabs below for the summary, each report group, and per-location detail.'}</span>
       ${(!viewerMode && ctx.onEditGroups) ? `<button type="button" class="no-print" data-tg-edit-groups style="font-size:12px;flex-shrink:0">Edit classification groups →</button>` : ''}
     </div>
     ${viewerMode ? '' : renderSiteInfoForm(siteInfo)}
@@ -1817,6 +1828,8 @@ export async function renderTripGenSection(container, entries, ctx) {
       container.querySelectorAll('[data-vtab-panel]').forEach((p) => { p.style.display = p.dataset.vtabPanel === container._tgViewerTab ? '' : 'none'; });
     });
   });
+
+  if (!viewerMode && ctx.onReportGroupsChange) wireBuilder(container, reportModel, ctx.onReportGroupsChange);
 
   const siteWideEl = container.querySelector('[data-tg-sitewide]');
   if (siteWideEl) mountTgSiteWideComboChart(siteWideEl, { entries, categoryMap });

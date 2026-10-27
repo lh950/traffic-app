@@ -4,6 +4,18 @@ Key decisions, scope constraints, and architectural choices.
 
 ---
 
+## 2026-10-27 — v3 · v1.2.15 (Report builder: user-defined report groups → tabs)
+
+Mirrors how the firm's workbook is organized (Summary + one Analysis tab per vehicle group). Groups are now explicit project data (`reportGroups: [{id,name,labels[]}]`, serialized/loaded/reset like customWindows) instead of being implied by `categoryMap`, because the workbook's groups overlap and exclude classifications freely while `categoryMap` assigns each classification to exactly one group. Empty `reportGroups` falls back to the categoryMap-derived groups, so older projects look the same until the builder is used (the first edit copies the derived groups into explicit ones). `buildReportModel()` computes survey-day columns and per-group cells once per render; the Summary tab, group tabs and builder are string builders over that model. Owner mode moved from the flat layout to the viewer's tab bar so groups can have tabs; the builder panel is `.no-print`. Removing the last group returns to derived groups (empty = derive) — acceptable, noted here.
+
+Verified end-to-end in headless Chrome with a synthetic 3-location project: tabs follow groups; "+ add report group", ticking a classification and renaming each re-rendered and persisted; the new group's tab showed its rates, 3 charts (one per survey day) and 96 interval rows.
+
+## 2026-10-27 — Workbook review: Summary_Lindenwood_Fedex Analysis tabs (not app code)
+
+Found three defects, identical on all three Analysis_* sheets, and produced a corrected copy (charts preserved by patching the sheet XML): (1) peak-hour "trip rate" cells (E/J/O 219/227/235, T219, T228) divide by the day total (row 114) instead of GSF/1000 — a share of the day, not a rate; (2) Weekday 2, Avg weekday and Sunday per-interval totals (J, M, S) and row-114 totals (H–M, Q–S) are `IF(COUNT(..)=0,"N/A")` with no else branch, which returns FALSE as soon as data exists, so those columns can never produce a total, rolling hour or peak; (3) AM peak end time D221 is start +2h (MD/PM use +1h). Not changed, flagged: Weekday 1's AM search window is 08:00–10:45 start times while Weekday 2 / average use 07:00–09:00; MD INDEX/MATCH ranges run to row 179 while MAX stops at 175. The app already computes peak-hour rate as peak volume / (GSF/1000) and sums every day type.
+
+---
+
 ## 2026-10-27 — v3 · v1.2.14 (Trip generation summary, modeled on Summary_Lindenwood_Fedex.xlsx)
 
 User shared a firm Summary workbook and asked for the Analysis display and printed report to follow its format, keeping the app's own style. Traced its formulas before copying anything: daily rate = day total / (GSF/1000); the AM/MD/PM "trip rate" cells are peak-hour total / **day total** (a share, e.g. 0.27), not a per-1000-SF rate; the weekend peak is the best hour of the whole day; categories are summed across every location ("Total (3 locs)"). New `analysis/ui/tripgenSummary.js` reproduces the layout but shows the real peak-hour rate with the share of day beneath it, so neither reading is lost. Survey days are one column per calendar date across all locations (weekday dates sorted into Weekday 1/2/…, Saturday, Sunday; undated imports fall back to dayType). Categories come from the user's own classification grouping, not a fixed list. Print: `<details data-print-open>` blocks are opened by a beforeprint hook (closed content does not print) so the interval appendix and ZOLA image print.

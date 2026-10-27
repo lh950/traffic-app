@@ -2489,6 +2489,7 @@ document.getElementById('btn-new-tripgen')?.addEventListener('click', () => {
   tripgenDistribution = [];
   tripgenDistNextId = 1;
   tripgenCustomWindows = [];
+  tripgenReportGroups = [];
   tripgenCustomWindowNextId = 1;
   for (const k in tripgenQaqcWindows) delete tripgenQaqcWindows[k];
   tripgenQaqcWindowNextId = 1;
@@ -5571,6 +5572,7 @@ function loadProject(proj, opts = {}) {
     tripgenDistribution = JSON.parse(JSON.stringify(proj.distribution || []));
     tripgenDistNextId = tripgenDistribution.reduce((mx, ix) => Math.max(mx, ix.id + 1), 1);
     tripgenCustomWindows = JSON.parse(JSON.stringify(proj.customWindows || []));
+    tripgenReportGroups = JSON.parse(JSON.stringify(proj.reportGroups || []));
     tripgenCustomWindowNextId = tripgenCustomWindows.reduce((mx, w) => Math.max(mx, w.id + 1), 1);
     for (const k in tripgenQaqcWindows) delete tripgenQaqcWindows[k];
     if (proj.qaqcWindows) {
@@ -5896,7 +5898,7 @@ async function renderViewerContent(proj) {
     // wrapViewerDetail() in tripgenSection.js).
     await renderTripGenSection(content, tripgenEntries, {
       siteInfo: tripgenSiteInfo, categoryMap: tripgenCategoryMap, peakWindows: tripgenPeakWindows,
-      qaqc: tripgenQaqc, qaqcWindows: tripgenQaqcWindows, dataView: tripgenDataView, customWindows: tripgenCustomWindows,
+      qaqc: tripgenQaqc, qaqcWindows: tripgenQaqcWindows, dataView: tripgenDataView, customWindows: tripgenCustomWindows, reportGroups: tripgenReportGroups,
       onSiteInfoChange: () => {}, onPeakWindowChange: () => {},
       onPeakManualToggle: () => {}, onDataViewChange: () => {},
       // The fixed-window picker is a pure client-side, non-persisted local computation (never
@@ -6026,6 +6028,7 @@ function serializeCurrentProject() {
       tgKeybindCfg: getTgKeybindCfg(),
       peakWindows: JSON.parse(JSON.stringify(tripgenPeakWindows)),
       customWindows: JSON.parse(JSON.stringify(tripgenCustomWindows)),
+      reportGroups: JSON.parse(JSON.stringify(tripgenReportGroups)),
       qaqc: { ...tripgenQaqc },
       qaqcMergedSubmissionIds: [...tripgenMergedQaSubmissionIds],
       qaqcWindows: JSON.parse(JSON.stringify(tripgenQaqcWindows)),
@@ -6762,6 +6765,10 @@ let tripgenFixedWindowEndMin = 9 * 60;     // 9:00
 // exact windowed-sum logic (tripgenSection.js) — a fixed window is just that computation, run
 // once per saved entry instead of once for the current ad-hoc start/end.
 let tripgenCustomWindows = []; // [{id, label, startMin, endMin}]
+// Report builder (Analysis → Report builder): [{id, name, labels[]}] — each group becomes its own
+// Analysis tab. Empty = derive one group per classification-group name (categoryMap), so projects
+// that never opened the builder behave as before. A classification may sit in more than one group.
+let tripgenReportGroups = [];
 let tripgenCustomWindowNextId = 1;
 let tripgenDistribution = []; // [{id, name, allocs: {[dayType__peakLabel]: {pctIn, pctOut}}}]
 let tripgenDistNextId = 1;
@@ -9068,8 +9075,13 @@ async function rerenderTripgenAnalysis() {
   if (analyzeRoot && !analyzeRoot.innerHTML) analyzeRoot.innerHTML = '<div class="stat-detail">Loading analysis…</div>';
   await renderTripGenSection(document.getElementById('analyze-root'), tripgenEntries, {
     siteInfo: tripgenSiteInfo, categoryMap: tripgenCategoryMap, peakWindows: tripgenPeakWindows,
-    qaqc: tripgenQaqc, qaqcWindows: tripgenQaqcWindows, dataView: tripgenDataView, customWindows: tripgenCustomWindows,
+    qaqc: tripgenQaqc, qaqcWindows: tripgenQaqcWindows, dataView: tripgenDataView, customWindows: tripgenCustomWindows, reportGroups: tripgenReportGroups,
     onSiteInfoChange: (field, value) => { tripgenSiteInfo[field] = value; rerenderTripgenAnalysis(); },
+    onReportGroupsChange: (groups) => {
+      tripgenReportGroups = groups;
+      rerenderTripgenAnalysis();
+      window.scheduleAutosave?.();
+    },
     onAddCustomWindow: (label, startMin, endMin) => {
       tripgenCustomWindows.push({ id: tripgenCustomWindowNextId++, label, startMin, endMin });
       rerenderTripgenAnalysis();

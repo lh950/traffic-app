@@ -1,5 +1,13 @@
 # Changelog
 
+## v3 · v1.2.15 — 2026-10-27
+
+### Added
+- Trip Gen Analysis: a **Report builder** tab. Pick which classifications make up each report group (a classification can be in more than one group, or none). Every group gets its own tab — trip rate, peak-hour volumes, the full 15-minute table with an average-weekday column, and an in/out chart per survey day — and the **Summary** tab rolls all groups up. Until you build groups, they start from the classification groups set on Setup. Groups are saved with the project and show in the shared viewer.
+
+### Changed
+- The Trip Gen Analysis screen (owner view) now uses the same tab bar the shared viewer had: Summary, one tab per group, Overview, QA/QC, Locations, Reports, StreetLight, Report builder (owner only, never printed).
+
 ## v3 · v1.2.14 — 2026-10-27
 
 ### Added

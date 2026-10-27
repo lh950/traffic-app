@@ -15,6 +15,7 @@
 
 import * as data from './dataAdapter.js';
 import { dateLabelWithWeekday } from './dateUtils.js';
+import { renderGroupedBarChart } from './charts.js';
 
 function fmt(n) { return Number(n).toLocaleString(); }
 function esc(s) {
@@ -73,13 +74,28 @@ function buildColumns(entries) {
   return { cols, surveys: [...byKey.values()].sort(byDate) };
 }
 
-function categoryOrder(entries, categoryMap) {
+function allLabels(entries) {
   const seen = [];
   entries.forEach((entry) => (entry.days || []).forEach((day) => {
     if (day.includeInAnalysis === false || !day.parsed) return;
-    day.parsed.types.forEach((t) => { const g = categoryMap[t] || t; if (!seen.includes(g)) seen.push(g); });
+    day.parsed.types.forEach((t) => { if (!seen.includes(t)) seen.push(t); });
   }));
   return seen;
+}
+
+// The report groups: what the user built in the Report builder, or — until they build any —
+// one group per classification-group name (Setup → classifications), so nothing changes for a
+// project that never opens the builder. `explicit` tells the builder which case it is in.
+export function resolveReportGroups(entries, ctx) {
+  const saved = ctx.reportGroups || [];
+  if (saved.length) return { groups: saved, explicit: true };
+  const byName = new Map();
+  allLabels(entries).forEach((t) => {
+    const name = ctx.categoryMap[t] || t;
+    if (!byName.has(name)) byName.set(name, []);
+    byName.get(name).push(t);
+  });
+  return { groups: [...byName.entries()].map(([name, labels], i) => ({ id: i + 1, name, labels })), explicit: false };
 }
 
 // ── One category × one survey day ──────────────────────────────────────────────────────
@@ -96,10 +112,11 @@ function shortWindowLabel(w) {
 async function categoryCell(group, col, ctx, gsf) {
   const survey = col.survey;
   if (!survey) return null;
+  const wanted = new Set(group.labels);
   const bucket = new Map();
   survey.parts.forEach(({ day }) => {
     const { parsed } = day;
-    const idxs = parsed.types.map((t, i) => ((ctx.categoryMap[t] || t) === group ? i : -1)).filter((i) => i >= 0);
+    const idxs = parsed.types.map((t, i) => (wanted.has(t) ? i : -1)).filter((i) => i >= 0);
     if (!idxs.length) return;
     parsed.intervals.forEach((iv) => {
       let b = bucket.get(iv.start);
@@ -227,7 +244,7 @@ function peakVolumeTableHtml(cols, cells, kind, rowLabels, title) {
 
 // 15-minute volumes per survey day — the workbook's Analysis_* tab. Collapsed on screen; the
 // beforeprint handler below opens it so it prints as an appendix.
-function intervalAppendixHtml(group, cols, cells) {
+function intervalAppendixHtml(group, cols, cells, open = false) {
   const used = cols.map((c, i) => ({ c, i })).filter(({ i }) => cells[i]);
   if (!used.length) return '';
   const times = [...new Set(used.flatMap(({ i }) => cells[i].intervals.map((iv) => iv.start)))].sort((a, b) => toMin(a) - toMin(b));
@@ -253,7 +270,7 @@ function intervalAppendixHtml(group, cols, cells) {
     return `<tr><th class="tgs-rowhead tgs-time">${t} – ${endOf[t] || ''}</th>${tds}${avg}</tr>`;
   }).join('');
   return `
-    <details class="interval-detail tgs-appendix" data-print-open>
+    <details class="interval-detail tgs-appendix" data-print-open${open ? " open" : ""}>
       <summary class="interval-detail-summary">${esc(group)} — volumes by interval</summary>
       <div class="interval-detail-wrap" style="overflow-x:auto">
         <table class="tgs-table tgs-compact">
@@ -278,30 +295,119 @@ function installPrintHook() {
   });
 }
 
-export async function tripGenSummaryHtml(entries, ctx) {
+// Everything the Summary tab, the group tabs and the builder need, computed once per render.
+export async function buildReportModel(entries, ctx) {
   installPrintHook();
-  const { siteInfo, categoryMap } = ctx;
-  const gsf = parseGsf(siteInfo.gsf);
+  const gsf = parseGsf(ctx.siteInfo.gsf);
   const { cols, surveys } = buildColumns(entries);
-  const groups = categoryOrder(entries, categoryMap);
+  const { groups, explicit } = resolveReportGroups(entries, ctx);
+  const cellsByGroup = await Promise.all(groups.map((g) => Promise.all(cols.map((c) => categoryCell(g, c, ctx, gsf)))));
   const weekdayRows = (ctx.peakWindows?.weekday || []).map((w) => shortWindowLabel(w));
+  return { gsf, cols, surveys, groups, explicit, cellsByGroup, weekdayRows, labels: allLabels(entries) };
+}
 
-  const blocks = await Promise.all(groups.map(async (group) => {
-    const cells = await Promise.all(cols.map((c) => categoryCell(group, c, ctx, gsf)));
-    return `
-      <div class="tgs-cat">
-        <div class="tgs-cat-title">${esc(group)}</div>
-        <div class="tgs-scroll">${rateTableHtml(cols, cells, gsf)}</div>
-        <div class="tgs-scroll">${peakVolumeTableHtml(cols, cells, 'weekday', weekdayRows, 'Peak-hour volumes')}</div>
-        <div class="tgs-scroll">${peakVolumeTableHtml(cols, cells, 'weekend', ['Peak hour'], 'Weekend peak hour')}</div>
-        ${intervalAppendixHtml(group, cols, cells)}
-      </div>`;
-  }));
+function groupTablesHtml(model, gi) {
+  const { cols, cellsByGroup, weekdayRows, gsf } = model;
+  const cells = cellsByGroup[gi];
+  return `
+    <div class="tgs-scroll">${rateTableHtml(cols, cells, gsf)}</div>
+    <div class="tgs-scroll">${peakVolumeTableHtml(cols, cells, 'weekday', weekdayRows, 'Peak-hour volumes')}</div>
+    <div class="tgs-scroll">${peakVolumeTableHtml(cols, cells, 'weekend', ['Peak hour'], 'Weekend peak hour')}</div>`;
+}
 
+const NOTE = "Every location counted on a survey day is combined. Trip rate = trips (in + out) per 1,000 SF of facility GSF; AM / MD / PM are each group's own busiest hour in that period, shown as a rate with its share of the day beneath. Peak hours follow the project's own peak windows; groups come from the Report builder.";
+
+// Summary tab: site facts + every group's rate and peak-hour tables.
+export function summaryTabHtml(model, entries, ctx) {
+  const blocks = model.groups.map((g, gi) => `
+    <div class="tgs-cat">
+      <div class="tgs-cat-title">${esc(g.name)}</div>
+      ${groupTablesHtml(model, gi)}
+      <div style="height:12px"></div>
+    </div>`);
   return `
     <div class="tgs">
-      ${siteHeaderHtml(entries, surveys, siteInfo)}
-      ${blocks.join('')}
-      <div class="tgs-note">Every location counted on a survey day is combined. Trip rate = trips (in + out) per 1,000 SF of facility GSF; AM / MD / PM are each category's own busiest hour in that period, shown as a rate with its share of the day beneath. Peak hours and groupings follow the project's own peak windows and classification groups.</div>
+      ${siteHeaderHtml(entries, model.surveys, ctx.siteInfo)}
+      ${blocks.join('') || '<div class="stat-detail">No report groups yet — add one in the Report builder.</div>'}
+      <div class="tgs-note">${NOTE}</div>
     </div>`;
+}
+
+// One group's own tab: the same tables, the full 15-minute table (always open), and an in/out
+// chart per survey day.
+export function groupTabHtml(model, gi) {
+  const g = model.groups[gi];
+  const cells = model.cellsByGroup[gi];
+  const charts = model.cols.map((c, i) => {
+    const cell = cells[i];
+    if (!cell) return '';
+    return `
+      <div class="card" style="margin-bottom:14px">
+        <h3>${esc(g.name)} — ${esc(c.label)}${c.sub ? ` (${esc(c.sub)})` : ''}</h3>
+        ${renderGroupedBarChart({ labels: cell.intervals.map((iv) => iv.start), seriesA: cell.intervals.map((iv) => iv.inbound[0]), seriesB: cell.intervals.map((iv) => iv.outbound[0]), labelA: 'In', labelB: 'Out' })}
+      </div>`;
+  }).join('');
+  return `
+    <div class="tgs">
+      <div class="tgs-cat">
+        <div class="tgs-cat-title">${esc(g.name)}</div>
+        <div class="stat-detail" style="padding:10px 16px 0">Classifications in this report: ${g.labels.length ? g.labels.map((l) => `<span class="tgs-chip">${esc(l)}</span>`).join(' ') : '<em>none selected</em>'}</div>
+        ${groupTablesHtml(model, gi)}
+        ${intervalAppendixHtml(g.name, model.cols, cells, true)}
+      </div>
+      <div>${charts}</div>
+      <div class="tgs-note">${NOTE}</div>
+    </div>`;
+}
+
+// Report builder tab (owner only): pick which classifications make up each report group. Each
+// group becomes its own tab; the Summary tab covers all of them. A classification can be in
+// more than one group, or in none (then it is simply not reported).
+export function builderTabHtml(model) {
+  const used = new Map();
+  model.groups.forEach((g) => g.labels.forEach((l) => used.set(l, (used.get(l) || 0) + 1)));
+  const unassigned = model.labels.filter((l) => !used.has(l));
+  const overlap = model.labels.filter((l) => (used.get(l) || 0) > 1);
+  return `
+    <div class="tgs">
+      <div class="stat-detail">Build the groups this study reports on — for example Light goods, Trucks, and Vehicles + peds. Each group gets its own tab with its trip rate, peak hours and 15-minute volumes, and all of them roll up on the Summary tab.${model.explicit ? '' : ' These starting groups come from the classification grouping on Setup; the first change here makes them yours.'}</div>
+      ${model.groups.map((g, gi) => `
+        <div class="card tgs-builder-group">
+          <div class="tgs-builder-head">
+            <input type="text" data-rg-name="${gi}" value="${esc(g.name)}" placeholder="Group name">
+            <button type="button" data-rg-remove="${gi}" style="font-size:12px">&times; remove group</button>
+          </div>
+          <div class="tgs-builder-chips">
+            ${model.labels.map((l) => `<label class="tgs-pick"><input type="checkbox" data-rg-toggle="${gi}" data-rg-label="${esc(l)}"${g.labels.includes(l) ? ' checked' : ''}> ${esc(l)}</label>`).join('')}
+          </div>
+        </div>`).join('')}
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button type="button" data-rg-add>+ add report group</button>
+        ${model.explicit ? '<button type="button" data-rg-reset style="font-size:12px">reset to classification groups</button>' : ''}
+      </div>
+      ${unassigned.length ? `<div class="tgs-note"><strong>Not in any report:</strong> ${unassigned.map(esc).join(', ')}</div>` : ''}
+      ${overlap.length ? `<div class="tgs-note"><strong>In more than one group (counted in each):</strong> ${overlap.map(esc).join(', ')}</div>` : ''}
+    </div>`;
+}
+
+// Wires the builder's controls. Every edit goes out through onChange(groups) as a full new list.
+export function wireBuilder(container, model, onChange) {
+  const copy = () => model.groups.map((g) => ({ id: g.id, name: g.name, labels: [...g.labels] }));
+  const nextId = () => Math.max(0, ...model.groups.map((g) => g.id)) + 1;
+  container.querySelectorAll('[data-rg-name]').forEach((el) => el.addEventListener('change', () => {
+    const gs = copy(); gs[Number(el.dataset.rgName)].name = el.value.trim() || 'Untitled group'; onChange(gs);
+  }));
+  container.querySelectorAll('[data-rg-toggle]').forEach((el) => el.addEventListener('change', () => {
+    const gs = copy(); const g = gs[Number(el.dataset.rgToggle)];
+    const l = el.dataset.rgLabel;
+    g.labels = el.checked ? [...new Set([...g.labels, l])] : g.labels.filter((x) => x !== l);
+    onChange(gs);
+  }));
+  container.querySelectorAll('[data-rg-remove]').forEach((el) => el.addEventListener('click', () => {
+    const gs = copy(); gs.splice(Number(el.dataset.rgRemove), 1); onChange(gs);
+  }));
+  container.querySelector('[data-rg-add]')?.addEventListener('click', () => {
+    const gs = copy(); gs.push({ id: nextId(), name: `Group ${gs.length + 1}`, labels: [] }); onChange(gs);
+  });
+  container.querySelector('[data-rg-reset]')?.addEventListener('click', () => onChange([]));
 }
