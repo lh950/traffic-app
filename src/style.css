@@ -1384,3 +1384,28 @@ body.workspace-mode .analyze-period-bar{top:0}
   #tg-print-root .tgs-charts .card{break-inside:avoid;margin:0!important;min-width:0}
   #tg-print-root .tgs-table small{font-size:7px;white-space:nowrap}
 }
+/* Title page: one frame around everything on page 1, filling the Letter page (0.5in margins) */
+.tgp-cover{border:1.5px solid #111;border-radius:6px;padding:22px 26px;min-height:var(--tgp-pageh,9.9in);box-sizing:border-box;display:flex;flex-direction:column;gap:14px}
+.tgp-cover-top{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;border-bottom:1.5px solid #111;padding-bottom:14px}
+.tgp-kicker{font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#555}
+.tgp-title{font-size:26px;font-weight:700;line-height:1.15;margin:4px 0}
+.tgp-subtitle{font-size:13px;color:#444}
+.tgp-logo{max-height:64px;max-width:180px;object-fit:contain}
+.tgp-facts{display:grid;grid-template-columns:repeat(3,1fr);gap:10px 20px}
+.tgp-sec{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#333;border-bottom:.5px solid #999;padding-bottom:3px;margin-top:4px}
+.tgs-bare{border:none!important;padding:0!important;background:none!important}
+.tgp-counts th,.tgp-counts td{text-align:right}
+.tgp-counts td:first-child,.tgp-counts td:nth-child(2),.tgp-counts td:nth-child(3){text-align:left}
+@media print{
+  #tg-print-root .tgp-cover .tgs-zola img{max-height:170px!important}
+  #tg-print-root .tgp-cover .tgs-table td,#tg-print-root .tgp-cover .tgs-table th{white-space:normal}
+}
+.tgp-cont{font-weight:400;opacity:.7}
+.tgp-sub{font-size:11px;color:#444;padding:6px 16px 0}
+@media print{
+  #tg-print-root .tgp-cover .tgs-zola img{max-height:150px!important}
+}
+@media print{
+  #tg-print-root .tgp-counts.tgs-compact{font-size:10px}
+  #tg-print-root .tgp-counts.tgs-compact th,#tg-print-root .tgp-counts.tgs-compact td{padding:3px 6px}
+}

@@ -4,6 +4,14 @@ Key decisions, scope constraints, and architectural choices.
 
 ---
 
+## 2026-10-27 — v3 · v1.2.21 (print: title page, summary on page 2, continued pages)
+
+User: summary moves to page 2; page 1 becomes a detailed title page with one border around everything on it and no "peak periods used"; each module fits one page, and a module that overflows splits logically with a continued header. Pagination is deterministic row/card chunking per Letter page capacity (portrait 7.5x10in, landscape 10x7.5in) instead of measuring the DOM — print CSS (smaller fonts) differs from screen CSS, so on-screen measurement would be wrong. Capacities were tuned against rendered PDFs: portrait 48 interval rows per page (12h blocks) / landscape 32 (8h blocks); summary 14 / 8 groups per page; title page 16 / 10 counts rows (8 / 5 when the ZOLA map is shown); continuation title pages 30 / 20. The title-page frame is sized to the page (`--tgp-pageh`). A group with many survey days continues its charts on extra "continued" pages. Caveat: capacities assume typical row heights — a very long location name that wraps would shorten what fits; revisit if a real report overflows.
+
+Test-tool lesson: a crash in my CDP script left an old print_out.pdf in place and I read a stale render as if it were new — always delete the output before regenerating.
+
+---
+
 ## 2026-10-27 — v3 · v1.2.20 (print: Letter, 0.5in margins, one module per page)
 
 User's spec: 8.5×11, 0.5in margins for both orientations (the footer's project name / page number live inside that bottom margin), Summary alone on page 1, each module on its own page. With four groups the full per-group summary tables cannot fit one page, so the printed Summary is a different, compact view (`summaryPrintHtml`: a Rate + Trips row per group) and the full tables moved to each group's page — screen and print intentionally differ here. Each `.tgp-page` breaks before itself except the first (the header precedes it; the first version printed a blank page 1 because that exception was missing). Verified by rendering real PDFs for both orientations (Letter portrait: 13 pages for 4 groups; landscape: 17) and reading each page image.

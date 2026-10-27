@@ -170,7 +170,7 @@ async function categoryCell(group, col, ctx, gsf) {
 }
 
 // ── Markup ───────────────────────────────────────────────────────────────────────────────
-function siteHeaderHtml(entries, surveys, siteInfo) {
+function siteHeaderHtml(entries, surveys, siteInfo, bare = false) {
   const gsf = parseGsf(siteInfo.gsf);
   const lot = parseGsf(siteInfo.lotSf);
   const far = gsf && lot ? (gsf / lot).toFixed(2) : '';
@@ -191,8 +191,8 @@ function siteHeaderHtml(entries, surveys, siteInfo) {
   ].filter(([, v]) => v !== '' && v != null);
   const locs = entries.map((e) => e.locationLabel).filter(Boolean);
   return `
-    <div class="tgs-site">
-      <div class="tgs-site-title">${esc(siteInfo.location || 'Trip generation study')}</div>
+    <div class="tgs-site${bare ? ' tgs-bare' : ''}">
+      ${bare ? '' : `<div class="tgs-site-title">${esc(siteInfo.location || 'Trip generation study')}</div>`}
       <div class="tgs-site-grid">
         ${facts.map(([k, v]) => `<div class="tgs-fact"><span class="tgs-fact-k">${k}</span><span class="tgs-fact-v">${esc(String(v))}</span></div>`).join('')}
       </div>
@@ -266,10 +266,19 @@ function peakVolumeTableHtml(cols, cells, kind, rowLabels, title) {
 
 // 15-minute volumes per survey day — the workbook's Analysis_* tab. Collapsed on screen; the
 // beforeprint handler below opens it so it prints as an appendix.
-function intervalAppendixHtml(group, cols, cells, open = false) {
+function intervalTimesOf(cols, cells) {
+  const used = cols.map((c, i) => ({ c, i })).filter(({ i }) => cells[i]);
+  const times = [...new Set(used.flatMap(({ i }) => cells[i].intervals.map((iv) => iv.start)))].sort((a, b) => toMin(a) - toMin(b));
+  const endOf = {};
+  used.forEach(({ i }) => cells[i].intervals.forEach((iv) => { endOf[iv.start] = iv.end; }));
+  return { times, endOf };
+}
+
+function intervalAppendixHtml(group, cols, cells, open = false, range = null) {
   const used = cols.map((c, i) => ({ c, i })).filter(({ i }) => cells[i]);
   if (!used.length) return '';
-  const times = [...new Set(used.flatMap(({ i }) => cells[i].intervals.map((iv) => iv.start)))].sort((a, b) => toMin(a) - toMin(b));
+  const all = intervalTimesOf(cols, cells).times;
+  const times = range ? all.slice(range[0], range[1]) : all;
   const endOf = {};
   used.forEach(({ i }) => cells[i].intervals.forEach((iv) => { endOf[iv.start] = iv.end; }));
   const lookup = used.map(({ i }) => new Map(cells[i].intervals.map((iv) => [iv.start, iv])));
@@ -291,6 +300,12 @@ function intervalAppendixHtml(group, cols, cells, open = false) {
     }
     return `<tr><th class="tgs-rowhead tgs-time">${t} – ${endOf[t] || ''}</th>${tds}${avg}</tr>`;
   }).join('');
+  if (range) {
+    return `<table class="tgs-table tgs-compact">
+          <thead><tr><th rowspan="2" class="tgs-rowhead">Time</th>${head1}</tr><tr>${head2}</tr></thead>
+          <tbody>${body}</tbody>
+        </table>`;
+  }
   return `
     <details class="interval-detail tgs-appendix" data-print-open${open ? " open" : ""}>
       <summary class="interval-detail-summary">${esc(group)} — volumes by interval</summary>
@@ -365,14 +380,81 @@ export function summaryTabHtml(model, entries, ctx) {
     </div>`;
 }
 
-// Print Summary (page 1 of the printed report): site facts and ONE compact table — a row pair
+// Title page (page 1 of the printed report): one frame around everything — project and site
+// details, who prepared it, which locations and days were counted, and the ZOLA map. No tables
+// of results here; those start on the next page.
+export function coverRows(entries) {
+  const rows = [];
+  entries.forEach((entry) => (entry.days || []).forEach((d) => {
+    if (d.includeInAnalysis === false || !d.parsed) return;
+    const iv = d.parsed.intervals;
+    const active = iv.filter((x) => x.inbound.some((v) => v) || x.outbound.some((v) => v));
+    const total = iv.reduce((t, x) => t + x.inbound.reduce((a, b) => a + b, 0) + x.outbound.reduce((a, b) => a + b, 0), 0);
+    rows.push(`<tr><td>${esc(entry.locationLabel)}</td><td>${esc(d.date ? dateLabelWithWeekday(d.date) : d.sheetName)}</td><td style="text-transform:capitalize">${esc(d.dayType || '')}</td><td>${active.length ? `${esc(active[0].start)}–${esc(active[active.length - 1].end)}` : '—'}</td><td>${iv.length} × ${iv.length > 1 ? Math.max(1, toMin(iv[1].start) - toMin(iv[0].start)) : 15} min</td><td>${fmt(total)}</td></tr>`);
+  }));
+  return rows;
+}
+
+const COUNTS_HEAD = '<thead><tr><th class="tgs-rowhead" style="text-align:left">Location</th><th style="text-align:left">Survey day</th><th style="text-align:left">Day type</th><th>Counted</th><th>Intervals</th><th>Total trips (in + out)</th></tr></thead>';
+
+// Continuation of the title page when the counts table has more rows than fit on page 1.
+export function coverContinuationHtml(ctx, rows) {
+  const pi = ctx.projectInfo || {};
+  const title = pi.projectName || (ctx.siteInfo || {}).location || 'Trip generation study';
+  return `
+    <div class="tgp-cover">
+      <div class="tgp-cover-top"><div><div class="tgp-kicker">Trip generation study</div><div class="tgp-title" style="font-size:20px">${esc(title)} <span class="tgp-cont">— continued</span></div></div></div>
+      <div class="tgp-sec">Counts included (continued)</div>
+      <table class="tgs-table tgs-compact tgp-counts">${COUNTS_HEAD}<tbody>${rows.join('')}</tbody></table>
+    </div>`;
+}
+
+export function coverPageHtml(model, entries, ctx, firstRows = null) {
+  const pi = ctx.projectInfo || {};
+  const si = ctx.siteInfo || {};
+  const title = pi.projectName || si.location || 'Trip generation study';
+  const sub = [pi.studyPurpose, pi.projectNumber ? `Project #${pi.projectNumber}` : ''].filter(Boolean).join(' · ');
+  const person = (name, role) => (name ? `${esc(name)}${role ? `, ${esc(role)}` : ''}` : '');
+  const facts = [
+    ['Prepared by', [pi.companyName, pi.companyAddress].filter(Boolean).map(esc).join('<br>')],
+    ['Project manager', person(pi.projectManagerName, pi.projectManagerTitle)],
+    ['Counter', person(pi.counterName, pi.counterTitle)],
+    ['QA reviewer', person(pi.qaCounterName, pi.qaCounterTitle)],
+    ['Study location', esc(pi.location || si.location || '')],
+    ['Report printed', new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })],
+  ].filter(([, v]) => v);
+  const rows = firstRows || coverRows(entries);
+  return `
+    <div class="tgp-cover">
+      <div class="tgp-cover-top">
+        <div>
+          <div class="tgp-kicker">Trip generation study</div>
+          <div class="tgp-title">${esc(title)}</div>
+          ${sub ? `<div class="tgp-subtitle">${esc(sub)}</div>` : ''}
+        </div>
+        ${pi.logoUrl ? `<img class="tgp-logo" src="${pi.logoUrl}" alt="">` : ''}
+      </div>
+      ${facts.length ? `<div class="tgp-facts">${facts.map(([k, v]) => `<div class="tgs-fact"><span class="tgs-fact-k">${k}</span><span class="tgs-fact-v">${v}</span></div>`).join('')}</div>` : ''}
+      <div class="tgp-sec">Site information</div>
+      ${siteHeaderHtml(entries, model.surveys, si, true)}
+      <div class="tgp-sec">Counts included</div>
+      <table class="tgs-table tgs-compact tgp-counts">
+        ${COUNTS_HEAD}
+        <tbody>${rows.join('') || '<tr><td colspan="6">No counts</td></tr>'}</tbody>
+      </table>
+    </div>`;
+}
+
+// Print Summary (page 2 of the printed report): site facts and ONE compact table — a row pair
 // (rate, trips) per report group across every survey day — so the whole summary fits one Letter
 // page however many groups there are. Each group's full tables live on that group's own page.
-export function summaryPrintHtml(model, entries, ctx) {
+export function summaryPrintHtml(model, entries, ctx, groupIdx = null, continued = false) {
   const { cols, groups, cellsByGroup } = model;
+  const only = groupIdx || groups.map((_, i) => i);
   const head1 = cols.map((c) => `<th colspan="${1 + peakWindowsForCount(c)}" class="tgs-grp">${esc(c.label)}${c.sub ? `<small>${esc(c.sub)}</small>` : ''}</th>`).join('');
   const head2 = cols.map((c) => `<th class="tgs-sub tgs-first">Daily</th>${peakWindowsFor(c.kind).map((w) => `<th class="tgs-sub">${esc(shortWindowLabel(w))}</th>`).join('')}`).join('');
-  const rows = groups.map((g, gi) => {
+  const rows = only.map((gi) => {
+    const g = groups[gi];
     const cells = cellsByGroup[gi];
     const rate = cols.map((c, i) => {
       const cell = cells[i];
@@ -388,9 +470,8 @@ export function summaryPrintHtml(model, entries, ctx) {
   }).join('');
   return `
     <div class="tgs">
-      ${siteHeaderHtml(entries, model.surveys, ctx.siteInfo)}
       <div class="tgs-cat">
-        <div class="tgs-cat-title">Trip generation summary</div>
+        <div class="tgs-cat-title">Trip generation summary${continued ? ' <span class="tgp-cont">— continued</span>' : ''}</div>
         <div class="tgs-scroll">
           <table class="tgs-table tgs-sumtbl">
             <thead><tr><th rowspan="2" class="tgs-rowhead">Group</th><th rowspan="2" class="tgs-rowhead">${model.gsf ? 'per 1,000 SF' : 'enter facility SF'}</th>${head1}</tr><tr>${head2}</tr></thead>
@@ -487,4 +568,53 @@ export function wireBuilder(container, model, onChange) {
     const gs = copy(); gs.push({ id: nextId(), name: 'All vehicles', labels: [], auto: ALL_VEHICLES }); onChange(gs);
   });
   container.querySelector('[data-rg-reset]')?.addEventListener('click', () => onChange([]));
+}
+
+// Printed pages for ONE report group, laid out for a Letter page. The module fits one page where
+// it can: tables + the first row(s) of charts. Whatever does not fit continues on following
+// pages that repeat the group's title band marked "continued" — charts next, then the 15-minute
+// table in time blocks (e.g. 00:00–11:45, 12:00–23:45) — so no table or chart is ever cut mid-way.
+export function printGroupPages(model, gi, L) {
+  const g = model.groups[gi];
+  const cells = model.cellsByGroup[gi];
+  const band = (cont) => `<div class="tgs-cat-title">${esc(g.name)}${cont ? ' <span class="tgp-cont">— continued</span>' : ''}</div>`;
+  const pages = [];
+  const cards = !L.charts ? [] : model.cols.map((c, i) => (!cells[i] ? '' : `
+      <div class="card">
+        <h3>${esc(g.name)} — ${esc(c.label)}${c.sub ? ` (${esc(c.sub)})` : ''}</h3>
+        ${renderGroupedBarChart({ labels: cells[i].intervals.map((iv) => iv.start), seriesA: cells[i].intervals.map((iv) => iv.inbound[0]), seriesB: cells[i].intervals.map((iv) => iv.outbound[0]), labelA: 'In', labelB: 'Out' })}
+      </div>`)).filter(Boolean);
+  const firstN = L.chartsFirstRows * L.chartCols;
+  const contN = L.chartsContRows * L.chartCols;
+  pages.push(`
+    <div class="tgs"><div class="tgs-cat">
+      ${band(false)}
+      <div class="stat-detail" style="padding:10px 16px 0">Classifications in this report: ${g.labels.length ? g.labels.map((l) => `<span class="tgs-chip">${esc(l)}</span>`).join(' ') : '<em>none selected</em>'}</div>
+      ${groupTablesHtml(model, gi)}
+      <div class="tgs-charts" style="padding:8px 12px 12px">${cards.slice(0, firstN).join('')}</div>
+    </div></div>`);
+  for (let k = firstN; k < cards.length; k += contN) {
+    pages.push(`<div class="tgs"><div class="tgs-cat">${band(true)}<div class="tgp-sub">In / out charts by survey day</div><div class="tgs-charts" style="padding:8px 12px 12px">${cards.slice(k, k + contN).join('')}</div></div></div>`);
+  }
+  if (L.intervals) {
+    const { times, endOf } = intervalTimesOf(model.cols, cells);
+    const blocks = Math.max(1, Math.ceil(times.length / L.intervalRows));
+    for (let b = 0; b < blocks; b++) {
+      const from = b * L.intervalRows;
+      const to = Math.min(times.length, from + L.intervalRows);
+      pages.push(`<div class="tgs"><div class="tgs-cat">${band(true)}<div class="tgp-sub">Volumes by 15-minute interval — ${esc(times[from])}–${esc(endOf[times[to - 1]] || '')}${blocks > 1 ? ` (part ${b + 1} of ${blocks})` : ''}</div><div style="padding:6px 12px 12px">${intervalAppendixHtml(g.name, model.cols, cells, true, [from, to])}</div></div></div>`);
+    }
+  }
+  return pages;
+}
+
+// Printed Summary pages: groups split across pages when there are more than fit, with the
+// header continued.
+export function printSummaryPages(model, entries, ctx, L) {
+  const idx = model.groups.map((_, i) => i);
+  const pages = [];
+  for (let k = 0; k < Math.max(1, idx.length); k += L.summaryGroups) {
+    pages.push(summaryPrintHtml(model, entries, ctx, idx.slice(k, k + L.summaryGroups), k > 0));
+  }
+  return pages;
 }

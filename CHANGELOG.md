@@ -1,5 +1,15 @@
 # Changelog
 
+## v3 · v1.2.21 — 2026-10-27
+
+### Changed
+- Trip Gen print report, page by page (US Letter, 0.5" margins, portrait or landscape):
+  - **Page 1 — Title page**, one frame around the whole page: project name and purpose, who prepared it (company, project manager, counter, QA reviewer), study location, the site information, the locations and survey days counted (with the time counted and total trips), and the ZOLA map. "Peak periods used" no longer appears here.
+  - **Page 2 — Trip generation summary**, with the peak periods used.
+  - **Each report group** then gets its own page(s).
+- **Modules fit a page; anything bigger continues.** If a title-page table, the summary, a group's charts, or the 15-minute table is too long, it continues on the next page under the same title with "— continued" and a part number (e.g. the 15-minute table splits at 00:00–12:00 / 12:00–00:00 in portrait, or three 8-hour blocks in landscape), so nothing is cut mid-table.
+- The print dialog has a "Title page" checkbox.
+
 ## v3 · v1.2.20 — 2026-10-27
 
 ### Changed

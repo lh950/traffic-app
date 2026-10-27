@@ -1465,9 +1465,9 @@ document.getElementById('btn-share-viewer-print')?.addEventListener('click', () 
 // Printing used to print the whole interactive Analysis screen (every tab, forms and all). Trip
 // Gen now prints a dedicated report built into #tg-print-root: header, summary, then one page
 // per chosen report group. The user picks the sections and the page orientation first.
-const tgPrintPrefs = { summary: true, groupIds: null, charts: true, intervals: true, orientation: 'portrait' };
+const tgPrintPrefs = { cover: true, summary: true, groupIds: null, charts: true, intervals: true, orientation: 'portrait' };
 function tgReportCtx() {
-  return { siteInfo: tripgenSiteInfo, categoryMap: tripgenCategoryMap, peakWindows: tripgenPeakWindows, reportGroups: tripgenReportGroups };
+  return { siteInfo: tripgenSiteInfo, projectInfo, categoryMap: tripgenCategoryMap, peakWindows: tripgenPeakWindows, reportGroups: tripgenReportGroups };
 }
 function closeTgPrintModal() { document.getElementById('tg-print-modal')?.classList.remove('open'); }
 window.closeTgPrintModal = closeTgPrintModal;
@@ -1477,6 +1477,7 @@ function openTgPrintModal() {
   const box = (attrs, checked, label) => `<label style="display:flex;align-items:center;gap:8px;font-size:13px;margin:5px 0;cursor:pointer"><input type="checkbox" ${attrs}${checked ? ' checked' : ''} style="width:auto"> ${label}</label>`;
   document.getElementById('tg-print-options').innerHTML = `
     <h3>include</h3>
+    ${box('data-tgp-cover', tgPrintPrefs.cover, 'Title page — project, site and counts included')}
     ${box('data-tgp-summary', tgPrintPrefs.summary, "Summary — site information and every group's trip rates and peak hours")}
     ${groups.map((g) => box(`data-tgp-group="${g.id}"`, sel.includes(g.id), `${escapeHtmlMain(g.name)} — its own page`)).join('')}
     <h3 style="margin-top:12px">on each group page</h3>
@@ -1493,6 +1494,7 @@ function openTgPrintModal() {
 document.getElementById('btn-tg-print-xlsx')?.addEventListener('click', () => window.exportTripgenXLSX?.());
 document.getElementById('btn-tg-print-go')?.addEventListener('click', async () => {
   const q = (s) => document.querySelector(`#tg-print-options ${s}`);
+  tgPrintPrefs.cover = !!q('[data-tgp-cover]')?.checked;
   tgPrintPrefs.summary = !!q('[data-tgp-summary]')?.checked;
   tgPrintPrefs.groupIds = [...document.querySelectorAll('#tg-print-options [data-tgp-group]')].filter((e) => e.checked).map((e) => Number(e.dataset.tgpGroup));
   tgPrintPrefs.charts = !!q('[data-tgp-charts]')?.checked;
@@ -1500,23 +1502,19 @@ document.getElementById('btn-tg-print-go')?.addEventListener('click', async () =
   tgPrintPrefs.orientation = q('[name="tgp-orient"]:checked')?.value || 'portrait';
   closeTgPrintModal();
   const root = document.getElementById('tg-print-root');
-  const printBody = await buildTripGenPrintHtml(tripgenEntries, tgReportCtx(), { summary: tgPrintPrefs.summary, groupIds: tgPrintPrefs.groupIds, charts: tgPrintPrefs.charts, intervals: tgPrintPrefs.intervals });
+  const printBody = await buildTripGenPrintHtml(tripgenEntries, tgReportCtx(), { orientation: tgPrintPrefs.orientation, cover: tgPrintPrefs.cover, summary: tgPrintPrefs.summary, groupIds: tgPrintPrefs.groupIds, charts: tgPrintPrefs.charts, intervals: tgPrintPrefs.intervals });
   root.innerHTML = `
-    <div class="print-report-header" id="tgp-header">
-      <div class="prh-left"><div class="prh-title" id="tgp-title"></div><div class="prh-sub" id="tgp-sub"></div><div class="prh-meta" id="tgp-meta"></div></div>
-      <img class="prh-logo" id="tgp-logo" src="" alt="" style="display:none">
-    </div>
     ${printBody.html}`;
-  populatePrintHeader('tgp');
   const title = (projectInfo.projectName || tripgenSiteInfo.location || 'Trip generation study').replace(/[\\"\n]/g, ' ');
   const style = document.createElement('style');
   style.id = 'tg-print-page-style';
   style.textContent = `@page{size:letter ${tgPrintPrefs.orientation};margin:0.5in;@bottom-left{content:"${title}";font-size:9px;color:#555}@bottom-right{content:"Page " counter(page) " of " counter(pages);font-size:9px;color:#555}}`;
   document.head.appendChild(style);
   // Charts: two across on portrait; landscape fits one row (up to 4 survey days) so a group's tables and charts share one page.
-  root.style.setProperty('--tgp-chartcols', String(tgPrintPrefs.orientation === 'portrait' ? 2 : Math.min(Math.max(printBody.dayColumns, 1), 4)));
+  root.style.setProperty('--tgp-pageh', tgPrintPrefs.orientation === 'portrait' ? '9.9in' : '7.4in');
+  root.style.setProperty('--tgp-chartcols', String(printBody.chartCols));
   document.body.classList.add('tg-printing');
-  const cleanup = () => { document.body.classList.remove('tg-printing'); root.innerHTML = ''; root.style.removeProperty('--tgp-chartcols'); style.remove(); };
+  const cleanup = () => { document.body.classList.remove('tg-printing'); root.innerHTML = ''; root.style.removeProperty('--tgp-chartcols'); root.style.removeProperty('--tgp-pageh'); style.remove(); };
   window.addEventListener('afterprint', cleanup, { once: true });
   await new Promise((r) => setTimeout(r, 150)); // let the logo / ZOLA image finish laying out
   window.print();

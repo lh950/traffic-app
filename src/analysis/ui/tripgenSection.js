@@ -4,7 +4,7 @@ import { weekdayShort, dateLabelWithWeekday } from './dateUtils.js';
 import { intervalBar, pctOfPeakCell } from './intervalDetail.js';
 import { runVehicleQA, renderQASection } from '../../qa.js';
 import { SL_DAY_PART, slZoneAverageForDayType } from '../../parseStreetlightZoneCsv.js';
-import { buildReportModel, summaryTabHtml, groupTabHtml, builderTabHtml, wireBuilder, resolveReportGroups, summaryPrintHtml } from './tripgenSummary.js';
+import { buildReportModel, summaryTabHtml, groupTabHtml, builderTabHtml, wireBuilder, resolveReportGroups, coverPageHtml, coverRows, coverContinuationHtml, printGroupPages, printSummaryPages } from './tripgenSummary.js';
 
 // A day is included in analysis/QA-QC/reports by default — `includeInAnalysis === false` is
 // the ONLY way to exclude it, so older saved projects (which never had this field) keep
@@ -2057,14 +2057,30 @@ export async function buildTripGenPrintHtml(entries, ctx, opts) {
     model.cols = model.cols.filter((_, i) => keep[i]);
     model.cellsByGroup = model.cellsByGroup.map((row) => row.filter((_, i) => keep[i]));
   }
+  // Page capacities for US Letter with 0.5in margins (usable 7.5 x 10 in portrait, 10 x 7.5 landscape).
+  const portrait = opts.orientation !== 'landscape';
+  const chartCols = portrait ? 2 : Math.min(Math.max(model.cols.length, 1), 4);
+  const L = {
+    charts: opts.charts, intervals: opts.intervals, chartCols,
+    chartsFirstRows: portrait ? 2 : 1, chartsContRows: portrait ? 5 : 3,
+    intervalRows: portrait ? 48 : 32, summaryGroups: portrait ? 14 : 8,
+    // the title page carries the ZOLA map when there is one, which leaves room for fewer rows
+    coverRows: ctx.siteInfo.zolaScreenshotUrl ? (portrait ? 8 : 5) : (portrait ? 16 : 10), coverContRows: portrait ? 30 : 20,
+  };
   const pages = [];
+  if (opts.cover) {
+    const rows = coverRows(entries);
+    pages.push(coverPageHtml(model, entries, ctx, rows.slice(0, L.coverRows)));
+    for (let k = L.coverRows; k < rows.length; k += L.coverContRows) pages.push(coverContinuationHtml(ctx, rows.slice(k, k + L.coverContRows)));
+  }
   if (opts.summary) {
-    pages.push(`<section class="tgp-page"><div class="tgp-note"><strong>Peak periods used</strong> — weekday: ${peakLine(ctx.peakWindows, 'weekday')}; weekend: ${peakLine(ctx.peakWindows, 'weekend')}</div>${summaryPrintHtml(model, entries, ctx)}</section>`);
+    const sp = printSummaryPages(model, entries, ctx, L);
+    sp[0] = `<div class="tgp-note"><strong>Peak periods used</strong> — weekday: ${peakLine(ctx.peakWindows, 'weekday')}; weekend: ${peakLine(ctx.peakWindows, 'weekend')}</div>${sp[0]}`;
+    pages.push(...sp);
   }
   model.groups.forEach((g, gi) => {
-    if (!opts.groupIds.includes(g.id)) return;
-    pages.push(`<section class="tgp-page">${groupTabHtml(model, gi, { charts: opts.charts, intervals: opts.intervals })}</section>`);
+    if (opts.groupIds.includes(g.id)) pages.push(...printGroupPages(model, gi, L));
   });
-  return { html: pages.join('') || '<div class="stat-detail">Nothing selected to print.</div>', dayColumns: model.cols.length };
+  return { html: pages.map((p) => `<section class="tgp-page">${p}</section>`).join('') || '<div class="stat-detail">Nothing selected to print.</div>', dayColumns: model.cols.length, chartCols };
 }
 export { resolveReportGroups };
