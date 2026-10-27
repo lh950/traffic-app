@@ -1,5 +1,14 @@
 # Changelog
 
+## v3 · v1.2.16 — 2026-10-27
+
+### Added
+- Trip Gen Analysis → Summary: a **Peak periods** panel at the top. Suggested periods are pre-filled (weekday AM 07:00–11:00, Midday 11:00–15:00, PM 16:00–19:00; weekend peaks 1–3); change any search range, pin an exact hour, or "reset to suggested". Edited periods are marked. The summary, every group tab and the printed report use these periods, and the printed report states which were used.
+
+### Changed
+- The weekend peak in the summary now uses the weekend peak periods (three, editable) instead of one best hour of the whole day.
+- Edits to peak periods now save with the project (they were not triggering an autosave before).
+
 ## v3 · v1.2.15 — 2026-10-27
 
 ### Added

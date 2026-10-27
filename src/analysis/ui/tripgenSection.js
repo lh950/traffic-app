@@ -616,8 +616,12 @@ async function buildTgIntervalDetailMarkup(day, peakWindows) {
     </details>`;
 }
 
-function renderPeakWindowRangeControls(dayType, peakWindows) {
-  return peakWindows[dayType].map((w, i) => `
+function renderPeakWindowRangeControls(dayType, peakWindows, showSuggested = false) {
+  return peakWindows[dayType].map((w, i) => {
+    const d = DEFAULT_PEAK_WINDOWS[dayType]?.[i];
+    const edited = d && (d.searchStartMin !== w.searchStartMin || d.searchEndMin !== w.searchEndMin || d.manualStartMin !== w.manualStartMin);
+    const hint = showSuggested && d ? `<span style="color:var(--text3);margin-left:8px">suggested ${minToTimeInput(d.searchStartMin)}–${minToTimeInput(d.searchEndMin)}${edited ? ' · <strong style="color:var(--blue-text)">edited</strong>' : ''}</span>` : '';
+    return `
     <div style="display:flex;align-items:center;gap:6px;font-size:12px;flex-wrap:wrap">
       <span style="min-width:90px;font-weight:500">${escapeHtml(w.label)}</span>
       <span style="color:var(--text3)">search</span>
@@ -629,8 +633,33 @@ function renderPeakWindowRangeControls(dayType, peakWindows) {
         pin exact hour
       </label>
       ${w.manualStartMin != null ? `<input type="time" data-peak-manual-field="${dayType}__${i}" value="${minToTimeInput(w.manualStartMin)}" style="font-size:11px;padding:2px 4px;width:auto" />` : ''}
+      ${hint}
     </div>
-  `).join('');
+  `;
+  }).join('');
+}
+
+// Peak periods panel (Summary tab). Suggested periods are pre-filled (DEFAULT_PEAK_WINDOWS); the
+// owner can change any search range, pin an exact hour, or reset to the suggestion. The summary,
+// every group tab and the per-day peak tables all read these same windows. Viewers get a
+// read-only list; print gets a one-line version of what was used.
+function renderPeakPeriodsPanel(peakWindows, viewerMode) {
+  const line = (dayType, title) => peakWindows[dayType].map((w) => `${escapeHtml(w.label)} ${w.manualStartMin != null ? `${minToTimeInput(w.manualStartMin)} (pinned)` : `${minToTimeInput(w.searchStartMin)}–${minToTimeInput(w.searchEndMin)}`}`).join(' · ');
+  const printLine = `<div class="print-only stat-detail" style="margin-bottom:10px"><strong>Peak periods used</strong> — weekday: ${line('weekday')}; weekend: ${line('weekend')}</div>`;
+  if (viewerMode) {
+    return `<div class="card" style="margin-bottom:14px"><h3>Peak periods</h3><div class="stat-detail">Each period reports the busiest hour inside its search range. Weekday: ${line('weekday')}. Weekend: ${line('weekend')}.</div></div>`;
+  }
+  return `
+    ${printLine}
+    <div class="card no-print" style="margin-bottom:14px">
+      <h3>Peak periods</h3>
+      <div class="stat-detail" style="margin-bottom:10px">Suggested periods are filled in. Each one reports the busiest hour inside its search range — change a range, or pin an exact hour, and every table and tab below updates.</div>
+      <div style="font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text2);margin:6px 0">Weekdays</div>
+      <div style="display:flex;flex-direction:column;gap:6px">${renderPeakWindowRangeControls('weekday', peakWindows, true)}</div>
+      <div style="font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text2);margin:12px 0 6px">Saturday / Sunday</div>
+      <div style="display:flex;flex-direction:column;gap:6px">${renderPeakWindowRangeControls('weekend', peakWindows, true)}</div>
+      <div style="margin-top:10px"><button type="button" data-peak-reset style="font-size:12px">reset to suggested</button></div>
+    </div>`;
 }
 
 async function renderDayBlock(entry, day, dayIdx, ctx) {
@@ -1746,6 +1775,7 @@ export async function renderTripGenSection(container, entries, ctx) {
   const summaryPanelHTML = `
     <div class="section" style="margin-bottom:1.5rem">
       <div class="section-head"><h2>Trip generation summary</h2><span class="sub">all ${entries.length} location${entries.length > 1 ? 's' : ''} combined</span></div>
+      ${renderPeakPeriodsPanel(ctx.peakWindows, viewerMode)}
       ${summaryTabHtml(reportModel, entries, ctx)}
     </div>
   `;
@@ -1909,6 +1939,7 @@ export async function renderTripGenSection(container, entries, ctx) {
       ctx.onPeakWindowChange(dayType, Number(idx), edge, toMin(el.value));
     });
   });
+  container.querySelector('[data-peak-reset]')?.addEventListener('click', () => ctx.onPeakWindowsReset?.());
   container.querySelectorAll('[data-peak-manual-toggle]').forEach((el) => {
     el.addEventListener('change', () => {
       const [dayType, idx] = el.dataset.peakManualToggle.split('__');

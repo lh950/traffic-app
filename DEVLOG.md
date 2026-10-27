@@ -4,6 +4,12 @@ Key decisions, scope constraints, and architectural choices.
 
 ---
 
+## 2026-10-27 — v3 · v1.2.16 (Suggested, editable peak periods in the summary)
+
+User: leave the workbook as-is (it is not the template; users should set their own peak periods) — in the app, make sure there is a suggested peak time and the user can change it. The app already had suggested windows (DEFAULT_PEAK_WINDOWS) and per-day controls buried in the Locations tab, so this surfaces the same `tripgenPeakWindows` state on the Summary tab (one source for summary, group tabs and per-day tables) with a "suggested" hint, an "edited" marker and a reset. The summary's weekend peak switched from best-hour-of-the-day (copied from the workbook) to the editable weekend windows so it follows the same rule as weekdays. Found while testing: the existing peak edit handlers never called scheduleAutosave, so edits only persisted when something else triggered a save — fixed. Verified headless: narrowing AM end to 09:00 moved Weekday 1 AM from 09:30–10:30 to 08:45–09:45, saved 540, reset saved 660.
+
+---
+
 ## 2026-10-27 — v3 · v1.2.15 (Report builder: user-defined report groups → tabs)
 
 Mirrors how the firm's workbook is organized (Summary + one Analysis tab per vehicle group). Groups are now explicit project data (`reportGroups: [{id,name,labels[]}]`, serialized/loaded/reset like customWindows) instead of being implied by `categoryMap`, because the workbook's groups overlap and exclude classifications freely while `categoryMap` assigns each classification to exactly one group. Empty `reportGroups` falls back to the categoryMap-derived groups, so older projects look the same until the builder is used (the first edit copies the derived groups into explicit ones). `buildReportModel()` computes survey-day columns and per-group cells once per render; the Summary tab, group tabs and builder are string builders over that model. Owner mode moved from the flat layout to the viewer's tab bar so groups can have tabs; the builder panel is `.no-print`. Removing the last group returns to derived groups (empty = derive) — acceptable, noted here.

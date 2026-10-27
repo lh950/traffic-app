@@ -9099,11 +9099,18 @@ async function rerenderTripgenAnalysis() {
       else if (edge === 'end') w.searchEndMin = value;
       else if (edge === 'manual') w.manualStartMin = value;
       rerenderTripgenAnalysis();
+      window.scheduleAutosave?.();
+    },
+    onPeakWindowsReset: () => {
+      for (const dt of ['weekday', 'weekend']) tripgenPeakWindows[dt] = DEFAULT_PEAK_WINDOWS[dt].map((w) => ({ ...w }));
+      rerenderTripgenAnalysis();
+      window.scheduleAutosave?.();
     },
     onPeakManualToggle: (dayType, idx, checked) => {
       const w = tripgenPeakWindows[dayType][idx];
       w.manualStartMin = checked ? w.searchStartMin : null;
       rerenderTripgenAnalysis();
+      window.scheduleAutosave?.();
     },
     onDataViewChange: (view) => { tripgenDataView = view; rerenderTripgenAnalysis(); },
     onGotoQaqc: (key) => { openWorkspaceTab('tg-qaqc'); scrollToQaqcCard(key); },

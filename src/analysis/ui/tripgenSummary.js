@@ -99,9 +99,11 @@ export function resolveReportGroups(entries, ctx) {
 }
 
 // ── One category × one survey day ──────────────────────────────────────────────────────
-function peakWindowsFor(kind, ctx) {
-  if (kind === 'weekend') return [{ label: 'Peak hour', searchStartMin: 0, searchEndMin: 24 * 60, manualStartMin: null }];
-  return ctx.peakWindows?.weekday || [];
+// The user's own peak periods (Summary tab → Peak periods; suggested defaults until edited).
+// Set once per render by buildReportModel so the placeholder columns below match them.
+let WINDOWS = { weekday: [], weekend: [] };
+function peakWindowsFor(kind) {
+  return WINDOWS[kind] || [];
 }
 // 'AM peak' / 'Midday peak' / 'PM peak' → AM / MD / PM, as on the workbook; any other
 // (user-renamed) window keeps its own label minus a trailing "peak".
@@ -132,11 +134,11 @@ async function categoryCell(group, col, ctx, gsf) {
   const total = inbound + outbound;
   const rate = gsf ? await data.tripRate(total, gsf) : null;
 
-  const windows = peakWindowsFor(col.kind, ctx);
+  const windows = peakWindowsFor(col.kind);
   const peaks = await Promise.all(windows.map(async (w) => {
     const [s, e] = w.manualStartMin != null ? [w.manualStartMin, w.manualStartMin + 1] : [w.searchStartMin, w.searchEndMin];
     const p = await data.peakHourInWindow(intervals, intervalMinutes, s, e, 'vehicle');
-    const label = col.kind === 'weekend' ? 'Peak hour' : shortWindowLabel(w);
+    const label = shortWindowLabel(w);
     if (p.startIdx < 0 || p.volume === 0) return { label, found: false };
     return {
       label, found: true, volume: p.volume, inbound: p.inbound, outbound: p.outbound, hour: p.label,
@@ -187,7 +189,7 @@ function rateTableHtml(cols, cells, gsf) {
     return `<th colspan="${span}" class="tgs-grp">${esc(c.label)}${c.sub ? `<small>${esc(c.sub)}</small>` : ''}</th>`;
   }).join('');
   const head2 = cols.map((c, i) => {
-    const peaks = cells[i]?.peaks ?? Array.from({ length: peakWindowsForCount(c) }, (_, k) => ({ label: c.kind === 'weekend' ? 'Peak hr' : ['AM', 'MD', 'PM'][k] || `P${k + 1}` }));
+    const peaks = cells[i]?.peaks ?? peakWindowsFor(c.kind).map((w) => ({ label: shortWindowLabel(w) }));
     return `<th class="tgs-sub tgs-first">Daily</th>${peaks.map((p) => `<th class="tgs-sub">${esc(p.label)}</th>`).join('')}`;
   }).join('');
   const rateRow = cols.map((c, i) => {
@@ -216,7 +218,7 @@ function rateTableHtml(cols, cells, gsf) {
     </table>`;
 }
 // Placeholder column width for a survey day with no data (keeps column groups aligned).
-function peakWindowsForCount(col) { return col.kind === 'weekend' ? 1 : 3; }
+function peakWindowsForCount(col) { return peakWindowsFor(col.kind).length; }
 
 function peakVolumeTableHtml(cols, cells, kind, rowLabels, title) {
   const use = cols.map((c, i) => ({ c, i })).filter(({ c }) => c.kind === kind);
@@ -298,24 +300,26 @@ function installPrintHook() {
 // Everything the Summary tab, the group tabs and the builder need, computed once per render.
 export async function buildReportModel(entries, ctx) {
   installPrintHook();
+  WINDOWS = { weekday: ctx.peakWindows?.weekday || [], weekend: ctx.peakWindows?.weekend || [] };
   const gsf = parseGsf(ctx.siteInfo.gsf);
   const { cols, surveys } = buildColumns(entries);
   const { groups, explicit } = resolveReportGroups(entries, ctx);
   const cellsByGroup = await Promise.all(groups.map((g) => Promise.all(cols.map((c) => categoryCell(g, c, ctx, gsf)))));
-  const weekdayRows = (ctx.peakWindows?.weekday || []).map((w) => shortWindowLabel(w));
-  return { gsf, cols, surveys, groups, explicit, cellsByGroup, weekdayRows, labels: allLabels(entries) };
+  const weekdayRows = WINDOWS.weekday.map((w) => shortWindowLabel(w));
+  const weekendRows = WINDOWS.weekend.map((w) => shortWindowLabel(w));
+  return { gsf, cols, surveys, groups, explicit, cellsByGroup, weekdayRows, weekendRows, labels: allLabels(entries) };
 }
 
 function groupTablesHtml(model, gi) {
-  const { cols, cellsByGroup, weekdayRows, gsf } = model;
+  const { cols, cellsByGroup, weekdayRows, weekendRows, gsf } = model;
   const cells = cellsByGroup[gi];
   return `
     <div class="tgs-scroll">${rateTableHtml(cols, cells, gsf)}</div>
     <div class="tgs-scroll">${peakVolumeTableHtml(cols, cells, 'weekday', weekdayRows, 'Peak-hour volumes')}</div>
-    <div class="tgs-scroll">${peakVolumeTableHtml(cols, cells, 'weekend', ['Peak hour'], 'Weekend peak hour')}</div>`;
+    <div class="tgs-scroll">${peakVolumeTableHtml(cols, cells, 'weekend', weekendRows, 'Weekend peak hours')}</div>`;
 }
 
-const NOTE = "Every location counted on a survey day is combined. Trip rate = trips (in + out) per 1,000 SF of facility GSF; AM / MD / PM are each group's own busiest hour in that period, shown as a rate with its share of the day beneath. Peak hours follow the project's own peak windows; groups come from the Report builder.";
+const NOTE = "Every location counted on a survey day is combined. Trip rate = trips (in + out) per 1,000 SF of facility GSF; AM / MD / PM (and the weekend peaks) are each group's own busiest hour inside the peak periods set on the Summary tab, shown as a rate with its share of the day beneath. Peak hours follow the project's own peak windows; groups come from the Report builder.";
 
 // Summary tab: site facts + every group's rate and peak-hour tables.
 export function summaryTabHtml(model, entries, ctx) {
