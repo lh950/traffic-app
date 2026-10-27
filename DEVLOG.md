@@ -4,6 +4,12 @@ Key decisions, scope constraints, and architectural choices.
 
 ---
 
+## 2026-10-27 — v3 · v1.2.20 (print: Letter, 0.5in margins, one module per page)
+
+User's spec: 8.5×11, 0.5in margins for both orientations (the footer's project name / page number live inside that bottom margin), Summary alone on page 1, each module on its own page. With four groups the full per-group summary tables cannot fit one page, so the printed Summary is a different, compact view (`summaryPrintHtml`: a Rate + Trips row per group) and the full tables moved to each group's page — screen and print intentionally differ here. Each `.tgp-page` breaks before itself except the first (the header precedes it; the first version printed a blank page 1 because that exception was missing). Verified by rendering real PDFs for both orientations (Letter portrait: 13 pages for 4 groups; landscape: 17) and reading each page image.
+
+---
+
 ## 2026-10-27 — v3 · v1.2.19 (print report: fixes from the user's real PDF)
 
 Rendered the user's actual PDF (pdf.js in headless Chrome) instead of guessing: found `.interval-detail-wrap{max-height:420px;overflow:auto}` clipping the 96-row table in print, no `print-color-adjust` so legend swatches vanished, and the ZOLA image overflowing page 1. Portrait first tried CSS `zoom` scaled by column count — it did not rescale the rate table (cell text is nowrap), so it was dropped for `table-layout:fixed` + wrapping, which fits any width. Empty survey-day columns are omitted from print only (they stay on screen to match the workbook). Test tooling: CDP (`Page.printToPDF`) + pdf.js from cdnjs to rasterize; the app's service worker must be bypassed (`Network.setBypassServiceWorker`) or dynamic imports fail in a fresh profile.

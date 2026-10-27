@@ -4,7 +4,7 @@ import { weekdayShort, dateLabelWithWeekday } from './dateUtils.js';
 import { intervalBar, pctOfPeakCell } from './intervalDetail.js';
 import { runVehicleQA, renderQASection } from '../../qa.js';
 import { SL_DAY_PART, slZoneAverageForDayType } from '../../parseStreetlightZoneCsv.js';
-import { buildReportModel, summaryTabHtml, groupTabHtml, builderTabHtml, wireBuilder, resolveReportGroups } from './tripgenSummary.js';
+import { buildReportModel, summaryTabHtml, groupTabHtml, builderTabHtml, wireBuilder, resolveReportGroups, summaryPrintHtml } from './tripgenSummary.js';
 
 // A day is included in analysis/QA-QC/reports by default — `includeInAnalysis === false` is
 // the ONLY way to exclude it, so older saved projects (which never had this field) keep
@@ -2059,7 +2059,7 @@ export async function buildTripGenPrintHtml(entries, ctx, opts) {
   }
   const pages = [];
   if (opts.summary) {
-    pages.push(`<section class="tgp-page"><div class="tgp-note"><strong>Peak periods used</strong> — weekday: ${peakLine(ctx.peakWindows, 'weekday')}; weekend: ${peakLine(ctx.peakWindows, 'weekend')}</div>${summaryTabHtml(model, entries, ctx)}</section>`);
+    pages.push(`<section class="tgp-page"><div class="tgp-note"><strong>Peak periods used</strong> — weekday: ${peakLine(ctx.peakWindows, 'weekday')}; weekend: ${peakLine(ctx.peakWindows, 'weekend')}</div>${summaryPrintHtml(model, entries, ctx)}</section>`);
   }
   model.groups.forEach((g, gi) => {
     if (!opts.groupIds.includes(g.id)) return;

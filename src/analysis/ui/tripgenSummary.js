@@ -365,6 +365,43 @@ export function summaryTabHtml(model, entries, ctx) {
     </div>`;
 }
 
+// Print Summary (page 1 of the printed report): site facts and ONE compact table — a row pair
+// (rate, trips) per report group across every survey day — so the whole summary fits one Letter
+// page however many groups there are. Each group's full tables live on that group's own page.
+export function summaryPrintHtml(model, entries, ctx) {
+  const { cols, groups, cellsByGroup } = model;
+  const head1 = cols.map((c) => `<th colspan="${1 + peakWindowsForCount(c)}" class="tgs-grp">${esc(c.label)}${c.sub ? `<small>${esc(c.sub)}</small>` : ''}</th>`).join('');
+  const head2 = cols.map((c) => `<th class="tgs-sub tgs-first">Daily</th>${peakWindowsFor(c.kind).map((w) => `<th class="tgs-sub">${esc(shortWindowLabel(w))}</th>`).join('')}`).join('');
+  const rows = groups.map((g, gi) => {
+    const cells = cellsByGroup[gi];
+    const rate = cols.map((c, i) => {
+      const cell = cells[i];
+      if (!cell) return `<td class="tgs-first">${NA}</td>${peakWindowsFor(c.kind).map(() => `<td>${NA}</td>`).join('')}`;
+      return `<td class="tgs-first tgs-strong">${cell.rate != null ? cell.rate.toFixed(2) : '—'}</td>${cell.peaks.map((p) => (p.found ? `<td>${p.rate != null ? p.rate.toFixed(2) : '—'}</td>` : `<td>${NA}</td>`)).join('')}`;
+    }).join('');
+    const trips = cols.map((c, i) => {
+      const cell = cells[i];
+      if (!cell) return `<td class="tgs-first">${NA}</td>${peakWindowsFor(c.kind).map(() => `<td>${NA}</td>`).join('')}`;
+      return `<td class="tgs-first">${fmt(cell.total)}</td>${cell.peaks.map((p) => `<td>${p.found ? fmt(p.volume) : NA}</td>`).join('')}`;
+    }).join('');
+    return `<tr><th rowspan="2" class="tgs-rowhead tgs-sumname">${esc(g.name)}</th><th class="tgs-rowhead tgs-sumkind">Rate</th>${rate}</tr><tr class="tgs-vol"><th class="tgs-rowhead tgs-sumkind">Trips</th>${trips}</tr>`;
+  }).join('');
+  return `
+    <div class="tgs">
+      ${siteHeaderHtml(entries, model.surveys, ctx.siteInfo)}
+      <div class="tgs-cat">
+        <div class="tgs-cat-title">Trip generation summary</div>
+        <div class="tgs-scroll">
+          <table class="tgs-table tgs-sumtbl">
+            <thead><tr><th rowspan="2" class="tgs-rowhead">Group</th><th rowspan="2" class="tgs-rowhead">${model.gsf ? 'per 1,000 SF' : 'enter facility SF'}</th>${head1}</tr><tr>${head2}</tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+        <div class="tgs-note" style="padding:6px 16px 10px">Rate = trips (in + out) per 1,000 SF of facility GSF, for the whole day (Daily) and for each group's busiest hour in each peak period. Trips = vehicles in + out. Hour-by-hour detail, in/out splits and charts are on each group's own page.</div>
+      </div>
+    </div>`;
+}
+
 // One group's own tab: the same tables, the full 15-minute table (always open), and an in/out
 // chart per survey day.
 export function groupTabHtml(model, gi, opts = {}) {

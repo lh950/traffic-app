@@ -1365,3 +1365,22 @@ body.workspace-mode .analyze-period-bar{top:0}
 @media print{
   #tg-print-root .tgs-table small{font-size:8px}
 }
+/* Letter page, one module per page. Summary = page 1; each group starts a new page; its
+   15-minute table starts a new page after the tables and charts. */
+@media print{
+  #tg-print-root .tgp-page{break-before:page;break-after:auto}
+  #tg-print-root .tgp-page:first-child{break-before:auto}
+  #tg-print-root .tgs-charts .card{padding:6px 12px;margin:0 0 6px!important}
+  #tg-print-root .tgs-charts .card h3{margin:0 0 2px}
+  #tg-print-root .tgs-chart-svg,#tg-print-root .chart-svg{height:95px!important}
+  #tg-print-root .tgs-zola img{max-height:190px!important}
+  #tg-print-root .tgs-sumtbl .tgs-sumname{width:15%}
+  #tg-print-root .tgs-sumtbl .tgs-sumkind{width:7%}
+  #tg-print-root .tgs-sumtbl .tgs-rowhead{width:auto}
+}
+@media print{
+  #tg-print-root .print-report-header + .tgp-page{break-before:auto}
+  #tg-print-root .tgs-charts{display:grid;grid-template-columns:repeat(var(--tgp-chartcols,2),1fr);gap:6px}
+  #tg-print-root .tgs-charts .card{break-inside:avoid;margin:0!important;min-width:0}
+  #tg-print-root .tgs-table small{font-size:7px;white-space:nowrap}
+}

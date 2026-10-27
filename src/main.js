@@ -1465,7 +1465,7 @@ document.getElementById('btn-share-viewer-print')?.addEventListener('click', () 
 // Printing used to print the whole interactive Analysis screen (every tab, forms and all). Trip
 // Gen now prints a dedicated report built into #tg-print-root: header, summary, then one page
 // per chosen report group. The user picks the sections and the page orientation first.
-const tgPrintPrefs = { summary: true, groupIds: null, charts: true, intervals: true, orientation: 'landscape' };
+const tgPrintPrefs = { summary: true, groupIds: null, charts: true, intervals: true, orientation: 'portrait' };
 function tgReportCtx() {
   return { siteInfo: tripgenSiteInfo, categoryMap: tripgenCategoryMap, peakWindows: tripgenPeakWindows, reportGroups: tripgenReportGroups };
 }
@@ -1485,8 +1485,8 @@ function openTgPrintModal() {
     <h3 style="margin-top:12px">page</h3>
     <div class="stat-detail" style="margin-bottom:6px">In the browser's print window, turn off <strong>Headers and footers</strong> — the report adds its own footer with the project name and page numbers.</div>
     <div style="display:flex;gap:16px;font-size:13px;flex-wrap:wrap">
-      <label><input type="radio" name="tgp-orient" value="landscape" ${tgPrintPrefs.orientation === 'landscape' ? 'checked' : ''} style="width:auto"> landscape (recommended — the tables are wide)</label>
-      <label><input type="radio" name="tgp-orient" value="portrait" ${tgPrintPrefs.orientation === 'portrait' ? 'checked' : ''} style="width:auto"> portrait</label>
+      <label><input type="radio" name="tgp-orient" value="portrait" ${tgPrintPrefs.orientation === 'portrait' ? 'checked' : ''} style="width:auto"> portrait (8.5 × 11)</label>
+      <label><input type="radio" name="tgp-orient" value="landscape" ${tgPrintPrefs.orientation === 'landscape' ? 'checked' : ''} style="width:auto"> landscape (11 × 8.5)</label>
     </div>`;
   document.getElementById('tg-print-modal')?.classList.add('open');
 }
@@ -1497,7 +1497,7 @@ document.getElementById('btn-tg-print-go')?.addEventListener('click', async () =
   tgPrintPrefs.groupIds = [...document.querySelectorAll('#tg-print-options [data-tgp-group]')].filter((e) => e.checked).map((e) => Number(e.dataset.tgpGroup));
   tgPrintPrefs.charts = !!q('[data-tgp-charts]')?.checked;
   tgPrintPrefs.intervals = !!q('[data-tgp-intervals]')?.checked;
-  tgPrintPrefs.orientation = q('[name="tgp-orient"]:checked')?.value || 'landscape';
+  tgPrintPrefs.orientation = q('[name="tgp-orient"]:checked')?.value || 'portrait';
   closeTgPrintModal();
   const root = document.getElementById('tg-print-root');
   const printBody = await buildTripGenPrintHtml(tripgenEntries, tgReportCtx(), { summary: tgPrintPrefs.summary, groupIds: tgPrintPrefs.groupIds, charts: tgPrintPrefs.charts, intervals: tgPrintPrefs.intervals });
@@ -1511,10 +1511,12 @@ document.getElementById('btn-tg-print-go')?.addEventListener('click', async () =
   const title = (projectInfo.projectName || tripgenSiteInfo.location || 'Trip generation study').replace(/[\\"\n]/g, ' ');
   const style = document.createElement('style');
   style.id = 'tg-print-page-style';
-  style.textContent = `@page{size:letter ${tgPrintPrefs.orientation};margin:12mm 12mm 15mm;@bottom-left{content:"${title}";font-size:9px;color:#555}@bottom-right{content:"Page " counter(page) " of " counter(pages);font-size:9px;color:#555}}`;
+  style.textContent = `@page{size:letter ${tgPrintPrefs.orientation};margin:0.5in;@bottom-left{content:"${title}";font-size:9px;color:#555}@bottom-right{content:"Page " counter(page) " of " counter(pages);font-size:9px;color:#555}}`;
   document.head.appendChild(style);
+  // Charts: two across on portrait; landscape fits one row (up to 4 survey days) so a group's tables and charts share one page.
+  root.style.setProperty('--tgp-chartcols', String(tgPrintPrefs.orientation === 'portrait' ? 2 : Math.min(Math.max(printBody.dayColumns, 1), 4)));
   document.body.classList.add('tg-printing');
-  const cleanup = () => { document.body.classList.remove('tg-printing'); root.innerHTML = ''; style.remove(); };
+  const cleanup = () => { document.body.classList.remove('tg-printing'); root.innerHTML = ''; root.style.removeProperty('--tgp-chartcols'); style.remove(); };
   window.addEventListener('afterprint', cleanup, { once: true });
   await new Promise((r) => setTimeout(r, 150)); // let the logo / ZOLA image finish laying out
   window.print();

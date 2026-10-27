@@ -1,5 +1,13 @@
 # Changelog
 
+## v3 · v1.2.20 — 2026-10-27
+
+### Changed
+- Trip Gen print report is laid out for **US Letter (8.5 × 11) with 0.5" margins**, portrait (now the default) or landscape, one module per page:
+  - **Page 1 — Summary:** header, peak periods used, site information, and one compact table with a Rate row and a Trips row per report group across every survey day.
+  - **Each report group starts a new page:** its trip-rate and peak-hour tables with the in/out charts, then its 15-minute table on following pages.
+- Charts print two across in portrait and in one row in landscape. The printed Summary is the compact table; the on-screen Summary tab still shows the full per-group tables.
+
 ## v3 · v1.2.19 — 2026-10-27
 
 ### Fixed
