@@ -4,6 +4,12 @@ Key decisions, scope constraints, and architectural choices.
 
 ---
 
+## 2026-10-29 — v3 · v1.2.24 (All vehicles on the Analysis page)
+
+User: the All vehicles count is missing from the analysis page. Added `allVehiclesTotal(types, totals)` in tripgenSection.js (every classification except those `isPedLabel` flags) and used it in the Overview totals table, the per-day classification table, and a highlighted rate card per day; the All vehicles tab sorts first. `PED_LABEL` now also flags "person trips" and bikes, because the Amazon workbook counts pickup/drop-off both as vehicle trips and as person trips, and adding both double-counted (765 vs 745 weekday). Probed the live Analysis screen in headless Chrome: Overview and Locations tabs show the new rows.
+
+---
+
 ## 2026-10-29 — v3 · v1.2.23 (print fit-to-page, unique chart looks, All vehicles first)
 
 User: still breaks / orphaned data; charts and tables should auto-resize to the page; every classification in a graph needs a unique color or hatch; All vehicles is the main number so it goes on top and stands out. Print group page = fixed-height flex column (`.tgp-fit`); tables are natural height, the chart area (`.tgp-fill`) takes the rest and the SVGs scale with `preserveAspectRatio` meet. This replaces the earlier row/card chunking for charts (that approach guessed heights and left orphans). Chart viewBoxes are sized per layout (hourly 720x250 portrait / 960x150 landscape; entering/exiting width = page width / survey days) so scaling stays near 1:1 and text stays readable. `charts.js`: `look()` maps a series' `styleIndex` to palette color (6) + hatch (5 types) = 36 distinct looks; callers pass the classification's index in the full list so it is the same everywhere. Pitfalls this session: a `` in a Python heredoc became a literal backspace in a regex (check bytes with od when a regex "looks right" but does nothing); a regex that removed a blank line ate a backreference and broke an object literal — run `node --check` on edited modules; a crashed print script leaves a stale PDF, so delete outputs first. Projects built from workbooks now carry only counted classifications. The Fountain project file lacked an All vehicles group (its saved groups had none); added it as the automatic group. Not changed: the firm's Excel summary has no combined rate; left as is per earlier instruction.

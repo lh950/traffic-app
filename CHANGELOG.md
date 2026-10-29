@@ -1,5 +1,13 @@
 # Changelog
 
+## v3 · v1.2.24 — 2026-10-29
+
+### Added
+- **All vehicles on the Analysis page.** The Overview totals table, each survey day's classification table and trip-rate cards, and a tab of its own now show All vehicles (no pedestrians). The All vehicles tab comes first, right after Summary, and prints first among the group pages.
+
+### Changed
+- "All vehicles" no longer counts person-trip columns or bikes (for example "pickup/drop-off (person trips)"), so its number matches the Summary.
+
 ## v3 · v1.2.23 — 2026-10-29
 
 ### Changed

@@ -4,7 +4,7 @@ import { weekdayShort, dateLabelWithWeekday } from './dateUtils.js';
 import { intervalBar, pctOfPeakCell } from './intervalDetail.js';
 import { runVehicleQA, renderQASection } from '../../qa.js';
 import { SL_DAY_PART, slZoneAverageForDayType } from '../../parseStreetlightZoneCsv.js';
-import { buildReportModel, summaryTabHtml, groupTabHtml, builderTabHtml, wireBuilder, resolveReportGroups, coverPageHtml, coverRows, coverContinuationHtml, printGroupPages, printSummaryPages } from './tripgenSummary.js';
+import { buildReportModel, summaryTabHtml, groupTabHtml, builderTabHtml, wireBuilder, resolveReportGroups, isPedLabel, isAllVehiclesGroup, coverPageHtml, coverRows, coverContinuationHtml, printGroupPages, printSummaryPages } from './tripgenSummary.js';
 
 // A day is included in analysis/QA-QC/reports by default — `includeInAnalysis === false` is
 // the ONLY way to exclude it, so older saved projects (which never had this field) keep
@@ -115,6 +115,12 @@ function groupTotals(types, totalsArr, categoryMap) {
   });
   return groups;
 }
+
+// Total vehicle trips: every classification except pedestrians (the ITE-style headline number).
+function allVehiclesTotal(types, totalsArr) {
+  return types.reduce((s, t, i) => (isPedLabel(t) ? s : s + totalsArr[i]), 0);
+}
+const ALL_VEH_ROW_STYLE = 'font-weight:700;background:rgba(46,95,168,.12)';
 
 function inferIntervalMinutes(intervals) {
   if (intervals.length < 2) return 15;
@@ -681,7 +687,8 @@ async function renderDayBlock(entry, day, dayIdx, ctx) {
   // counted live through the classification editor's own description field; empty for
   // XLSX/paste imports, which have no such editor step and so carry no description.
   const defs = parsed.defs || [];
-  const detailRows = groupNames.map((g) => {
+  const allVehRow = `<tr style="${ALL_VEH_ROW_STYLE}"><td>All vehicles (no pedestrians)</td><td>${fmt(allVehiclesTotal(parsed.types, dayTotalsArr))}</td></tr>`;
+  const detailRows = allVehRow + groupNames.map((g) => {
     const subRows = parsed.types
       .map((t, i) => ({ t, i }))
       .filter(({ t }) => (categoryMap[t] || t) === g)
@@ -711,6 +718,14 @@ async function renderDayBlock(entry, day, dayIdx, ctx) {
   // briefly trying the actual-GSF headline in the same v1.0.0 push — see DEVLOG.md); raw day
   // total is the secondary reference line.
   const rawGroups = groupTotals(parsed.types, rawDayTotalsArr, categoryMap);
+  const rawAllVeh = allVehiclesTotal(parsed.types, rawDayTotalsArr);
+  const allVehRate = await data.tripRate(rawAllVeh, siteInfo.gsf);
+  const allVehCard = `
+      <div class="stat-card" style="border:2px solid var(--accent,#2e5fa8)">
+        <div class="stat-label" style="font-weight:700">All vehicles</div>
+        <div class="stat-value">${allVehRate != null ? allVehRate : '—'}<span class="unit">${allVehRate != null ? '/ 1000 GSF' : ''}</span></div>
+        <div class="stat-detail">${fmt(rawAllVeh)} day total, no pedestrians</div>
+      </div>`;
   const rateCards = await Promise.all(Object.keys(rawGroups).map(async (g) => {
     const rate = await data.tripRate(rawGroups[g], siteInfo.gsf);
     return `
@@ -724,7 +739,7 @@ async function renderDayBlock(entry, day, dayIdx, ctx) {
     <div class="card" style="margin-bottom:14px">
       <h3>Trip rate</h3>
       ${!siteInfo.gsf ? '<div class="stat-detail" style="margin-bottom:8px">Enter site square footage above to compute rates.</div>' : ''}
-      <div class="card-grid">${rateCards.join('')}</div>
+      <div class="card-grid">${allVehCard}${rateCards.join('')}</div>
     </div>
   `;
 
@@ -1695,11 +1710,13 @@ export async function renderTripGenSection(container, entries, ctx) {
   // an ungrouped classification shows on its own instead of getting silently bucketed.
 
   const crossGroups = {};
+  const crossAllVeh = {};
   entries.forEach((entry) => {
     tgIncludedDays(entry).forEach((day) => {
       const totalsArr = dayTotalsByType(day.parsed);
       const groups = groupTotals(day.parsed.types, totalsArr, categoryMap);
       const bucket = day.dayType;
+      crossAllVeh[bucket] = (crossAllVeh[bucket] || 0) + allVehiclesTotal(day.parsed.types, totalsArr);
       crossGroups[bucket] = crossGroups[bucket] || {};
       Object.entries(groups).forEach(([g, v]) => { crossGroups[bucket][g] = (crossGroups[bucket][g] || 0) + v; });
     });
@@ -1771,6 +1788,7 @@ export async function renderTripGenSection(container, entries, ctx) {
     <table class="crosswalk-table">
       <thead><tr><th>Group</th>${Object.keys(crossGroups).map((b) => `<th>${escapeHtml(b)} total</th>`).join('')}</tr></thead>
       <tbody>
+        <tr style="${ALL_VEH_ROW_STYLE}"><td>All vehicles (no pedestrians)</td>${Object.keys(crossGroups).map((b) => `<td>${fmt(crossAllVeh[b] || 0)}</td>`).join('')}</tr>
         ${allGroupNames.map((g) => `<tr><td>${escapeHtml(g)}</td>${Object.keys(crossGroups).map((b) => `<td>${fmt(crossGroups[b][g] || 0)}</td>`).join('')}</tr>`).join('')}
       </tbody>
     </table>`;
@@ -1823,7 +1841,7 @@ export async function renderTripGenSection(container, entries, ctx) {
   // first; the Report builder is owner-only and never prints (.no-print on its panel).
   const VIEWER_TABS = [
     { key: 'summary', label: 'Summary', html: summaryPanelHTML },
-    ...reportModel.groups.map((g, gi) => ({
+    ...reportModel.groups.map((g, gi) => ({ g, gi })).sort((a, b) => Number(isAllVehiclesGroup(b.g)) - Number(isAllVehiclesGroup(a.g))).map(({ g, gi }) => ({
       key: `group${g.id}`, label: g.name,
       html: `<div class="section" style="margin-bottom:1.5rem"><div class="section-head"><h2>${escapeHtml(g.name)}</h2><span class="sub">all ${entries.length} location${entries.length > 1 ? 's' : ''} combined</span></div>${groupTabHtml(reportModel, gi)}</div>`,
     })),
@@ -2077,7 +2095,7 @@ export async function buildTripGenPrintHtml(entries, ctx, opts) {
     sp[0] = `<div class="tgp-note"><strong>Peak periods used</strong> — weekday: ${peakLine(ctx.peakWindows, 'weekday')}; weekend: ${peakLine(ctx.peakWindows, 'weekend')}</div>${sp[0]}`;
     pages.push(...sp);
   }
-  model.groups.forEach((g, gi) => {
+  model.groups.map((g, gi) => ({ g, gi })).sort((a, b) => Number(isAllVehiclesGroup(b.g)) - Number(isAllVehiclesGroup(a.g))).forEach(({ g, gi }) => {
     if (opts.groupIds.includes(g.id)) pages.push(...printGroupPages(model, gi, L));
   });
   return { html: pages.map((p) => `<section class="tgp-page">${p}</section>`).join('') || '<div class="stat-detail">Nothing selected to print.</div>', dayColumns: model.cols.length, chartCols };

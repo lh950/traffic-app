@@ -91,7 +91,8 @@ function allLabels(entries) {
 // an automatic group — its classifications are worked out each render, so a classification added
 // later is included without anyone editing the group.
 export const ALL_VEHICLES = 'allVehicles';
-const PED_LABEL = /pedestrian|micro-?mobility/i;
+// Not vehicles: pedestrians, micro-mobility, bikes, and any column that counts person trips.
+const PED_LABEL = /pedestrian|micro-?mobility|person[- ]trips?|bikes?/i;
 // A source column that counted vehicles and pedestrians together (e.g. "Vehicles + Peds
 // (combined)"). It cannot be split, so it is counted in All vehicles and flagged on the report.
 const COMBINED_WITH_PEDS = /\+\s*peds?\b/i;
