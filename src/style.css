@@ -1383,6 +1383,11 @@ body.workspace-mode .analyze-period-bar{top:0}
   #tg-print-root .tgs-charts{display:grid;grid-template-columns:repeat(var(--tgp-chartcols,2),1fr);gap:6px}
   #tg-print-root .tgs-charts .card{break-inside:avoid;margin:0!important;min-width:0}
   #tg-print-root .tgs-table small{font-size:7px;white-space:nowrap}
+  #tg-print-root .tgp-halves{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
+  #tg-print-root .tgp-tight{width:100%;font-size:7px;line-height:1}
+  #tg-print-root .tgp-tight th,#tg-print-root .tgp-tight td{padding:0 4px;text-align:right;height:11.5px}
+  #tg-print-root .tgp-tight .tgs-rowhead{text-align:left;white-space:nowrap}
+  #tg-print-root .pc-svg{max-width:100%;height:auto}
 }
 /* Title page: one frame around everything on page 1, filling the Letter page (0.5in margins) */
 .tgp-cover{border:1.5px solid #111;border-radius:6px;padding:22px 26px;min-height:var(--tgp-pageh,9.9in);box-sizing:border-box;display:flex;flex-direction:column;gap:14px}

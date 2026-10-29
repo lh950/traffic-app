@@ -16,6 +16,7 @@
 import * as data from './dataAdapter.js';
 import { dateLabelWithWeekday } from './dateUtils.js';
 import { renderGroupedBarChart } from './charts.js';
+import { hourlyProfileChart, directionalChart } from './printCharts.js';
 
 function fmt(n) { return Number(n).toLocaleString(); }
 function esc(s) {
@@ -318,6 +319,30 @@ function intervalAppendixHtml(group, cols, cells, open = false, range = null) {
     </details>`;
 }
 
+// One-page print version: Total trips only, per survey day (plus the weekday average), with the
+// day split into two tables side by side so 96 intervals fit a single Letter page.
+function intervalCompactHtml(cols, cells, times, endOf) {
+  const used = cols.map((c, i) => ({ c, i })).filter(({ i }) => cells[i]);
+  const lookup = used.map(({ i }) => new Map(cells[i].intervals.map((iv) => [iv.start, iv])));
+  const weekdayIdx = used.map(({ c }, k) => (c.kind === 'weekday' ? k : -1)).filter((k) => k >= 0);
+  const showAvg = weekdayIdx.length >= 2;
+  const heads = used.map(({ c }) => `<th class="tgs-sub">${esc(c.label)}</th>`).join('') + (showAvg ? '<th class="tgs-sub">Avg weekday</th>' : '');
+  const half = Math.ceil(times.length / 2);
+  const table = (slice) => `<table class="tgs-table tgs-compact tgp-tight">
+      <thead><tr><th class="tgs-rowhead">Time</th>${heads}</tr></thead>
+      <tbody>${slice.map((t) => {
+        const vals = lookup.map((m) => m.get(t));
+        const tds = vals.map((iv) => `<td>${iv ? fmt(iv.inbound[0] + iv.outbound[0]) : NA}</td>`).join('');
+        let avg = '';
+        if (showAvg) {
+          const have = weekdayIdx.map((k) => vals[k]).filter(Boolean);
+          avg = `<td>${have.length ? (have.reduce((s, iv) => s + iv.inbound[0] + iv.outbound[0], 0) / have.length).toFixed(1) : NA}</td>`;
+        }
+        return `<tr><th class="tgs-rowhead tgs-time">${t}–${endOf[t] || ''}</th>${tds}${avg}</tr>`;
+      }).join('')}</tbody></table>`;
+  return `<div class="tgp-halves">${table(times.slice(0, half))}${table(times.slice(half))}</div>`;
+}
+
 // <details> content is not printed unless it is open — open everything marked data-print-open
 // just for the print, then put each one back the way the viewer had it.
 let printHookInstalled = false;
@@ -579,11 +604,36 @@ export function printGroupPages(model, gi, L) {
   const cells = model.cellsByGroup[gi];
   const band = (cont) => `<div class="tgs-cat-title">${esc(g.name)}${cont ? ' <span class="tgp-cont">— continued</span>' : ''}</div>`;
   const pages = [];
-  const cards = !L.charts ? [] : model.cols.map((c, i) => (!cells[i] ? '' : `
+  const dayName = (c) => `${c.label}${c.sub ? ` (${c.sub})` : ''}`;
+  const hourly = (cell) => {
+    const inb = Array(24).fill(0), out = Array(24).fill(0);
+    cell.intervals.forEach((iv) => {
+      const h = Math.min(23, Math.floor(toMin(iv.start) / 60));
+      inb[h] += iv.inbound[0]; out[h] += iv.outbound[0];
+    });
+    return { inb, out, total: inb.map((v, h) => v + out[h]) };
+  };
+  const live = model.cols.map((c, i) => ({ c, i })).filter(({ i }) => cells[i]);
+  const bandKind = live.some(({ c }) => c.kind === 'weekday') ? 'weekday' : 'weekend';
+  const bands = peakWindowsFor(bandKind)
+    .filter((w) => w.manualStartMin == null ? w.searchEndMin > w.searchStartMin : true)
+    .map((w) => (w.manualStartMin != null
+      ? { label: shortWindowLabel(w), from: w.manualStartMin / 60, to: (w.manualStartMin + 60) / 60 }
+      : { label: shortWindowLabel(w), from: w.searchStartMin / 60, to: w.searchEndMin / 60 }));
+  const profile = !L.charts || !live.length ? '' : `
+      <div class="tgp-sub">Trips by hour of day (shaded: ${bandKind} peak periods) and entering / exiting by survey day</div>
+      <div style="padding:2px 12px 6px">${hourlyProfileChart({
+        series: live.map(({ c, i }) => ({ label: dayName(c), values: hourly(cells[i]).total })),
+        bands, width: L.landscape ? 960 : 720, height: L.landscape ? 215 : 250,
+      })}</div>`;
+  const cards = !L.charts ? [] : live.map(({ c, i }) => {
+    const h = hourly(cells[i]);
+    return `
       <div class="card">
-        <h3>${esc(g.name)} — ${esc(c.label)}${c.sub ? ` (${esc(c.sub)})` : ''}</h3>
-        ${renderGroupedBarChart({ labels: cells[i].intervals.map((iv) => iv.start), seriesA: cells[i].intervals.map((iv) => iv.inbound[0]), seriesB: cells[i].intervals.map((iv) => iv.outbound[0]), labelA: 'In', labelB: 'Out' })}
-      </div>`)).filter(Boolean);
+        <h3>${esc(dayName(c))}</h3>
+        ${directionalChart({ inb: h.inb, out: h.out, height: L.landscape ? 170 : 150 })}
+      </div>`;
+  });
   const firstN = L.chartsFirstRows * L.chartCols;
   const contN = L.chartsContRows * L.chartCols;
   pages.push(`
@@ -591,13 +641,18 @@ export function printGroupPages(model, gi, L) {
       ${band(false)}
       <div class="stat-detail" style="padding:10px 16px 0">Classifications in this report: ${g.labels.length ? g.labels.map((l) => `<span class="tgs-chip">${esc(l)}</span>`).join(' ') : '<em>none selected</em>'}</div>
       ${groupTablesHtml(model, gi)}
-      <div class="tgs-charts" style="padding:8px 12px 12px">${cards.slice(0, firstN).join('')}</div>
+      ${profile}
+      <div class="tgs-charts" style="padding:4px 12px 12px">${cards.slice(0, firstN).join('')}</div>
     </div></div>`);
   for (let k = firstN; k < cards.length; k += contN) {
-    pages.push(`<div class="tgs"><div class="tgs-cat">${band(true)}<div class="tgp-sub">In / out charts by survey day</div><div class="tgs-charts" style="padding:8px 12px 12px">${cards.slice(k, k + contN).join('')}</div></div></div>`);
+    pages.push(`<div class="tgs"><div class="tgs-cat">${band(true)}<div class="tgp-sub">Entering / exiting by hour, by survey day</div><div class="tgs-charts" style="padding:8px 12px 12px">${cards.slice(k, k + contN).join('')}</div></div></div>`);
   }
   if (L.intervals) {
     const { times, endOf } = intervalTimesOf(model.cols, cells);
+    if (times.length <= 96) {
+      pages.push(`<div class="tgs"><div class="tgs-cat">${band(true)}<div class="tgp-sub">Total trips (in + out) by 15-minute interval</div><div style="padding:6px 12px 12px">${intervalCompactHtml(model.cols, cells, times, endOf)}</div></div></div>`);
+      return pages;
+    }
     const blocks = Math.max(1, Math.ceil(times.length / L.intervalRows));
     for (let b = 0; b < blocks; b++) {
       const from = b * L.intervalRows;

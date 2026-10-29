@@ -1465,7 +1465,7 @@ document.getElementById('btn-share-viewer-print')?.addEventListener('click', () 
 // Printing used to print the whole interactive Analysis screen (every tab, forms and all). Trip
 // Gen now prints a dedicated report built into #tg-print-root: header, summary, then one page
 // per chosen report group. The user picks the sections and the page orientation first.
-const tgPrintPrefs = { cover: true, summary: true, groupIds: null, charts: true, intervals: true, orientation: 'portrait' };
+const tgPrintPrefs = { cover: true, summary: true, groupIds: null, charts: true, intervals: false, orientation: 'portrait' };
 function tgReportCtx() {
   return { siteInfo: tripgenSiteInfo, projectInfo, categoryMap: tripgenCategoryMap, peakWindows: tripgenPeakWindows, reportGroups: tripgenReportGroups };
 }
@@ -1481,8 +1481,8 @@ function openTgPrintModal() {
     ${box('data-tgp-summary', tgPrintPrefs.summary, "Summary — site information and every group's trip rates and peak hours")}
     ${groups.map((g) => box(`data-tgp-group="${g.id}"`, sel.includes(g.id), `${escapeHtmlMain(g.name)} — its own page`)).join('')}
     <h3 style="margin-top:12px">on each group page</h3>
-    ${box('data-tgp-charts', tgPrintPrefs.charts, 'In / out charts for each survey day')}
-    ${box('data-tgp-intervals', tgPrintPrefs.intervals, '15-minute volume table')}
+    ${box('data-tgp-charts', tgPrintPrefs.charts, 'Charts — hourly trips with peak periods, and entering / exiting by survey day')}
+    ${box('data-tgp-intervals', tgPrintPrefs.intervals, '15-minute volume table (one added page per group)')}
     <h3 style="margin-top:12px">page</h3>
     <div class="stat-detail" style="margin-bottom:6px">In the browser's print window, turn off <strong>Headers and footers</strong> — the report adds its own footer with the project name and page numbers.</div>
     <div style="display:flex;gap:16px;font-size:13px;flex-wrap:wrap">

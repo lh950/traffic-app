@@ -1,5 +1,11 @@
 # Changelog
 
+## v3 · v1.2.22 — 2026-10-29
+
+### Changed
+- Trip Gen print: the 15-minute volume table is now **off by default** (checkbox in the print dialog). When included it fits ONE page per group: total trips per survey day (plus the weekday average), split into 00:00–11:45 and 12:00–23:45 side by side.
+- Print charts redesigned (print-safe colors, different line styles so they read in black and white, light gridlines): one **hourly trips chart** per group with a line per survey day, shaded peak periods and the daily peak labelled, plus a small **entering / exiting by hour** chart for each survey day. These replace the twelve near-identical 15-minute bar charts. Landscape puts the entering / exiting charts on the continuation page.
+
 ## v3 · v1.2.21 — 2026-10-27
 
 ### Changed

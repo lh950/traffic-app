@@ -2059,10 +2059,10 @@ export async function buildTripGenPrintHtml(entries, ctx, opts) {
   }
   // Page capacities for US Letter with 0.5in margins (usable 7.5 x 10 in portrait, 10 x 7.5 landscape).
   const portrait = opts.orientation !== 'landscape';
-  const chartCols = portrait ? 2 : Math.min(Math.max(model.cols.length, 1), 4);
+  const chartCols = Math.min(Math.max(model.cols.length, 1), portrait ? 3 : 4);
   const L = {
-    charts: opts.charts, intervals: opts.intervals, chartCols,
-    chartsFirstRows: portrait ? 2 : 1, chartsContRows: portrait ? 5 : 3,
+    charts: opts.charts, intervals: opts.intervals, chartCols, landscape: !portrait,
+    chartsFirstRows: portrait ? 1 : 0, chartsContRows: portrait ? 5 : 3,
     intervalRows: portrait ? 48 : 32, summaryGroups: portrait ? 14 : 8,
     // the title page carries the ZOLA map when there is one, which leaves room for fewer rows
     coverRows: ctx.siteInfo.zolaScreenshotUrl ? (portrait ? 8 : 5) : (portrait ? 16 : 10), coverContRows: portrait ? 30 : 20,

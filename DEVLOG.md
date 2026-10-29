@@ -4,6 +4,12 @@ Key decisions, scope constraints, and architectural choices.
 
 ---
 
+## 2026-10-29 — v3 · v1.2.22 (print: graphs redesign, one-page interval table)
+
+User: full 15-minute tables should be opt-in and fit a page; start on design/aesthetics, especially which graphs to include. Chose two chart types instead of one per survey day: an hourly profile (all survey days overlaid, peak periods shaded) answers "when is it busy and how do days compare"; a diverging entering/exiting chart answers "is it arrivals or departures". Charts live in `src/analysis/ui/printCharts.js` as hand-built SVG with fixed print colors (never theme tokens) — dash patterns keep series distinct in grayscale. Interval table: Totals only (in/out detail dropped for print), two halves side by side, so 96 rows fit one page; more than 96 intervals falls back to the old multi-page blocks. Landscape cannot fit tables + both chart types on one page, so its entering/exiting charts continue on page 2 (`chartsFirstRows` 0). Not done: regression question (one site = n of 1, see chat); screen-view charts still use the old 15-minute bars.
+
+---
+
 ## 2026-10-27 — v3 · v1.2.21 (print: title page, summary on page 2, continued pages)
 
 User: summary moves to page 2; page 1 becomes a detailed title page with one border around everything on it and no "peak periods used"; each module fits one page, and a module that overflows splits logically with a continued header. Pagination is deterministic row/card chunking per Letter page capacity (portrait 7.5x10in, landscape 10x7.5in) instead of measuring the DOM — print CSS (smaller fonts) differs from screen CSS, so on-screen measurement would be wrong. Capacities were tuned against rendered PDFs: portrait 48 interval rows per page (12h blocks) / landscape 32 (8h blocks); summary 14 / 8 groups per page; title page 16 / 10 counts rows (8 / 5 when the ZOLA map is shown); continuation title pages 30 / 20. The title-page frame is sized to the page (`--tgp-pageh`). A group with many survey days continues its charts on extra "continued" pages. Caveat: capacities assume typical row heights — a very long location name that wraps would shorten what fits; revisit if a real report overflows.
