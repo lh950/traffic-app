@@ -4,6 +4,7 @@ import { weekdayShort, dateLabelWithWeekday } from './dateUtils.js';
 import { intervalBar, pctOfPeakCell } from './intervalDetail.js';
 import { runVehicleQA, renderQASection } from '../../qa.js';
 import { SL_DAY_PART, slZoneAverageForDayType } from '../../parseStreetlightZoneCsv.js';
+import { iteComparisonHtml, wireIte } from './iteComparison.js';
 import { buildReportModel, summaryTabHtml, groupTabHtml, builderTabHtml, wireBuilder, resolveReportGroups, isPedLabel, isAllVehiclesGroup, coverPageHtml, coverRows, coverContinuationHtml, printGroupPages, printSummaryPages } from './tripgenSummary.js';
 
 // A day is included in analysis/QA-QC/reports by default — `includeInAnalysis === false` is
@@ -1798,6 +1799,7 @@ export async function renderTripGenSection(container, entries, ctx) {
       <div class="section-head"><h2>Trip generation summary</h2><span class="sub">all ${entries.length} location${entries.length > 1 ? 's' : ''} combined</span></div>
       ${renderPeakPeriodsPanel(ctx.peakWindows, viewerMode)}
       ${summaryTabHtml(reportModel, entries, ctx)}
+      ${iteComparisonHtml(reportModel, ctx, !viewerMode && !!ctx.onIteChange)}
     </div>
   `;
   const overviewPanelHTML = `
@@ -1881,6 +1883,7 @@ export async function renderTripGenSection(container, entries, ctx) {
   });
 
   if (!viewerMode && ctx.onReportGroupsChange) wireBuilder(container, reportModel, ctx.onReportGroupsChange);
+  if (!viewerMode && ctx.onIteChange) wireIte(container, ctx.ite, ctx.onIteChange);
 
   const siteWideEl = container.querySelector('[data-tg-sitewide]');
   if (siteWideEl) mountTgSiteWideComboChart(siteWideEl, { entries, categoryMap });
@@ -2093,6 +2096,8 @@ export async function buildTripGenPrintHtml(entries, ctx, opts) {
   if (opts.summary) {
     const sp = printSummaryPages(model, entries, ctx, L);
     sp[0] = `<div class="tgp-note"><strong>Peak periods used</strong> — weekday: ${peakLine(ctx.peakWindows, 'weekday')}; weekend: ${peakLine(ctx.peakWindows, 'weekend')}</div>${sp[0]}`;
+    const ite = iteComparisonHtml(model, ctx, false);
+    if (ite) sp[sp.length - 1] += `<div class="tgs">${ite}</div>`;
     pages.push(...sp);
   }
   model.groups.map((g, gi) => ({ g, gi })).sort((a, b) => Number(isAllVehiclesGroup(b.g)) - Number(isAllVehiclesGroup(a.g))).forEach(({ g, gi }) => {

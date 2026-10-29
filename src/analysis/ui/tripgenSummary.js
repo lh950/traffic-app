@@ -63,15 +63,15 @@ function buildColumns(entries) {
   weekdays.sort(byDate); saturdays.sort(byDate); sundays.sort(byDate);
 
   const cols = [];
-  const add = (list, base, min, kind) => {
-    const n = Math.max(min, list.length);
-    for (let i = 0; i < n; i++) {
-      cols.push({ kind, label: n > 1 || min > 1 ? `${base} ${i + 1}` : base, survey: list[i] || null, sub: list[i]?.date ? dateLabelWithWeekday(list[i].date) : '' });
-    }
+  // Only days that were counted get a column — a second weekday or a Sunday shows up when one is counted.
+  const add = (list, base, numbered, kind) => {
+    list.forEach((survey, i) => {
+      cols.push({ kind, label: numbered || list.length > 1 ? `${base} ${i + 1}` : base, survey, sub: survey.date ? dateLabelWithWeekday(survey.date) : '' });
+    });
   };
-  add(weekdays, 'Weekday', 2, 'weekday');
-  add(saturdays, 'Saturday', 1, 'weekend');
-  add(sundays, 'Sunday', 1, 'weekend');
+  add(weekdays, 'Weekday', true, 'weekday');
+  add(saturdays, 'Saturday', false, 'weekend');
+  add(sundays, 'Sunday', false, 'weekend');
   return { cols, surveys: [...byKey.values()].sort(byDate) };
 }
 

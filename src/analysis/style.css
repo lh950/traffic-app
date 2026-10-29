@@ -297,3 +297,4 @@ tfoot td:first-child{text-align:left;color:var(--text2)}
 .tgs-cat.tgs-hl .tgs-cat-title{background:var(--accent,#2e5fa8);color:#fff;font-weight:700}
 .tgs-table tr.tgs-hl>th,.tgs-table tr.tgs-hl>td{background:rgba(46,95,168,.12);font-weight:700}
 @media print{#tg-print-root .tgs-table tr.tgs-hl>th,#tg-print-root .tgs-table tr.tgs-hl>td{background:#dbe6f5!important}}
+.tgs-cat.ite-card{margin-top:14px}

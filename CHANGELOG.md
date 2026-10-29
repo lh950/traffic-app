@@ -1,5 +1,13 @@
 # Changelog
 
+## v3 · v1.2.25 — 2026-10-29
+
+### Added
+- **ITE comparison** on the Summary tab (and on the printed Summary page once values are entered). Type in what the ITE handbook gives for your land use — average rate, range, standard deviation, and optionally the fitted equation (T = a·X + b, or ln T = a·ln X + b) — for weekday daily, weekday AM and PM peak hour, and Saturday and Sunday daily and peak hour. The table shows the counted All-vehicles rate, the ITE expected rate at your facility size, the percent difference, and whether the count is within the ITE range. The app contains no ITE data; values are typed in and saved with the project.
+
+### Changed
+- Summary tables, group tabs and charts show only the survey days that were counted. Weekday 2 and Sunday no longer appear as empty columns; they appear when those days are counted.
+
 ## v3 · v1.2.24 — 2026-10-29
 
 ### Added

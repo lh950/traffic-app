@@ -1467,7 +1467,7 @@ document.getElementById('btn-share-viewer-print')?.addEventListener('click', () 
 // per chosen report group. The user picks the sections and the page orientation first.
 const tgPrintPrefs = { cover: true, summary: true, groupIds: null, charts: true, intervals: false, orientation: 'portrait' };
 function tgReportCtx() {
-  return { siteInfo: tripgenSiteInfo, projectInfo, categoryMap: tripgenCategoryMap, peakWindows: tripgenPeakWindows, reportGroups: tripgenReportGroups };
+  return { siteInfo: tripgenSiteInfo, projectInfo, categoryMap: tripgenCategoryMap, peakWindows: tripgenPeakWindows, reportGroups: tripgenReportGroups, ite: tripgenIte };
 }
 function closeTgPrintModal() { document.getElementById('tg-print-modal')?.classList.remove('open'); }
 window.closeTgPrintModal = closeTgPrintModal;
@@ -2551,6 +2551,7 @@ document.getElementById('btn-new-tripgen')?.addEventListener('click', () => {
   tripgenDistNextId = 1;
   tripgenCustomWindows = [];
   tripgenReportGroups = [];
+  tripgenIte = { edition: '', rows: {} };
   tripgenCustomWindowNextId = 1;
   for (const k in tripgenQaqcWindows) delete tripgenQaqcWindows[k];
   tripgenQaqcWindowNextId = 1;
@@ -5634,6 +5635,7 @@ function loadProject(proj, opts = {}) {
     tripgenDistNextId = tripgenDistribution.reduce((mx, ix) => Math.max(mx, ix.id + 1), 1);
     tripgenCustomWindows = JSON.parse(JSON.stringify(proj.customWindows || []));
     tripgenReportGroups = JSON.parse(JSON.stringify(proj.reportGroups || []));
+    tripgenIte = JSON.parse(JSON.stringify(proj.iteComparison || { edition: '', rows: {} }));
     tripgenCustomWindowNextId = tripgenCustomWindows.reduce((mx, w) => Math.max(mx, w.id + 1), 1);
     for (const k in tripgenQaqcWindows) delete tripgenQaqcWindows[k];
     if (proj.qaqcWindows) {
@@ -5959,7 +5961,7 @@ async function renderViewerContent(proj) {
     // wrapViewerDetail() in tripgenSection.js).
     await renderTripGenSection(content, tripgenEntries, {
       siteInfo: tripgenSiteInfo, categoryMap: tripgenCategoryMap, peakWindows: tripgenPeakWindows,
-      qaqc: tripgenQaqc, qaqcWindows: tripgenQaqcWindows, dataView: tripgenDataView, customWindows: tripgenCustomWindows, reportGroups: tripgenReportGroups,
+      qaqc: tripgenQaqc, qaqcWindows: tripgenQaqcWindows, dataView: tripgenDataView, customWindows: tripgenCustomWindows, reportGroups: tripgenReportGroups, ite: tripgenIte,
       onSiteInfoChange: () => {}, onPeakWindowChange: () => {},
       onPeakManualToggle: () => {}, onDataViewChange: () => {},
       // The fixed-window picker is a pure client-side, non-persisted local computation (never
@@ -6090,6 +6092,7 @@ function serializeCurrentProject() {
       peakWindows: JSON.parse(JSON.stringify(tripgenPeakWindows)),
       customWindows: JSON.parse(JSON.stringify(tripgenCustomWindows)),
       reportGroups: JSON.parse(JSON.stringify(tripgenReportGroups)),
+      iteComparison: JSON.parse(JSON.stringify(tripgenIte)),
       qaqc: { ...tripgenQaqc },
       qaqcMergedSubmissionIds: [...tripgenMergedQaSubmissionIds],
       qaqcWindows: JSON.parse(JSON.stringify(tripgenQaqcWindows)),
@@ -6830,6 +6833,8 @@ let tripgenCustomWindows = []; // [{id, label, startMin, endMin}]
 // Analysis tab. Empty = derive one group per classification-group name (categoryMap), so projects
 // that never opened the builder behave as before. A classification may sit in more than one group.
 let tripgenReportGroups = [];
+// ITE handbook values the user typed in for the comparison table: { edition, rows: { [periodKey]: {avg, low, high, sd, eq, a, b} } }
+let tripgenIte = { edition: '', rows: {} };
 let tripgenCustomWindowNextId = 1;
 let tripgenDistribution = []; // [{id, name, allocs: {[dayType__peakLabel]: {pctIn, pctOut}}}]
 let tripgenDistNextId = 1;
@@ -9154,6 +9159,12 @@ async function rerenderTripgenAnalysis() {
     onSiteInfoChange: (field, value) => { tripgenSiteInfo[field] = value; rerenderTripgenAnalysis(); },
     onReportGroupsChange: (groups) => {
       tripgenReportGroups = groups;
+      rerenderTripgenAnalysis();
+      window.scheduleAutosave?.();
+    },
+    ite: tripgenIte,
+    onIteChange: (next) => {
+      tripgenIte = next;
       rerenderTripgenAnalysis();
       window.scheduleAutosave?.();
     },

@@ -4,6 +4,12 @@ Key decisions, scope constraints, and architectural choices.
 
 ---
 
+## 2026-10-29 — v3 · v1.2.25 (ITE comparison, only counted days)
+
+User: add an option to include what the ITE handbook says for weekday and weekend, for comparison; and only show days that were counted. Scope check (CLAUDE.md): this compares counted data to the handbook's published rates — data interchange serving goal 2, not a new analysis engine, and no ITE data is embedded (the handbook is licensed). So it is a typed-in comparison table, nothing more: no regression, no fitting. Observed side = All vehicles group (daily; busiest hour in the AM / PM / weekend peak periods). Caveat printed on the table: ITE peak hours are adjacent-street or generator peaks; the counted peak is the busiest hour in this project's own peak periods. State: `iteComparison` in the project file (`{edition, rows}`), reset-before-restore like the other Trip Gen state, in print ctx and viewer ctx. `buildColumns` no longer pads to 2 weekdays + Saturday + Sunday.
+
+---
+
 ## 2026-10-29 — v3 · v1.2.24 (All vehicles on the Analysis page)
 
 User: the All vehicles count is missing from the analysis page. Added `allVehiclesTotal(types, totals)` in tripgenSection.js (every classification except those `isPedLabel` flags) and used it in the Overview totals table, the per-day classification table, and a highlighted rate card per day; the All vehicles tab sorts first. `PED_LABEL` now also flags "person trips" and bikes, because the Amazon workbook counts pickup/drop-off both as vehicle trips and as person trips, and adding both double-counted (765 vs 745 weekday). Probed the live Analysis screen in headless Chrome: Overview and Locations tabs show the new rows.
