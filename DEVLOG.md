@@ -4,6 +4,12 @@ Key decisions, scope constraints, and architectural choices.
 
 ---
 
+## 2026-10-29 — v3 · v1.2.26 (ITE comparison reframed)
+
+User: the ITE comparison shows how different the site is, it is not a data-validity check. Removed the within-range / outside-1-std-dev verdict and the std dev input; kept the ITE range as reference only. A site can differ from the handbook for real reasons (this warehouse is far busier per SF than the ITE average), so the table states the difference and nothing about correctness.
+
+---
+
 ## 2026-10-29 — v3 · v1.2.25 (ITE comparison, only counted days)
 
 User: add an option to include what the ITE handbook says for weekday and weekend, for comparison; and only show days that were counted. Scope check (CLAUDE.md): this compares counted data to the handbook's published rates — data interchange serving goal 2, not a new analysis engine, and no ITE data is embedded (the handbook is licensed). So it is a typed-in comparison table, nothing more: no regression, no fitting. Observed side = All vehicles group (daily; busiest hour in the AM / PM / weekend peak periods). Caveat printed on the table: ITE peak hours are adjacent-street or generator peaks; the counted peak is the busiest hour in this project's own peak periods. State: `iteComparison` in the project file (`{edition, rows}`), reset-before-restore like the other Trip Gen state, in print ctx and viewer ctx. `buildColumns` no longer pads to 2 weekdays + Saturday + Sunday.

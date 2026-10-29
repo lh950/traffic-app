@@ -1,5 +1,10 @@
 # Changelog
 
+## v3 · v1.2.26 — 2026-10-29
+
+### Changed
+- The ITE comparison now shows how different the site is from ITE, not whether the count is right. The "Check" column (within / outside range) and the standard-deviation input are gone. The table shows counted rate, ITE average rate and range, ITE expected rate, and the difference as a rate and as a percent.
+
 ## v3 · v1.2.25 — 2026-10-29
 
 ### Added

@@ -1,6 +1,7 @@
 // ITE comparison — the user types in what the ITE Trip Generation handbook gives for their land
-// use (average rate, range, standard deviation, and the fitted equation if they want it), and the
-// report shows how the counted All-vehicles trips compare. The app holds NO ITE data: the handbook
+// use (average rate, range, and the fitted equation if they want it), and the report shows how
+// different the counted All-vehicles trips are. It is a statement of difference, NOT a check that
+// the count is right or wrong: a site can differ from the handbook for good reasons. The app holds NO ITE data: the handbook
 // is licensed, so every number here is typed by the user and saved in their project.
 //
 // Observed side: the All vehicles group (no pedestrians) from the report model — daily trips and the
@@ -23,7 +24,7 @@ export const ITE_PERIODS = [
   { key: 'sunDaily', label: 'Sunday, daily', day: 'Sunday', which: 'daily' },
   { key: 'sunPeak', label: 'Sunday, peak hour', day: 'Sunday', which: 'best' },
 ];
-const FIELDS = ['avg', 'low', 'high', 'sd', 'eq', 'a', 'b'];
+const FIELDS = ['avg', 'low', 'high', 'eq', 'a', 'b'];
 const num = (v) => { const n = Number(String(v ?? '').replace(/,/g, '')); return String(v ?? '').trim() !== '' && Number.isFinite(n) ? n : null; };
 
 export function emptyIte() { return { edition: '', rows: {} }; }
@@ -83,16 +84,16 @@ export function iteComparisonHtml(model, ctx, editable) {
     const obs = observed(model, allIdx, p);
     const exp = expected(r, x);
     const expRate = exp != null && x ? exp / x : null;
-    const low = num(r.low), high = num(r.high), sd = num(r.sd), avg = num(r.avg);
-    let diff = '—', range = '—';
+    const low = num(r.low), high = num(r.high), avg = num(r.avg);
+    let diff = '—', diffRate = '—';
     if (obs && obs.rate != null && expRate) {
       const d = (obs.rate - expRate) / expRate;
       diff = `${d > 0 ? '+' : ''}${(Math.round(d * 1000) / 10).toFixed(1)}%`;
+      const dr = obs.rate - expRate;
+      diffRate = `${dr > 0 ? '+' : ''}${dr.toFixed(2)}`;
     }
-    if (obs && obs.rate != null && low != null && high != null) range = obs.rate < low ? 'below range' : obs.rate > high ? 'above range' : 'within range';
-    else if (obs && obs.rate != null && sd != null && avg != null) range = Math.abs(obs.rate - avg) <= sd ? 'within 1 std dev' : 'outside 1 std dev';
     const inputs = editable ? `
-      <td>${inputCell(p.key, 'avg', r)}</td><td>${inputCell(p.key, 'low', r)}</td><td>${inputCell(p.key, 'high', r)}</td><td>${inputCell(p.key, 'sd', r)}</td>
+      <td>${inputCell(p.key, 'avg', r)}</td><td>${inputCell(p.key, 'low', r)}</td><td>${inputCell(p.key, 'high', r)}</td>
       <td><select class="ite-in" data-ite-key="${p.key}" data-ite-field="eq" style="width:100px">
         <option value="none"${!r.eq || r.eq === 'none' ? ' selected' : ''}>none</option>
         <option value="linear"${r.eq === 'linear' ? ' selected' : ''}>T = a·X + b</option>
@@ -104,20 +105,20 @@ export function iteComparisonHtml(model, ctx, editable) {
       <td class="tgs-first">${obs && obs.rate != null ? obs.rate.toFixed(2) : '—'}${obs && obs.n > 1 ? `<br><small>avg of ${obs.n} days</small>` : ''}</td>
       ${inputs}
       <td>${expRate != null ? expRate.toFixed(2) : '—'}</td>
+      <td>${diffRate}</td>
       <td class="tgs-strong">${diff}</td>
-      <td>${range}</td>
     </tr>`;
   }).join('');
 
   const head = editable
-    ? '<th>Counted rate</th><th>ITE avg rate</th><th>Range low</th><th>Range high</th><th>Std dev</th><th>Equation</th><th>a</th><th>b</th><th>ITE expected rate</th><th>Counted vs ITE</th><th>Check</th>'
-    : '<th>Counted rate</th><th>ITE avg rate</th><th>ITE range</th><th>ITE expected rate</th><th>Counted vs ITE</th><th>Check</th>';
-  const note = `Rates are trips (in + out) per 1,000 SF of GSF. Counted = All vehicles, no pedestrians. ITE peak hours are the peak hour of the adjacent street or of the generator; the counted peak hour is the busiest hour inside this project's peak periods, so compare them with care. ${x ? '' : 'Enter the facility size to compute expected trips.'}`;
+    ? '<th>Counted rate</th><th>ITE avg rate</th><th>Range low</th><th>Range high</th><th>Equation</th><th>a</th><th>b</th><th>ITE expected rate</th><th>Difference (rate)</th><th>Difference (%)</th>'
+    : '<th>Counted rate</th><th>ITE avg rate</th><th>ITE range</th><th>ITE expected rate</th><th>Difference (rate)</th><th>Difference (%)</th>';
+  const note = `Rates are trips (in + out) per 1,000 SF of GSF. Counted = All vehicles, no pedestrians. Difference = counted minus ITE expected; it shows how this site differs from the handbook, not whether the count is right. ITE peak hours are the peak hour of the adjacent street or of the generator; the counted peak hour is the busiest hour inside this project's peak periods, so compare them with care. ${x ? '' : 'Enter the facility size to compute expected trips.'}`;
   return `
     <div class="tgs-cat ite-card">
       <div class="tgs-cat-title">ITE comparison${landUse ? ` — land use ${esc(landUse)}` : ''}</div>
       <div style="padding:10px 14px">
-        ${editable ? `<div class="stat-detail" style="margin-bottom:8px">Type in the values from the ITE Trip Generation handbook for your land use. The app does not include ITE data. Fill in the average rate, or the fitted equation (X = size in 1,000 SF), for each period you want to compare.
+        ${editable ? `<div class="stat-detail" style="margin-bottom:8px">Type in the values from the ITE Trip Generation handbook for your land use. The app does not include ITE data. Fill in the average rate, or the fitted equation (X = size in 1,000 SF), for each period. The table shows how different this site is from ITE.
           <label style="display:block;margin-top:6px">Handbook edition / land use name <input data-ite-edition value="${esc(ite.edition || '')}" style="width:260px" placeholder="e.g. 11th Edition, LU 150 Warehousing"></label></div>`
           : (ite.edition ? `<div class="stat-detail" style="margin-bottom:6px">Source: ${esc(ite.edition)}</div>` : '')}
         <div class="tgs-scroll"><table class="tgs-table tgs-compact ite-table"><thead><tr><th class="tgs-rowhead">Period</th>${head}</tr></thead><tbody>${rows}</tbody></table></div>
