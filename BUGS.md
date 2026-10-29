@@ -8,6 +8,14 @@ Severity levels:
 
 ---
 
+## BUG-059 (102920261310)
+**Status:** Fixed (v3 · v1.2.27)
+**Severity:** Minor
+**Found in:** `src/main.js` — `wireProjectInfoFields()` and `wireSiteInfoFields()` (Setup screen), `setSidebarMeta()` callers.
+**Symptom:** A name corrected on the Setup screen looked like it reverted: the sidebar kept the old name, and after a reload the old value came back.
+**Root cause:** The sidebar title was set only on project load. Setup edits never called `scheduleAutosave()`, so they reached localStorage only through the `beforeunload` handler. The Analysis site-info form changed state without refreshing the Setup inputs. The wiring functions also re-attached listeners on every load.
+**Fix:** Live sidebar update, autosave on edit, input refresh from state, wire-once guards.
+
 ## BUG-058 (102920261045)
 **Status:** Fixed (v3 · v1.2.23)
 **Severity:** Minor

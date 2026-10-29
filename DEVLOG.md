@@ -4,6 +4,12 @@ Key decisions, scope constraints, and architectural choices.
 
 ---
 
+## 2026-10-29 — v3 · v1.2.27 (Setup name edits "reset")
+
+User report: a name corrected on the Setup screen keeps reverting. Could not reproduce a literal field reset in headless Chrome (typed values stayed in the inputs). Found three causes that look like a revert: (1) the sidebar title was set only at project load, so it kept showing the old name; (2) Setup field edits did not schedule an autosave (only `beforeunload` saved them), so any reload path other than a clean unload restored the old value from localStorage; (3) the Analysis site-info form changed state without refreshing the Setup inputs. Fix: `refreshSidebarMeta()`, `scheduleAutosave` on edit, Setup inputs refreshed from state, and the wiring functions now attach their listeners once (they ran on every project load, so listeners piled up). If a field still reverts, it is a different field than these — need its name.
+
+---
+
 ## 2026-10-29 — v3 · v1.2.26 (ITE comparison reframed)
 
 User: the ITE comparison shows how different the site is, it is not a data-validity check. Removed the within-range / outside-1-std-dev verdict and the std dev input; kept the ITE range as reference only. A site can differ from the handbook for real reasons (this warehouse is far busier per SF than the ITE average), so the table states the difference and nothing about correctness.

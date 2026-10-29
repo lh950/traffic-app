@@ -1,5 +1,11 @@
 # Changelog
 
+## v3 · v1.2.27 — 2026-10-29
+
+### Fixed
+- Names edited on the Setup screen (project name, company, people, location, and the other project and site fields) now update the sidebar title right away and are saved within two seconds. Before, the sidebar kept showing the old name, and the edit was saved only when the page closed or another save happened.
+- An edit made on the Analysis page's site information form now also updates the Setup screen's field, so Setup no longer shows the older value.
+
 ## v3 · v1.2.26 — 2026-10-29
 
 ### Changed

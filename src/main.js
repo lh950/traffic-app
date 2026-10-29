@@ -759,6 +759,13 @@ function showHelp() {
   showScreen('help-screen');
 }
 
+// Keeps the sidebar title in step with edits made on the Setup screen (it used to be set only when a
+// project loaded, so a corrected name looked like it had reverted).
+function refreshSidebarMeta() {
+  if (projectType === 'tripgen') setSidebarMeta(projectInfo.projectName || 'Trip generation', tripgenSiteInfo.location || '');
+  else if (projectType === 'intersection') setSidebarMeta(projectInfo.projectName || 'Intersection count', '');
+}
+
 function setSidebarMeta(name, sub) {
   const nameEl = document.getElementById('sidebar-project-name');
   const subEl = document.getElementById('sidebar-project-sub');
@@ -6737,9 +6744,14 @@ function wireProjectInfoFields() {
   fields.forEach((field) => {
     document.querySelectorAll(`[data-pi="${field}"]`).forEach((el) => {
       el.value = projectInfo[field] || '';
+      // This function runs again on every project load; wire each input once, or the listeners pile up.
+      if (el.dataset.piWired) return;
+      el.dataset.piWired = '1';
       el.addEventListener('input', () => {
         projectInfo[field] = el.value;
         document.querySelectorAll(`[data-pi="${field}"]`).forEach((o) => { if (o !== el) o.value = el.value; });
+        refreshSidebarMeta();
+        window.scheduleAutosave?.();
       });
     });
   });
@@ -6881,7 +6893,13 @@ function wireSiteInfoFields() {
     const el = document.getElementById(id);
     if (!el) return;
     el.value = tripgenSiteInfo[field] || '';
-    el.addEventListener('change', () => { tripgenSiteInfo[field] = el.value; });
+    if (el.dataset.siteWired) return; // wired once; later calls only refresh the value
+    el.dataset.siteWired = '1';
+    el.addEventListener('change', () => {
+      tripgenSiteInfo[field] = el.value;
+      refreshSidebarMeta();
+      window.scheduleAutosave?.();
+    });
   });
   renderTgSiteZolaWrap();
 }
@@ -9156,7 +9174,7 @@ async function rerenderTripgenAnalysis() {
   await renderTripGenSection(document.getElementById('analyze-root'), tripgenEntries, {
     siteInfo: tripgenSiteInfo, categoryMap: tripgenCategoryMap, peakWindows: tripgenPeakWindows,
     qaqc: tripgenQaqc, qaqcWindows: tripgenQaqcWindows, dataView: tripgenDataView, customWindows: tripgenCustomWindows, reportGroups: tripgenReportGroups,
-    onSiteInfoChange: (field, value) => { tripgenSiteInfo[field] = value; rerenderTripgenAnalysis(); },
+    onSiteInfoChange: (field, value) => { tripgenSiteInfo[field] = value; wireSiteInfoFields(); refreshSidebarMeta(); rerenderTripgenAnalysis(); window.scheduleAutosave?.(); },
     onReportGroupsChange: (groups) => {
       tripgenReportGroups = groups;
       rerenderTripgenAnalysis();
