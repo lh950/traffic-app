@@ -95,6 +95,12 @@ const PED_LABEL = /pedestrian|micro-?mobility/i;
 // A source column that counted vehicles and pedestrians together (e.g. "Vehicles + Peds
 // (combined)"). It cannot be split, so it is counted in All vehicles and flagged on the report.
 const COMBINED_WITH_PEDS = /\+\s*peds?\b/i;
+// The headline group of the report: total vehicle trips. It leads the Summary and is highlighted.
+export const isAllVehiclesGroup = (g) => g.auto === ALL_VEHICLES || /^all vehicles(?![a-z])/i.test(g.name || '');
+function headlineFirst(model, idx) {
+  const head = idx.filter((gi) => isAllVehiclesGroup(model.groups[gi]));
+  return [...head, ...idx.filter((gi) => !head.includes(gi))];
+}
 export const isPedLabel = (l) => PED_LABEL.test(l);
 export const isCombinedWithPeds = (l) => COMBINED_WITH_PEDS.test(l);
 
@@ -391,12 +397,12 @@ const NOTE = "Every location counted on a survey day is combined. Trip rate = tr
 
 // Summary tab: site facts + every group's rate and peak-hour tables.
 export function summaryTabHtml(model, entries, ctx) {
-  const blocks = model.groups.map((g, gi) => `
-    <div class="tgs-cat">
+  const blocks = headlineFirst(model, model.groups.map((_, i) => i)).map((gi) => { const g = model.groups[gi]; return `
+    <div class="tgs-cat${isAllVehiclesGroup(g) ? ' tgs-hl' : ''}">
       <div class="tgs-cat-title">${esc(g.name)}</div>
       ${groupTablesHtml(model, gi)}
       <div style="height:10px"></div>
-    </div>`);
+    </div>`; });
   return `
     <div class="tgs">
       ${siteHeaderHtml(entries, model.surveys, ctx.siteInfo)}
@@ -475,7 +481,7 @@ export function coverPageHtml(model, entries, ctx, firstRows = null) {
 // page however many groups there are. Each group's full tables live on that group's own page.
 export function summaryPrintHtml(model, entries, ctx, groupIdx = null, continued = false) {
   const { cols, groups, cellsByGroup } = model;
-  const only = groupIdx || groups.map((_, i) => i);
+  const only = headlineFirst(model, groupIdx || groups.map((_, i) => i));
   const head1 = cols.map((c) => `<th colspan="${1 + peakWindowsForCount(c)}" class="tgs-grp">${esc(c.label)}${c.sub ? `<small>${esc(c.sub)}</small>` : ''}</th>`).join('');
   const head2 = cols.map((c) => `<th class="tgs-sub tgs-first">Daily</th>${peakWindowsFor(c.kind).map((w) => `<th class="tgs-sub">${esc(shortWindowLabel(w))}</th>`).join('')}`).join('');
   const rows = only.map((gi) => {
@@ -491,7 +497,8 @@ export function summaryPrintHtml(model, entries, ctx, groupIdx = null, continued
       if (!cell) return `<td class="tgs-first">${NA}</td>${peakWindowsFor(c.kind).map(() => `<td>${NA}</td>`).join('')}`;
       return `<td class="tgs-first">${fmt(cell.total)}</td>${cell.peaks.map((p) => `<td>${p.found ? fmt(p.volume) : NA}</td>`).join('')}`;
     }).join('');
-    return `<tr><th rowspan="2" class="tgs-rowhead tgs-sumname">${esc(g.name)}</th><th class="tgs-rowhead tgs-sumkind">Rate</th>${rate}</tr><tr class="tgs-vol"><th class="tgs-rowhead tgs-sumkind">Trips</th>${trips}</tr>`;
+    const hl = isAllVehiclesGroup(g) ? ' tgs-hl' : '';
+    return `<tr class="tgs-sumrow${hl}"><th rowspan="2" class="tgs-rowhead tgs-sumname">${esc(g.name)}</th><th class="tgs-rowhead tgs-sumkind">Rate</th>${rate}</tr><tr class="tgs-vol${hl}"><th class="tgs-rowhead tgs-sumkind">Trips</th>${trips}</tr>`;
   }).join('');
   return `
     <div class="tgs">
@@ -621,32 +628,28 @@ export function printGroupPages(model, gi, L) {
       ? { label: shortWindowLabel(w), from: w.manualStartMin / 60, to: (w.manualStartMin + 60) / 60 }
       : { label: shortWindowLabel(w), from: w.searchStartMin / 60, to: w.searchEndMin / 60 }));
   const profile = !L.charts || !live.length ? '' : `
-      <div class="tgp-sub">Trips by hour of day (shaded: ${bandKind} peak periods) and entering / exiting by survey day</div>
-      <div style="padding:2px 12px 6px">${hourlyProfileChart({
+      <div class="tgp-fill-h">
+        <div class="tgp-sub" style="padding:0">Trips by hour of day (shaded: ${bandKind} peak periods) and entering / exiting by survey day</div>
+        ${hourlyProfileChart({
         series: live.map(({ c, i }) => ({ label: dayName(c), values: hourly(cells[i]).total })),
-        bands, width: L.landscape ? 960 : 720, height: L.landscape ? 215 : 250,
-      })}</div>`;
+        bands, width: L.landscape ? 960 : 720, height: L.landscape ? 150 : 250,
+      })}
+      </div>`;
   const cards = !L.charts ? [] : live.map(({ c, i }) => {
     const h = hourly(cells[i]);
     return `
       <div class="card">
         <h3>${esc(dayName(c))}</h3>
-        ${directionalChart({ inb: h.inb, out: h.out, height: L.landscape ? 170 : 150 })}
+        ${directionalChart({ inb: h.inb, out: h.out, width: Math.round((L.landscape ? 960 : 720) / L.chartCols) - 20, height: L.landscape ? 95 : 150 })}
       </div>`;
   });
-  const firstN = L.chartsFirstRows * L.chartCols;
-  const contN = L.chartsContRows * L.chartCols;
   pages.push(`
-    <div class="tgs"><div class="tgs-cat">
+    <div class="tgs tgp-fit"><div class="tgs-cat">
       ${band(false)}
       <div class="stat-detail" style="padding:10px 16px 0">Classifications in this report: ${g.labels.length ? g.labels.map((l) => `<span class="tgs-chip">${esc(l)}</span>`).join(' ') : '<em>none selected</em>'}</div>
       ${groupTablesHtml(model, gi)}
-      ${profile}
-      <div class="tgs-charts" style="padding:4px 12px 12px">${cards.slice(0, firstN).join('')}</div>
+      ${L.charts ? `<div class="tgp-fill">${profile}<div class="tgp-fill-d">${cards.join('')}</div></div>` : ''}
     </div></div>`);
-  for (let k = firstN; k < cards.length; k += contN) {
-    pages.push(`<div class="tgs"><div class="tgs-cat">${band(true)}<div class="tgp-sub">Entering / exiting by hour, by survey day</div><div class="tgs-charts" style="padding:8px 12px 12px">${cards.slice(k, k + contN).join('')}</div></div></div>`);
-  }
   if (L.intervals) {
     const { times, endOf } = intervalTimesOf(model.cols, cells);
     if (times.length <= 96) {

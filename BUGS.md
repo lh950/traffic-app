@@ -8,6 +8,14 @@ Severity levels:
 
 ---
 
+## BUG-058 (102920261045)
+**Status:** Fixed (v3 · v1.2.23)
+**Severity:** Minor
+**Found in:** `src/analysis/ui/charts.js` — stacked, grouped, line and combo charts took their color from `index % 6`.
+**Symptom:** With more than six classifications, the 7th and later reused earlier colors, so the legend could not tell them apart.
+**Root cause:** Palette of 6 hues, no second visual channel.
+**Fix:** Each series gets a color plus a hatch (or dash for lines) from its `styleIndex`; 36 distinct looks. Callers pass the classification's position in the full list.
+
 ## BUG-056 (082820261115)
 **Status:** Fixed (v3 · v1.1.6)
 **Severity:** Minor (follow-up gap in BUG-055's own fix, same symptom)

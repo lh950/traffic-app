@@ -395,7 +395,7 @@ function mountTgClassComboChart(container, { parsed, categoryMap }) {
   function computeBarSeries() {
     if (mode === 'classification') {
       return types.filter((c) => visible.has(c)).map((c, ci) => ({
-        label: c, colorVar: SERIES_COLOR_VARS[types.indexOf(c) % SERIES_COLOR_VARS.length],
+        label: c, colorVar: SERIES_COLOR_VARS[types.indexOf(c) % SERIES_COLOR_VARS.length], styleIndex: types.indexOf(c),
         values: parsed.intervals.map((_, i) => sumAt(c, i)),
       }));
     }
@@ -404,7 +404,7 @@ function mountTgClassComboChart(container, { parsed, categoryMap }) {
     return groupOrder.map((g, gi) => {
       const members = types.filter((c) => (categoryMap[c] || c) === g && visible.has(c));
       return {
-        label: g, colorVar: SERIES_COLOR_VARS[gi % SERIES_COLOR_VARS.length],
+        label: g, colorVar: SERIES_COLOR_VARS[gi % SERIES_COLOR_VARS.length], styleIndex: gi,
         values: parsed.intervals.map((_, i) => members.reduce((s, c) => s + sumAt(c, i), 0)),
       };
     });
@@ -504,8 +504,8 @@ function renderTgLineChartSection(container, { parsed, dayType, peakWindows }) {
     types.forEach((label, ci) => {
       if (!selectedClasses.has(label)) return;
       const colorVar = SERIES_COLOR_VARS[ci % SERIES_COLOR_VARS.length];
-      series.push({ label: `${label} In`, colorVar, dashed: false, values: idxSet.map((i) => intervals[i].inbound[ci] || 0) });
-      series.push({ label: `${label} Out`, colorVar, dashed: true, values: idxSet.map((i) => intervals[i].outbound[ci] || 0) });
+      series.push({ label: `${label} In`, colorVar, styleIndex: ci, dashed: false, values: idxSet.map((i) => intervals[i].inbound[ci] || 0) });
+      series.push({ label: `${label} Out`, colorVar, styleIndex: ci, dashed: true, values: idxSet.map((i) => intervals[i].outbound[ci] || 0) });
     });
     chartRoot.innerHTML = renderLineChart({ labels, series });
   }
@@ -1631,7 +1631,7 @@ function mountTgSiteWideComboChart(container, { entries, categoryMap }) {
       let barSeries;
       if (mode === 'classification') {
         barSeries = activeClasses.map((c) => ({
-          label: c, colorVar: SERIES_COLOR_VARS[types.indexOf(c) % SERIES_COLOR_VARS.length],
+          label: c, colorVar: SERIES_COLOR_VARS[types.indexOf(c) % SERIES_COLOR_VARS.length], styleIndex: types.indexOf(c),
           values: times.map((t) => g.days.reduce((s, { day }) => s + sumAt(day, c, t), 0)),
         }));
       } else {
@@ -1640,14 +1640,14 @@ function mountTgSiteWideComboChart(container, { entries, categoryMap }) {
         barSeries = groupOrder.map((gname, gi) => {
           const members = types.filter((c) => (categoryMap[c] || c) === gname && visible.has(c));
           return {
-            label: gname, colorVar: SERIES_COLOR_VARS[gi % SERIES_COLOR_VARS.length],
+            label: gname, colorVar: SERIES_COLOR_VARS[gi % SERIES_COLOR_VARS.length], styleIndex: gi,
             values: times.map((t) => members.reduce((s, c) => s + g.days.reduce((s2, { day }) => s2 + sumAt(day, c, t), 0), 0)),
           };
         });
       }
       const lineSeries = g.days.map(({ entry, day }, di) => ({
         label: `${entry.locationLabel} (total)`,
-        colorVar: LINE_COLOR_VARS[di % LINE_COLOR_VARS.length],
+        colorVar: LINE_COLOR_VARS[di % LINE_COLOR_VARS.length], hatch: Math.floor(di / LINE_COLOR_VARS.length),
         dashed: di % 2 === 1,
         values: times.map((t) => activeClasses.reduce((s, c) => s + sumAt(day, c, t), 0)),
       }));
@@ -2062,7 +2062,6 @@ export async function buildTripGenPrintHtml(entries, ctx, opts) {
   const chartCols = Math.min(Math.max(model.cols.length, 1), portrait ? 3 : 4);
   const L = {
     charts: opts.charts, intervals: opts.intervals, chartCols, landscape: !portrait,
-    chartsFirstRows: portrait ? 1 : 0, chartsContRows: portrait ? 5 : 3,
     intervalRows: portrait ? 48 : 32, summaryGroups: portrait ? 14 : 8,
     // the title page carries the ZOLA map when there is one, which leaves room for fewer rows
     coverRows: ctx.siteInfo.zolaScreenshotUrl ? (portrait ? 8 : 5) : (portrait ? 16 : 10), coverContRows: portrait ? 30 : 20,

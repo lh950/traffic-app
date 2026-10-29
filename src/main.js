@@ -1841,7 +1841,7 @@ function mountIntersectionComboChart(container, { parsed }) {
 
   function computeBarSeries() {
     return types.filter((c) => visible.has(c)).map((c) => ({
-      label: c, colorVar: SERIES_COLOR_VARS[types.indexOf(c) % SERIES_COLOR_VARS.length],
+      label: c, colorVar: SERIES_COLOR_VARS[types.indexOf(c) % SERIES_COLOR_VARS.length], styleIndex: types.indexOf(c),
       values: parsed.intervals.map((_, i) => sumAt(c, i)),
     }));
   }

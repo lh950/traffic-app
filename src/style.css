@@ -1388,6 +1388,16 @@ body.workspace-mode .analyze-period-bar{top:0}
   #tg-print-root .tgp-tight th,#tg-print-root .tgp-tight td{padding:0 4px;text-align:right;height:11.5px}
   #tg-print-root .tgp-tight .tgs-rowhead{text-align:left;white-space:nowrap}
   #tg-print-root .pc-svg{max-width:100%;height:auto}
+  /* Group page: the page is one fixed-height box. Tables keep their natural height; the charts
+     share whatever is left and scale to fit it, so nothing spills onto a second page. */
+  #tg-print-root .tgp-fit{display:flex;flex-direction:column;height:var(--tgp-pageh,9.9in);box-sizing:border-box}
+  #tg-print-root .tgp-fit>.tgs-cat{flex:1;min-height:0;display:flex;flex-direction:column}
+  #tg-print-root .tgp-fill{flex:1;min-height:1.5in;display:flex;flex-direction:column;gap:6px;padding:6px 12px 10px}
+  #tg-print-root .tgp-fill-h{flex:3;min-height:0;display:flex;flex-direction:column}
+  #tg-print-root .tgp-fill-d{flex:2;min-height:0;display:grid;grid-template-columns:repeat(var(--tgp-chartcols,2),1fr);gap:6px}
+  #tg-print-root .tgp-fill-d .card{display:flex;flex-direction:column;min-height:0;min-width:0;padding:4px 8px;margin:0!important}
+  #tg-print-root .tgp-fill-d .card h3{flex:none;margin:0 0 2px}
+  #tg-print-root .tgp-fill-h .pc-svg,#tg-print-root .tgp-fill-d .pc-svg{flex:1;min-height:0;width:100%;height:100%;max-width:none}
 }
 /* Title page: one frame around everything on page 1, filling the Letter page (0.5in margins) */
 .tgp-cover{border:1.5px solid #111;border-radius:6px;padding:22px 26px;min-height:var(--tgp-pageh,9.9in);box-sizing:border-box;display:flex;flex-direction:column;gap:14px}

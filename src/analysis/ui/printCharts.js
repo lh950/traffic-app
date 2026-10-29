@@ -57,7 +57,7 @@ export function hourlyProfileChart({ series, bands = [], width = 520, height = 2
   out += `<text transform="translate(9 ${padT + ih / 2}) rotate(-90)" font-size="8.5" fill="${MUTED}" text-anchor="middle">${esc(yLabel)}</text>`;
   series.forEach((s, k) => {
     const color = SERIES_COLORS[k % SERIES_COLORS.length];
-    const dash = SERIES_DASH[k % SERIES_DASH.length];
+    const dash = SERIES_DASH[(k + Math.floor(k / SERIES_DASH.length)) % SERIES_DASH.length];
     const pts = s.values.map((v, h) => `${xc(h).toFixed(1)},${y(v).toFixed(1)}`);
     out += `<polyline points="${pts.join(' ')}" fill="none" stroke="${color}" stroke-width="1.9" stroke-linejoin="round" ${dash ? `stroke-dasharray="${dash}"` : ''}/>`;
     const peak = s.values.indexOf(Math.max(...s.values));
@@ -70,7 +70,7 @@ export function hourlyProfileChart({ series, bands = [], width = 520, height = 2
   const ly = height - 9;
   series.forEach((s, k) => {
     const color = SERIES_COLORS[k % SERIES_COLORS.length];
-    const dash = SERIES_DASH[k % SERIES_DASH.length];
+    const dash = SERIES_DASH[(k + Math.floor(k / SERIES_DASH.length)) % SERIES_DASH.length];
     out += `<line x1="${lx}" y1="${ly - 3}" x2="${lx + 16}" y2="${ly - 3}" stroke="${color}" stroke-width="2" ${dash ? `stroke-dasharray="${dash}"` : ''}/>`;
     out += `<text x="${lx + 20}" y="${ly}" font-size="8.5" fill="${INK}">${esc(s.label)}</text>`;
     lx += 20 + s.label.length * 5 + 16;

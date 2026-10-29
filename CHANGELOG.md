@@ -1,5 +1,17 @@
 # Changelog
 
+## v3 · v1.2.23 — 2026-10-29
+
+### Changed
+- **Print pages now fit.** Each group page is one fixed-size Letter page. The tables keep their size and the charts share the space left under them, scaling to fit, so charts no longer drop onto a nearly empty page of their own. Applies to portrait and landscape.
+- **All vehicles leads the Summary** (on screen and in print), in bold on a tinted band, because it is the headline number.
+
+### Fixed
+- Charts that show classifications now give every classification its own look. Past six, a classification keeps its color and gets a hatch (diagonal, back-diagonal, cross, dots, horizontal); line charts use different dash patterns. Before, the 7th classification reused the 1st one's color. A classification looks the same in every chart.
+
+### Data
+- Trip Gen projects built from workbooks now list only classifications that were actually counted.
+
 ## v3 · v1.2.22 — 2026-10-29
 
 ### Changed
